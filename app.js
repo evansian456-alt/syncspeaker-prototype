@@ -58,7 +58,7 @@ function connectWS() {
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
-      showHome();
+      showLanding();
     };
   });
 }
@@ -87,20 +87,27 @@ function handleServer(msg) {
     renderRoom();
     return;
   }
-  if (msg.t === "ENDED") { toast("Party ended (host left)"); showHome(); return; }
-  if (msg.t === "KICKED") { toast("Removed by host"); showHome(); return; }
+  if (msg.t === "ENDED") { toast("Party ended (host left)"); showLanding(); return; }
+  if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
   if (msg.t === "ERROR") { toast(msg.message || "Error"); return; }
 }
 
 function showHome() {
-  show("viewHome"); hide("viewParty");
+  hide("viewLanding"); show("viewHome"); hide("viewParty");
+  state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
+  state.snapshot = null; state.partyPro = false;
+  setPlanPill();
+}
+
+function showLanding() {
+  show("viewLanding"); hide("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
   setPlanPill();
 }
 
 function showParty() {
-  hide("viewHome"); show("viewParty");
+  hide("viewLanding"); hide("viewHome"); show("viewParty");
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
@@ -238,7 +245,18 @@ function attemptAddPhone() {
 
 (async function init(){
   await connectWS();
-  showHome();
+  showLanding();
+
+  // Landing page navigation
+  el("btnLandingStart").onclick = () => {
+    console.log("[UI] Landing: Start Party clicked");
+    showHome();
+  };
+
+  el("btnLandingJoin").onclick = () => {
+    console.log("[UI] Landing: Join Party clicked");
+    showHome();
+  };
 
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");

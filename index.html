@@ -19,7 +19,140 @@
   </header>
 
   <main class="wrap">
-    <section class="card" id="viewHome">
+    <!-- Landing Page -->
+    <section class="landing-page" id="viewLanding">
+      <div class="landing-hero">
+        <div class="dj-icon">
+          <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Headphones -->
+            <path d="M40 15 C25 15, 15 25, 15 40 L15 50 C15 52, 17 54, 19 54 L25 54 C27 54, 29 52, 29 50 L29 40 C29 38, 27 36, 25 36 L21 36 C21 28, 28 21, 40 21 C52 21, 59 28, 59 36 L55 36 C53 36, 51 38, 51 40 L51 50 C51 52, 53 54, 55 54 L61 54 C63 54, 65 52, 65 50 L65 40 C65 25, 55 15, 40 15 Z" fill="url(#headphoneGradient)" stroke="url(#neonStroke)" stroke-width="2"/>
+            <!-- Turntable -->
+            <circle cx="40" cy="55" r="15" fill="url(#turntableGradient)" stroke="url(#neonStroke)" stroke-width="2"/>
+            <circle cx="40" cy="55" r="3" fill="#5AA9FF"/>
+            <defs>
+              <linearGradient id="headphoneGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#5AA9FF;stop-opacity:0.6" />
+                <stop offset="100%" style="stop-color:#8B7CFF;stop-opacity:0.8" />
+              </linearGradient>
+              <linearGradient id="turntableGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#8B7CFF;stop-opacity:0.6" />
+                <stop offset="100%" style="stop-color:#5AA9FF;stop-opacity:0.8" />
+              </linearGradient>
+              <linearGradient id="neonStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#5AA9FF" />
+                <stop offset="100%" style="stop-color:#8B7CFF" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 class="landing-title">SyncSpeaker</h1>
+        <p class="landing-subtitle">Turn your phones into one massive speaker</p>
+        
+        <!-- Equalizer Bars -->
+        <div class="equalizer">
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+        </div>
+      </div>
+
+      <!-- What is SyncSpeaker -->
+      <div class="glass-card">
+        <h2>🎵 What is SyncSpeaker?</h2>
+        <p>Connect multiple phones together and play music in perfect sync. Create an epic sound experience for parties, gatherings, or just hanging out with friends!</p>
+      </div>
+
+      <!-- How it Works -->
+      <div class="glass-card">
+        <h2>⚡ How it Works</h2>
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h3>Start a Party</h3>
+              <p>One person becomes the host and gets a party code</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h3>Friends Join</h3>
+              <p>Share the code with friends to connect their phones</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h3>Play Together</h3>
+              <p>Music plays in sync across all connected devices</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Important Info -->
+      <div class="glass-card info-card">
+        <div class="info-row">
+          <span class="info-icon">📶</span>
+          <p><strong>Hotspot or Wi-Fi recommended</strong> for best connection quality</p>
+        </div>
+        <div class="info-row">
+          <span class="info-icon">🎧</span>
+          <p><strong>You provide the music:</strong> This app syncs playback. Music comes from your device (Spotify, YouTube, etc.)</p>
+        </div>
+      </div>
+
+      <!-- Pricing -->
+      <div class="glass-card pricing-card">
+        <h2>💎 Pricing</h2>
+        <div class="pricing-grid">
+          <div class="pricing-option">
+            <div class="pricing-badge free">Free</div>
+            <h3>Free Plan</h3>
+            <p class="pricing-desc">Perfect for small groups</p>
+            <ul class="pricing-features">
+              <li>✓ Up to 2 phones</li>
+              <li>✓ Basic features</li>
+              <li>• Includes ads</li>
+            </ul>
+          </div>
+          <div class="pricing-option featured">
+            <div class="pricing-badge pro">Pro</div>
+            <h3>Pro Yearly</h3>
+            <p class="pricing-price">£29.99/year</p>
+            <p class="pricing-desc">Best value for parties</p>
+            <ul class="pricing-features">
+              <li>✓ 3+ phones (up to 10)</li>
+              <li>✓ No ads</li>
+              <li>✓ Quality override warnings</li>
+              <li>✓ Speaker support</li>
+            </ul>
+          </div>
+        </div>
+        <div class="promo-hint">
+          <p>💫 Have a promo code? Unlock Pro features for one party!</p>
+        </div>
+      </div>
+
+      <!-- CTA Buttons -->
+      <div class="landing-cta">
+        <button class="btn-landing primary-landing" id="btnLandingStart">
+          🎉 Start Party
+        </button>
+        <button class="btn-landing secondary-landing" id="btnLandingJoin">
+          🎵 Join Party
+        </button>
+      </div>
+
+      <!-- Background Blobs -->
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+    </section>
+
+    <section class="card hidden" id="viewHome">
       <h1>Play music together</h1>
       <p class="muted">
         Prototype to test the idea + flow. Audio sync in browsers varies by device — focus on usability and “would you use this?”.
