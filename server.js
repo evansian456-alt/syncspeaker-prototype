@@ -96,14 +96,27 @@ function handleCreate(ws, msg) {
   const client = clients.get(ws);
   if (!client) return;
   
-  const code = generateCode();
+  // Remove from current party if already in one
+  if (client.party) {
+    handleDisconnect(ws);
+  }
+  
+  // Generate unique party code (check for collisions)
+  let code;
+  do {
+    code = generateCode();
+  } while (parties.has(code));
+  
+  // Validate and sanitize name
+  const name = (msg.name || "Host").trim().substring(0, 50);
+  
   const member = {
     ws,
     id: client.id,
-    name: msg.name || "Host",
+    name,
     isPro: !!msg.isPro,
     isHost: true,
-    source: msg.source || "local"
+    source: msg.source === "external" || msg.source === "mic" ? msg.source : "local"
   };
   
   parties.set(code, {
@@ -131,10 +144,24 @@ function handleJoin(ws, msg) {
     return;
   }
   
+  // Remove from current party if already in one
+  if (client.party) {
+    handleDisconnect(ws);
+  }
+  
+  // Check if already a member (prevent duplicates)
+  if (party.members.some(m => m.id === client.id)) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Already in this party" }));
+    return;
+  }
+  
+  // Validate and sanitize name
+  const name = (msg.name || "Guest").trim().substring(0, 50);
+  
   const member = {
     ws,
     id: client.id,
-    name: msg.name || "Guest",
+    name,
     isPro: !!msg.isPro,
     isHost: false
   };
@@ -153,12 +180,37 @@ function handleKick(ws, msg) {
   if (!client || !client.party) return;
   
   const party = parties.get(client.party);
-  if (!party || party.host !== ws) return; // Only host can kick
+  if (!party) return;
+  
+  // Only host can kick
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can kick members" }));
+    return;
+  }
+  
+  // Validate targetId
+  if (!msg.targetId || typeof msg.targetId !== 'number') {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Invalid target ID" }));
+    return;
+  }
   
   const targetMember = party.members.find(m => m.id === msg.targetId);
-  if (!targetMember || targetMember.isHost) return; // Can't kick host
   
-  targetMember.ws.send(JSON.stringify({ t: "KICKED" }));
+  if (!targetMember) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Member not found" }));
+    return;
+  }
+  
+  if (targetMember.isHost) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Cannot kick host" }));
+    return;
+  }
+  
+  // Check WebSocket state before sending
+  if (targetMember.ws.readyState === WebSocket.OPEN) {
+    targetMember.ws.send(JSON.stringify({ t: "KICKED" }));
+  }
+  
   party.members = party.members.filter(m => m.id !== msg.targetId);
   
   const targetClient = clients.get(targetMember.ws);
@@ -197,7 +249,7 @@ function handleDisconnect(ws) {
     // Host left, end the party
     console.log(`[Party] Host left, ending party ${client.party}`);
     party.members.forEach(m => {
-      if (m.ws !== ws) {
+      if (m.ws !== ws && m.ws.readyState === WebSocket.OPEN) {
         m.ws.send(JSON.stringify({ t: "ENDED" }));
       }
       const c = clients.get(m.ws);
@@ -210,6 +262,8 @@ function handleDisconnect(ws) {
     console.log(`[Party] Client ${client.id} left party ${client.party}`);
     broadcastRoomState(client.party);
   }
+  
+  client.party = null;
 }
 
 function broadcastRoomState(code) {
