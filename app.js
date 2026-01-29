@@ -11,7 +11,9 @@ const state = {
   partyPro: false,
   playing: false,
   adActive: false,
-  snapshot: null
+  snapshot: null,
+  selectedFile: null,
+  audioUrl: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -96,6 +98,15 @@ function showHome() {
   show("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  
+  // Clean up audio URL when returning to home
+  if (state.audioUrl) {
+    URL.revokeObjectURL(state.audioUrl);
+    state.audioUrl = null;
+  }
+  state.selectedFile = null;
+  el("fileStatus").textContent = "";
+  
   setPlanPill();
 }
 
@@ -240,13 +251,81 @@ function attemptAddPhone() {
   await connectWS();
   showHome();
 
-  el("btnCreate").onclick = () => {
+  // Handle music file selection
+  el("musicFile").onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Revoke previous object URL if exists
+      if (state.audioUrl) {
+        URL.revokeObjectURL(state.audioUrl);
+      }
+      
+      state.selectedFile = file;
+      state.audioUrl = URL.createObjectURL(file);
+      
+      // Set audio element source
+      const audio = el("hostAudio");
+      audio.src = state.audioUrl;
+      
+      // Show file status
+      el("fileStatus").textContent = `✓ ${file.name} — Ready`;
+      el("fileStatus").style.color = "var(--good)";
+      
+      // Clear any previous error
+      hide("startError");
+    }
+  };
+
+  el("btnCreate").onclick = async () => {
     console.log("[UI] Start party button clicked");
-    state.name = el("hostName").value.trim() || "Host";
+    
+    // Clear previous error
+    hide("startError");
+    
+    // Validate name
+    const name = el("hostName").value.trim();
+    if (!name) {
+      el("startError").textContent = "Please enter your name";
+      show("startError");
+      return;
+    }
+    
+    // Validate file selection
+    if (!state.selectedFile) {
+      el("startError").textContent = "Please select a music file before starting the party";
+      show("startError");
+      return;
+    }
+    
+    state.name = name;
     state.source = el("source").value;
     state.isPro = el("togglePro").checked;
+    
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
-    send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    
+    // Try to play audio (mobile requirement - must be from user interaction)
+    const audio = el("hostAudio");
+    try {
+      await audio.play();
+      console.log("[Audio] Playback started successfully");
+      
+      // On success, continue with party creation
+      send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    } catch (err) {
+      console.error("[Audio] Playback failed:", err);
+      
+      // Show user-friendly error message
+      let errorMsg = "Tap Play to allow audio";
+      if (err.name === "NotAllowedError") {
+        errorMsg = "Browser blocked autoplay. Please tap the play button on your audio player.";
+      } else if (err.name === "NotSupportedError") {
+        errorMsg = "This audio format is not supported. Please try a different file.";
+      }
+      
+      el("startError").textContent = errorMsg;
+      show("startError");
+      return;
+    }
   };
 
   el("btnJoin").onclick = () => {

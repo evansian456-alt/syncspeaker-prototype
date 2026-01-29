@@ -150,3 +150,22 @@ h2,h3{margin:0}
 }
 
 .btn.primary:hover{ box-shadow: 0 0 22px rgba(90,169,255,0.35); }
+
+.error-msg{
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  border-radius: 10px;
+  background: rgba(255,90,106,0.12);
+  border: 1px solid rgba(255,90,106,0.3);
+}
+
+.modal-card {
+  width: min(520px, 100%);
+  background: rgba(18,24,35,0.92);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
