@@ -34,17 +34,27 @@ function setPlanPill() {
 function connectWS() {
   return new Promise((resolve, reject) => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}`);
+    const wsUrl = `${proto}://${location.host}`;
+    console.log("[WS] Connecting to:", wsUrl);
+    const ws = new WebSocket(wsUrl);
     state.ws = ws;
 
-    ws.onopen = () => resolve();
-    ws.onerror = (e) => reject(e);
+    ws.onopen = () => {
+      console.log("[WS] Connected successfully");
+      resolve();
+    };
+    ws.onerror = (e) => {
+      console.error("[WS] Connection error:", e);
+      reject(e);
+    };
     ws.onmessage = (ev) => {
+      console.log("[WS] Received message:", ev.data);
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       handleServer(msg);
     };
     ws.onclose = () => {
+      console.log("[WS] Connection closed");
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
@@ -54,7 +64,11 @@ function connectWS() {
 }
 
 function send(obj) {
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.error("[WS] Cannot send - WebSocket not connected");
+    return;
+  }
+  console.log("[WS] Sending message:", obj);
   state.ws.send(JSON.stringify(obj));
 }
 
@@ -227,9 +241,11 @@ function attemptAddPhone() {
   showHome();
 
   el("btnCreate").onclick = () => {
+    console.log("[UI] Start party button clicked");
     state.name = el("hostName").value.trim() || "Host";
     state.source = el("source").value;
     state.isPro = el("togglePro").checked;
+    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
   };
 
