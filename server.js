@@ -4,16 +4,16 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Serve static files from "public" directory
-app.use(express.static(path.join(__dirname, "public")));
+// Serve static files from the repo root
+app.use(express.static(__dirname));
 
-// Route for serving index.html at root
+// Route for serving index.html at root "/"
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// API health check
-app.get("/api/health", (req, res) => {
+// Health check endpoint
+app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
