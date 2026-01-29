@@ -17,10 +17,10 @@ const state = {
 const el = (id) => document.getElementById(id);
 const toastEl = el("toast");
 
-function toast(msg) {
+function toast(msg, duration = 2200) {
   toastEl.textContent = msg;
   toastEl.classList.remove("hidden");
-  setTimeout(() => toastEl.classList.add("hidden"), 2200);
+  setTimeout(() => toastEl.classList.add("hidden"), duration);
 }
 
 function show(id) { el(id).classList.remove("hidden"); }
@@ -75,10 +75,10 @@ function send(obj) {
 function handleServer(msg) {
   if (msg.t === "WELCOME") { state.clientId = msg.clientId; return; }
   if (msg.t === "CREATED") {
-    state.code = msg.code; state.isHost = true; showParty(); toast(`Party created: ${msg.code}`); return;
+    state.code = msg.code; state.isHost = true; showParty(); toast(`🎉 Party created: ${msg.code}`, 3500); return;
   }
   if (msg.t === "JOINED") {
-    state.code = msg.code; state.isHost = false; showParty(); toast(`Joined party ${msg.code}`); return;
+    state.code = msg.code; state.isHost = false; showParty(); toast(`✅ Joined party ${msg.code}`, 3500); return;
   }
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
@@ -100,10 +100,21 @@ function showHome() {
 }
 
 function showParty() {
-  hide("viewHome"); show("viewParty");
+  hide("viewHome"); 
+  const partyView = el("viewParty");
+  partyView.classList.remove("hidden");
+  partyView.classList.add("fade-in");
+  
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
+  
+  // Add highlight animation to party code when first created
+  if (state.isHost) {
+    el("partyCode").classList.add("highlight-code");
+    setTimeout(() => el("partyCode").classList.remove("highlight-code"), 2000);
+  }
+  
   setPlanPill();
   renderRoom();
   updatePlaybackUI();
@@ -242,19 +253,46 @@ function attemptAddPhone() {
 
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");
+    const btn = el("btnCreate");
+    const originalText = btn.textContent;
+    
+    // Disable button and show loading state
+    btn.disabled = true;
+    btn.textContent = "Creating party...";
+    
     state.name = el("hostName").value.trim() || "Host";
     state.source = el("source").value;
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    
+    // Re-enable after delay (in case of error)
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 5000);
   };
 
   el("btnJoin").onclick = () => {
     const code = el("joinCode").value.trim().toUpperCase();
     if (!code) { toast("Enter a party code"); return; }
+    
+    const btn = el("btnJoin");
+    const originalText = btn.textContent;
+    
+    // Disable button and show loading state
+    btn.disabled = true;
+    btn.textContent = "Joining...";
+    
     state.name = el("guestName").value.trim() || "Guest";
     state.isPro = el("togglePro").checked;
     send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
+    
+    // Re-enable after delay (in case of error)
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 5000);
   };
 
   el("togglePro").onchange = (e) => {
@@ -265,12 +303,29 @@ function attemptAddPhone() {
   el("btnLeave").onclick = () => { if (state.ws) state.ws.close(); };
 
   el("btnCopy").onclick = async () => {
-    try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
-    catch { toast("Copy failed (permission)"); }
+    const btn = el("btnCopy");
+    const originalText = btn.textContent;
+    try { 
+      await navigator.clipboard.writeText(state.code || ""); 
+      btn.textContent = "✓ Copied!";
+      toast("📋 Code copied to clipboard", 2500);
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    }
+    catch { 
+      toast("⚠️ Copy failed (permission)", 3000); 
+    }
   };
 
-  el("btnPlay").onclick = () => { if (state.adActive) return; state.playing = true; toast("Play (simulated)"); };
-  el("btnPause").onclick = () => { if (state.adActive) return; state.playing = false; toast("Pause (simulated)"); };
+  el("btnPlay").onclick = () => { 
+    if (state.adActive) return; 
+    state.playing = true; 
+    toast("▶️ Play (simulated)", 2000); 
+  };
+  el("btnPause").onclick = () => { 
+    if (state.adActive) return; 
+    state.playing = false; 
+    toast("⏸️ Pause (simulated)", 2000); 
+  };
 
   el("btnAd").onclick = () => {
     if (state.partyPro || state.source === "mic") return;
