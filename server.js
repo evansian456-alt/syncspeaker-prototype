@@ -42,7 +42,7 @@ function roomSnapshot(code) {
   for (const [id, m] of room.members.entries()) {
     members.push({ id, name: m.name, isPro: !!m.isPro, joinedAt: m.joinedAt, isHost: id === room.hostId });
   }
-  members.sort((a,b) => (b.isHost - a.isHost) || (a.joinedAt - b.joinedAt));
+  members.sort((a, b) => (b.isHost - a.isHost) || (a.joinedAt - b.joinedAt));
   return { code, createdAt: room.createdAt, hostId: room.hostId, members };
 }
 
@@ -139,10 +139,12 @@ wss.on("connection", (ws) => {
   ws.on("error", (err) => {
     console.error("WebSocket error:", err);
   });
-});
 
 // Serve static files safely
-app.use(express.static(path.resolve(__dirname, "../web")));
+app.use("/static", express.static(path.resolve(__dirname, "../web")));
+app.get("/", (_, res) => {
+  res.sendFile(path.resolve(__dirname, "../web", "index.html"));
+});
 
 // Health check endpoint
 app.get("/health", (_, res) => res.json({ ok: true }));
@@ -154,7 +156,7 @@ app.use((err, req, res, next) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`SyncSpeaker prototype running on http://localhost:${PORT}`);
+  console.log(`SyncSpeaker prototype running on http://0.0.0.0:${PORT}`);
 });
 
 process.on("unhandledRejection", (reason, promise) => {
