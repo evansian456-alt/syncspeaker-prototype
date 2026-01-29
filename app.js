@@ -11,7 +11,9 @@ const state = {
   partyPro: false,
   playing: false,
   adActive: false,
-  snapshot: null
+  snapshot: null,
+  isCreating: false,
+  isJoining: false
 };
 
 const el = (id) => document.getElementById(id);
@@ -21,6 +23,49 @@ function toast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.remove("hidden");
   setTimeout(() => toastEl.classList.add("hidden"), 2200);
+}
+
+function showSuccessMessage(msg) {
+  const successDiv = el("successMessage");
+  if (successDiv) {
+    successDiv.textContent = msg;
+    successDiv.classList.remove("hidden");
+    setTimeout(() => successDiv.classList.add("hidden"), 4000);
+  }
+}
+
+function showErrorMessage(msg) {
+  const errorDiv = el("errorMessage");
+  if (errorDiv) {
+    errorDiv.textContent = msg;
+    errorDiv.classList.remove("hidden");
+    setTimeout(() => errorDiv.classList.add("hidden"), 4000);
+  }
+}
+
+function scrollToPartyCode() {
+  setTimeout(() => {
+    const codeEl = el("partyCode");
+    if (codeEl) {
+      codeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      codeEl.style.animation = 'pulse 0.5s ease-in-out';
+    }
+  }, 300);
+}
+
+function updateButtonStates() {
+  const btnCreate = el("btnCreate");
+  const btnJoin = el("btnJoin");
+  
+  if (btnCreate) {
+    btnCreate.disabled = state.isCreating;
+    btnCreate.textContent = state.isCreating ? "Starting..." : "Start party";
+  }
+  
+  if (btnJoin) {
+    btnJoin.disabled = state.isJoining;
+    btnJoin.textContent = state.isJoining ? "Joining..." : "Join party";
+  }
 }
 
 function show(id) { el(id).classList.remove("hidden"); }
@@ -73,12 +118,30 @@ function send(obj) {
 }
 
 function handleServer(msg) {
-  if (msg.t === "WELCOME") { state.clientId = msg.clientId; return; }
+  if (msg.t === "WELCOME") { 
+    state.clientId = msg.clientId; 
+    console.log("[App] Received WELCOME, clientId:", msg.clientId);
+    return; 
+  }
   if (msg.t === "CREATED") {
-    state.code = msg.code; state.isHost = true; showParty(); toast(`Party created: ${msg.code}`); return;
+    console.log("[App] Party created successfully:", msg.code);
+    state.code = msg.code; 
+    state.isHost = true; 
+    state.isCreating = false;
+    showSuccessMessage(`Party started 🎉\nCode: ${msg.code}`);
+    showParty(); 
+    scrollToPartyCode();
+    return;
   }
   if (msg.t === "JOINED") {
-    state.code = msg.code; state.isHost = false; showParty(); toast(`Joined party ${msg.code}`); return;
+    console.log("[App] Joined party successfully:", msg.code);
+    state.code = msg.code; 
+    state.isHost = false; 
+    state.isJoining = false;
+    showSuccessMessage(`Joined party 🎉\nCode: ${msg.code}`);
+    showParty(); 
+    scrollToPartyCode();
+    return;
   }
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
@@ -89,7 +152,14 @@ function handleServer(msg) {
   }
   if (msg.t === "ENDED") { toast("Party ended (host left)"); showHome(); return; }
   if (msg.t === "KICKED") { toast("Removed by host"); showHome(); return; }
-  if (msg.t === "ERROR") { toast(msg.message || "Error"); return; }
+  if (msg.t === "ERROR") { 
+    console.error("[App] Error from server:", msg.message);
+    showErrorMessage(msg.message || "An error occurred");
+    state.isCreating = false;
+    state.isJoining = false;
+    updateButtonStates();
+    return; 
+  }
 }
 
 function showHome() {
@@ -241,19 +311,57 @@ function attemptAddPhone() {
   showHome();
 
   el("btnCreate").onclick = () => {
-    console.log("[UI] Start party button clicked");
+    console.log("[App] startParty() - Start party button clicked");
+    
+    if (state.isCreating) {
+      console.log("[App] startParty() - Already creating, ignoring");
+      return;
+    }
+    
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+      console.error("[App] startParty() - WebSocket not connected");
+      showErrorMessage("Not connected. Please refresh the page.");
+      return;
+    }
+    
     state.name = el("hostName").value.trim() || "Host";
     state.source = el("source").value;
     state.isPro = el("togglePro").checked;
-    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+    state.isCreating = true;
+    
+    console.log("[App] startParty() - Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+    
+    updateButtonStates();
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
   };
 
   el("btnJoin").onclick = () => {
+    console.log("[App] joinParty() - Join party button clicked");
+    
+    if (state.isJoining) {
+      console.log("[App] joinParty() - Already joining, ignoring");
+      return;
+    }
+    
     const code = el("joinCode").value.trim().toUpperCase();
-    if (!code) { toast("Enter a party code"); return; }
+    if (!code) { 
+      showErrorMessage("Please enter a party code");
+      return; 
+    }
+    
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+      console.error("[App] joinParty() - WebSocket not connected");
+      showErrorMessage("Not connected. Please refresh the page.");
+      return;
+    }
+    
     state.name = el("guestName").value.trim() || "Guest";
     state.isPro = el("togglePro").checked;
+    state.isJoining = true;
+    
+    console.log("[App] joinParty() - Joining party with code:", code, "name:", state.name);
+    
+    updateButtonStates();
     send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
   };
 

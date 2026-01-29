@@ -150,3 +150,48 @@ h2,h3{margin:0}
 }
 
 .btn.primary:hover{ box-shadow: 0 0 22px rgba(90,169,255,0.35); }
+
+.successMessage, .errorMessage {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  white-space: pre-line;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 1000;
+  max-width: 90%;
+  animation: slideDown 0.3s ease-out;
+}
+
+.successMessage {
+  background: rgba(92,255,138,0.92);
+  color: #0B0F14;
+  border: 1px solid rgba(92,255,138,1);
+}
+
+.errorMessage {
+  background: rgba(255,90,106,0.92);
+  color: #FFFFFF;
+  border: 1px solid rgba(255,90,106,1);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}

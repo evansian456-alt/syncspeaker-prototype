@@ -6,6 +6,16 @@ const { customAlphabet } = require("nanoid");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[HTTP] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
+
 // Serve static files from the repo root
 app.use(express.static(__dirname));
 
