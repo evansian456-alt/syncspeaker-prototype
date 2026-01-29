@@ -294,6 +294,7 @@ function updatePartyPassUI() {
   const upgradeCard = el("partyPassUpgrade");
   const descEl = el("partyPassDesc");
   const titleEl = el("partyPassTitle");
+  const timerEl = el("partyPassTimer");
   
   if (!banner || !activeStatus || !upgradeCard) return;
   
@@ -305,6 +306,7 @@ function updatePartyPassUI() {
     
     if (titleEl) titleEl.textContent = "Party Pass Active";
     if (descEl) descEl.classList.add("hidden");
+    if (timerEl) timerEl.classList.remove("hidden");
   } else if (state.partyPro && !state.isHost) {
     // Friend in a Pro/Party Pass party
     banner.classList.remove("hidden");
@@ -313,9 +315,6 @@ function updatePartyPassUI() {
     
     if (titleEl) titleEl.textContent = "🎉 Party Pass Active";
     if (descEl) descEl.classList.remove("hidden");
-    
-    // Hide timer for friends since we don't have the end time
-    const timerEl = el("partyPassTimer");
     if (timerEl) timerEl.classList.add("hidden");
   } else if (!state.partyPro && state.isHost) {
     // Show upgrade banner for free users on host page
