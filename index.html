@@ -30,6 +30,9 @@
           <h3>Start a party (Host)</h3>
           <label class="lbl">Your name</label>
           <input id="hostName" class="input" value="Host" />
+          <label class="lbl">Choose music file</label>
+          <input type="file" id="musicFile" class="input" accept="audio/*" />
+          <div id="fileStatus" class="tiny muted" style="margin-top:6px"></div>
           <label class="lbl">Where is the music coming from?</label>
           <select id="source" class="input">
             <option value="local">On this phone (best)</option>
@@ -37,6 +40,7 @@
             <option value="mic">Mic (for talking)</option>
           </select>
 
+          <div id="startError" class="error-msg hidden"></div>
           <button class="btn primary" id="btnCreate">Start party</button>
           <div class="tiny muted">
             Users are responsible for music source. This app does not provide music.
@@ -188,6 +192,9 @@
   </div>
 
   <div class="toast hidden" id="toast"></div>
+
+  <!-- Hidden audio element for host playback -->
+  <audio id="hostAudio" controls style="display:none"></audio>
 
   <script src="app.js"></script>
 </body>
