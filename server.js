@@ -7,23 +7,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = parseInt(process.env.PORT, 10) || 3000;
+const PORT = process.env.PORT || 8080;
 
-// Serve static files in the same directory
-const staticPath = path.resolve(__dirname);
-app.use(express.static(staticPath));
+// Serve static files (e.g., app.js, styles.css)
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve index.html at route "/"
+// Serve index.html on "/"
 app.get("/", (req, res) => {
-  res.sendFile(path.join(staticPath, "index.html"));
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Health check endpoint
-app.get("/health", (req, res) => {
+// API health check
+app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
 // Start the server
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
