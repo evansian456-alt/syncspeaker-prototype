@@ -150,3 +150,121 @@ h2,h3{margin:0}
 }
 
 .btn.primary:hover{ box-shadow: 0 0 22px rgba(90,169,255,0.35); }
+
+/* Debug Panel */
+.debug-toggle {
+  position: fixed;
+  bottom: 70px;
+  right: 18px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(139,124,255,0.25);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.debug-toggle:hover {
+  background: rgba(139,124,255,0.35);
+  box-shadow: 0 0 20px rgba(139,124,255,0.4);
+}
+
+.debug-panel {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  width: min(450px, calc(100vw - 36px));
+  max-height: 400px;
+  background: rgba(11,15,20,0.95);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.debug-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.debug-close:hover {
+  color: var(--text);
+}
+
+.debug-content {
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.debug-entry {
+  padding: 6px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+}
+
+.debug-entry.info {
+  border-left-color: rgba(90,169,255,0.7);
+  background: rgba(90,169,255,0.08);
+}
+
+.debug-entry.success {
+  border-left-color: rgba(92,255,138,0.7);
+  background: rgba(92,255,138,0.08);
+}
+
+.debug-entry.error {
+  border-left-color: rgba(255,90,106,0.7);
+  background: rgba(255,90,106,0.08);
+}
+
+.debug-entry.warn {
+  border-left-color: rgba(255,198,90,0.7);
+  background: rgba(255,198,90,0.08);
+}
+
+.debug-timestamp {
+  color: var(--muted);
+  font-size: 10px;
+  margin-right: 8px;
+}
+
+.modal-card {
+  width:min(520px, 100%);
+  background: rgba(18,24,35,0.92);
+  border:1px solid var(--border);
+  border-radius: 20px;
+  padding:16px;
+  box-shadow: var(--shadow);
+}

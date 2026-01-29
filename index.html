@@ -145,7 +145,7 @@
 </main>
 
   <div class="modal hidden" id="modalPaywall">
-    <div class="modalCard">
+    <div class="modal-card">
       <h3>Support SyncSpeaker</h3>
       <p class="muted">Support removes ads, allows 3+ phones, and lets you add more phones when you choose.</p>
       <ul class="list">
@@ -163,7 +163,7 @@
   </div>
 
   <div class="modal hidden" id="modalWarn">
-    <div class="modalCard">
+    <div class="modal-card">
       <h3>Heads up</h3>
       <p class="muted" id="warnText"></p>
       <div class="row gap">
@@ -175,7 +175,7 @@
   </div>
 
   <div class="modal hidden" id="modalSpeaker">
-    <div class="modalCard">
+    <div class="modal-card">
       <h3>Connect to a speaker</h3>
       <p class="muted">
         Connect a Bluetooth or AUX speaker to the host phone for louder sound. (Real app will handle delay better.)
@@ -188,6 +188,16 @@
   </div>
 
   <div class="toast hidden" id="toast"></div>
+
+  <!-- Debug Panel -->
+  <div class="debug-panel hidden" id="debugPanel">
+    <div class="debug-header">
+      <span>Debug Console</span>
+      <button class="debug-close" id="debugClose">×</button>
+    </div>
+    <div class="debug-content" id="debugContent"></div>
+  </div>
+  <button class="debug-toggle" id="debugToggle">🐛</button>
 
   <script src="app.js"></script>
 </body>

@@ -17,10 +17,49 @@ const state = {
 const el = (id) => document.getElementById(id);
 const toastEl = el("toast");
 
+// Debug logging system
+const debugLogs = [];
+const MAX_DEBUG_LOGS = 100;
+
+function debugLog(message, type = 'info') {
+  const timestamp = new Date().toLocaleTimeString();
+  const entry = { timestamp, message, type };
+  debugLogs.push(entry);
+  
+  // Keep only last MAX_DEBUG_LOGS entries
+  if (debugLogs.length > MAX_DEBUG_LOGS) {
+    debugLogs.shift();
+  }
+  
+  console.log(`[${type.toUpperCase()}] ${message}`);
+  
+  // Update debug panel if it's visible
+  updateDebugPanel();
+}
+
+function updateDebugPanel() {
+  const debugContent = document.getElementById('debugContent');
+  if (!debugContent) return;
+  
+  const panel = document.getElementById('debugPanel');
+  if (panel && !panel.classList.contains('hidden')) {
+    debugContent.innerHTML = debugLogs.map(log => {
+      return `<div class="debug-entry ${log.type}">
+        <span class="debug-timestamp">${log.timestamp}</span>
+        <span>${escapeHtml(log.message)}</span>
+      </div>`;
+    }).reverse().join('');
+    
+    // Auto-scroll to bottom (latest first, so scroll to top)
+    debugContent.scrollTop = 0;
+  }
+}
+
 function toast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.remove("hidden");
   setTimeout(() => toastEl.classList.add("hidden"), 2200);
+  debugLog(`Toast: ${msg}`, 'info');
 }
 
 function show(id) { el(id).classList.remove("hidden"); }
@@ -35,26 +74,37 @@ function connectWS() {
   return new Promise((resolve, reject) => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const wsUrl = `${proto}://${location.host}`;
-    console.log("[WS] Connecting to:", wsUrl);
+    debugLog(`Connecting to WebSocket: ${wsUrl}`, 'info');
+    
     const ws = new WebSocket(wsUrl);
     state.ws = ws;
 
     ws.onopen = () => {
-      console.log("[WS] Connected successfully");
+      debugLog("WebSocket connected successfully", 'success');
       resolve();
     };
+    
     ws.onerror = (e) => {
+      debugLog("WebSocket connection error", 'error');
       console.error("[WS] Connection error:", e);
+      toast("Connection error - check network");
       reject(e);
     };
+    
     ws.onmessage = (ev) => {
-      console.log("[WS] Received message:", ev.data);
+      debugLog(`Received: ${ev.data.substring(0, 100)}${ev.data.length > 100 ? '...' : ''}`, 'info');
       let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
+      try { 
+        msg = JSON.parse(ev.data); 
+      } catch (err) {
+        debugLog(`Failed to parse message: ${err.message}`, 'error');
+        return;
+      }
       handleServer(msg);
     };
+    
     ws.onclose = () => {
-      console.log("[WS] Connection closed");
+      debugLog("WebSocket connection closed", 'warn');
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
@@ -65,31 +115,63 @@ function connectWS() {
 
 function send(obj) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-    console.error("[WS] Cannot send - WebSocket not connected");
+    debugLog("Cannot send - WebSocket not connected", 'error');
+    toast("Not connected - refresh page");
     return;
   }
-  console.log("[WS] Sending message:", obj);
+  debugLog(`Sending: ${obj.t}`, 'info');
   state.ws.send(JSON.stringify(obj));
 }
 
 function handleServer(msg) {
-  if (msg.t === "WELCOME") { state.clientId = msg.clientId; return; }
+  if (msg.t === "WELCOME") { 
+    state.clientId = msg.clientId; 
+    debugLog(`Client ID assigned: ${msg.clientId}`, 'success');
+    return; 
+  }
   if (msg.t === "CREATED") {
-    state.code = msg.code; state.isHost = true; showParty(); toast(`Party created: ${msg.code}`); return;
+    state.code = msg.code; 
+    state.isHost = true; 
+    debugLog(`Party created with code: ${msg.code}`, 'success');
+    showParty(); 
+    toast(`Party created: ${msg.code}`); 
+    return;
   }
   if (msg.t === "JOINED") {
-    state.code = msg.code; state.isHost = false; showParty(); toast(`Joined party ${msg.code}`); return;
+    state.code = msg.code; 
+    state.isHost = false; 
+    debugLog(`Joined party: ${msg.code}`, 'success');
+    showParty(); 
+    toast(`Joined party ${msg.code}`); 
+    return;
   }
   if (msg.t === "ROOM") {
+    const memberCount = msg.snapshot?.members?.length || 0;
+    debugLog(`Room update: ${memberCount} members`, 'info');
     state.snapshot = msg.snapshot;
     state.partyPro = (msg.snapshot?.members || []).some(m => m.isPro);
     setPlanPill();
     renderRoom();
     return;
   }
-  if (msg.t === "ENDED") { toast("Party ended (host left)"); showHome(); return; }
-  if (msg.t === "KICKED") { toast("Removed by host"); showHome(); return; }
-  if (msg.t === "ERROR") { toast(msg.message || "Error"); return; }
+  if (msg.t === "ENDED") { 
+    debugLog("Party ended by host", 'warn');
+    toast("Party ended (host left)"); 
+    showHome(); 
+    return; 
+  }
+  if (msg.t === "KICKED") { 
+    debugLog("Kicked from party", 'warn');
+    toast("Removed by host"); 
+    showHome(); 
+    return; 
+  }
+  if (msg.t === "ERROR") { 
+    debugLog(`Server error: ${msg.message || "Unknown error"}`, 'error');
+    toast(msg.message || "Error"); 
+    return; 
+  }
+  debugLog(`Unknown message type: ${msg.t}`, 'warn');
 }
 
 function showHome() {
@@ -212,7 +294,7 @@ function openPaywall() { show("modalPaywall"); }
 function closePaywall(){ hide("modalPaywall"); }
 function openWarn(rec, next) {
   el("warnText").textContent =
-    `Recommended is \${rec} phones for the best sound. You’re adding phone #\${next}. This might cause a small delay or echo.`;
+    `Recommended is ${rec} phones for the best sound. You're adding phone #${next}. This might cause a small delay or echo.`;
   show("modalWarn");
 }
 function closeWarn(){ hide("modalWarn"); }
@@ -237,36 +319,81 @@ function attemptAddPhone() {
 }
 
 (async function init(){
-  await connectWS();
+  // Initialize debug panel
+  const debugToggle = el("debugToggle");
+  const debugPanel = el("debugPanel");
+  const debugClose = el("debugClose");
+  
+  if (debugToggle) {
+    debugToggle.onclick = () => {
+      debugPanel.classList.toggle("hidden");
+      updateDebugPanel();
+    };
+  }
+  
+  if (debugClose) {
+    debugClose.onclick = () => {
+      debugPanel.classList.add("hidden");
+    };
+  }
+  
+  debugLog("App initializing...", 'info');
+  
+  try {
+    await connectWS();
+    debugLog("Initialization complete", 'success');
+  } catch (err) {
+    debugLog(`Initialization failed: ${err.message}`, 'error');
+    toast("Failed to connect - refresh page");
+    return;
+  }
+  
   showHome();
 
   el("btnCreate").onclick = () => {
-    console.log("[UI] Start party button clicked");
+    debugLog("Start party button clicked", 'info');
     state.name = el("hostName").value.trim() || "Host";
     state.source = el("source").value;
     state.isPro = el("togglePro").checked;
-    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+    debugLog(`Creating party: name=${state.name}, source=${state.source}, isPro=${state.isPro}`, 'info');
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
   };
 
   el("btnJoin").onclick = () => {
+    debugLog("Join party button clicked", 'info');
     const code = el("joinCode").value.trim().toUpperCase();
-    if (!code) { toast("Enter a party code"); return; }
+    if (!code) { 
+      debugLog("Join failed: no code entered", 'warn');
+      toast("Enter a party code"); 
+      return; 
+    }
     state.name = el("guestName").value.trim() || "Guest";
     state.isPro = el("togglePro").checked;
+    debugLog(`Joining party: code=${code}, name=${state.name}`, 'info');
     send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
   };
 
   el("togglePro").onchange = (e) => {
     state.isPro = !!e.target.checked;
+    debugLog(`Pro toggle changed: ${state.isPro}`, 'info');
     send({ t: "SET_PRO", isPro: state.isPro });
   };
 
-  el("btnLeave").onclick = () => { if (state.ws) state.ws.close(); };
+  el("btnLeave").onclick = () => { 
+    debugLog("Leave button clicked", 'info');
+    if (state.ws) state.ws.close(); 
+  };
 
   el("btnCopy").onclick = async () => {
-    try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
-    catch { toast("Copy failed (permission)"); }
+    try { 
+      await navigator.clipboard.writeText(state.code || ""); 
+      debugLog(`Copied code: ${state.code}`, 'success');
+      toast("Copied code"); 
+    }
+    catch { 
+      debugLog("Copy failed: permission denied", 'error');
+      toast("Copy failed (permission)"); 
+    }
   };
 
   el("btnPlay").onclick = () => { if (state.adActive) return; state.playing = true; toast("Play (simulated)"); };
@@ -324,9 +451,19 @@ if (promoBtn) {
       return;
     }
     promoUsed = true;
-    window.partyPro = true;
+    state.partyPro = true;
+    state.isPro = true;
+    if (state.code) {
+      send({ t: "SET_PRO", isPro: true });
+    }
     promoModal.classList.add("hidden");
-    alert("🎉 Pro unlocked for this party!");
-    updateUI?.();
+    el("togglePro").checked = true;
+    setPlanPill();
+    if (state.code) {
+      renderRoom();
+      updateQualityUI();
+      updatePlaybackUI();
+    }
+    toast("🎉 Pro unlocked for this party!");
   };
 }
