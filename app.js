@@ -48,7 +48,11 @@ function scrollToPartyCode() {
     const codeEl = el("partyCode");
     if (codeEl) {
       codeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      codeEl.style.animation = 'pulse 0.5s ease-in-out';
+      codeEl.classList.add('pulse-once');
+      // Remove the class after animation completes to allow it to run again
+      codeEl.addEventListener('animationend', () => {
+        codeEl.classList.remove('pulse-once');
+      }, { once: true });
     }
   }, 300);
 }
@@ -166,7 +170,9 @@ function showHome() {
   show("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  state.isCreating = false; state.isJoining = false;
   setPlanPill();
+  updateButtonStates();
 }
 
 function showParty() {

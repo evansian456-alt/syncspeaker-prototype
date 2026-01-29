@@ -195,3 +195,7 @@ h2,h3{margin:0}
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.05); }
 }
+
+.pulse-once {
+  animation: pulse 0.5s ease-in-out;
+}
