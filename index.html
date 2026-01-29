@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SyncSpeaker — Browser Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">SS</div>
+      <div>
+        <div class="title">SyncSpeaker</div>
+        <div class="subtitle">Browser prototype (friend test)</div>
+      </div>
+    </div>
+    <div class="pill" id="planPill">Free · 2 phones</div>
+  </header>
+
+  <main class="wrap">
+    <section class="card" id="viewHome">
+      <h1>Play music together</h1>
+      <p class="muted">
+        Prototype to test the idea + flow. Audio sync in browsers varies by device — focus on usability and “would you use this?”.
+      </p>
+
+      <div class="grid2">
+        <div class="box">
+          <h3>Start a party (Host)</h3>
+          <label class="lbl">Your name</label>
+          <input id="hostName" class="input" value="Host" />
+          <label class="lbl">Where is the music coming from?</label>
+          <select id="source" class="input">
+            <option value="local">On this phone (best)</option>
+            <option value="external">Another app (timing only)</option>
+            <option value="mic">Mic (for talking)</option>
+          </select>
+
+          <button class="btn primary" id="btnCreate">Start party</button>
+          <div class="tiny muted">
+            Users are responsible for music source. This app does not provide music.
+          </div>
+        </div>
+
+        <div class="box">
+          <h3>Join a party (Friend)</h3>
+          <label class="lbl">Party code</label>
+          <input id="joinCode" class="input" placeholder="ABC123" />
+          <label class="lbl">Your name</label>
+          <input id="guestName" class="input" value="Guest" />
+          <button class="btn" id="btnJoin">Join party</button>
+          <div class="tiny muted">Tip: open this on another phone on the same Wi‑Fi.</div>
+        </div>
+      </div>
+
+      <div class="line"></div>
+
+      <div class="row">
+        <label class="check">
+          <input type="checkbox" id="togglePro" />
+          <span><b>Support mode (Pro)</b> (party-wide unlock)</span>
+        </label>
+        <span class="tiny muted">In the real app: subscription-only, no day passes.</span>
+      </div>
+    </section>
+
+    <section class="card hidden" id="viewParty">
+      <div class="row space">
+        <div>
+          <h2 id="partyTitle">Party</h2>
+          <div class="muted tiny" id="partyMeta"></div>
+        </div>
+        <button class="btn danger" id="btnLeave">Leave</button>
+      </div>
+
+      <div class="grid3">
+        <div class="box">
+          <div class="row space">
+            <div>
+              <div class="lbl">Party code</div>
+              <div class="code" id="partyCode">------</div>
+            </div>
+            <button class="btn" id="btnCopy">Copy</button>
+          </div>
+          <div class="tiny muted">Share code with friends.</div>
+        </div>
+
+        <div class="box">
+          <div class="row space">
+            <div>
+              <div class="lbl">Connection strength</div>
+              <div class="row">
+                <span class="badge" id="qualityTier">Good</span>
+                <span class="tiny muted" id="qualityHint">Minor drift possible</span>
+              </div>
+            </div>
+            <div class="right tiny muted"><span id="qualityScore">80</span>/100</div>
+          </div>
+          <div class="bar"><div class="fill" id="qualityFill" style="width:80%"></div></div>
+          <div class="tiny muted" id="limitsLine">Recommended: 4 · Hard cap: 8</div>
+        </div>
+
+        <div class="box">
+          <div class="lbl">Playback (demo)</div>
+          <div class="row gap">
+            <button class="btn primary" id="btnPlay">Play</button>
+            <button class="btn" id="btnPause">Pause</button>
+            <button class="btn" id="btnAd">Show ad (Free)</button>
+          </div>
+          <div class="tiny muted" id="adLine">Ads can pause music for free users.</div>
+        </div>
+      </div>
+
+      <div class="line"></div>
+
+      <div class="row space">
+        <h3>Friends connected</h3>
+        <div class="row gap">
+          <button class="btn" id="btnAddPhone">Add another phone</button>
+          <button class="btn" id="btnSpeaker">Use a speaker</button>
+        </div>
+      </div>
+
+      <div id="members"></div>
+
+      <div class="tiny muted" style="margin-top:10px">
+        Browser prototype — next step is the real Android app for proper sync.
+      </div>
+    </section>
+  
+<!-- Promo Code -->
+<button class="btn secondary" id="promoBtn">Have a promo code?</button>
+
+<div class="modal hidden" id="promoModal">
+  <div class="modal-card">
+    <h3>Enter promo code</h3>
+    <input id="promoInput" placeholder="Promo code" />
+    <button class="btn primary" id="promoApply">Unlock this party</button>
+    <p class="hint">Promo codes unlock Pro for one party only.</p>
+    <button class="btn link" id="promoClose">Cancel</button>
+  </div>
+</div>
+
+</main>
+
+  <div class="modal hidden" id="modalPaywall">
+    <div class="modalCard">
+      <h3>Support SyncSpeaker</h3>
+      <p class="muted">Support removes ads, allows 3+ phones, and lets you add more phones when you choose.</p>
+      <ul class="list">
+        <li>No ads</li>
+        <li>3+ phones</li>
+        <li>Connection strength override warning + accept</li>
+        <li>Speaker support</li>
+      </ul>
+      <div class="row gap">
+        <button class="btn primary" id="btnProYes">Support mode (Pro)</button>
+        <button class="btn" id="btnProNo">Not now</button>
+      </div>
+      <div class="tiny muted">Subscription only. Cancel anytime.</div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modalWarn">
+    <div class="modalCard">
+      <h3>Heads up</h3>
+      <p class="muted" id="warnText"></p>
+      <div class="row gap">
+        <button class="btn" id="btnWarnCancel">Cancel</button>
+        <button class="btn primary" id="btnWarnAnyway">Add anyway</button>
+      </div>
+      <div class="tiny muted">This option is for supporters.</div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modalSpeaker">
+    <div class="modalCard">
+      <h3>Connect to a speaker</h3>
+      <p class="muted">
+        Connect a Bluetooth or AUX speaker to the host phone for louder sound. (Real app will handle delay better.)
+      </p>
+      <div class="row gap">
+        <button class="btn primary" id="btnSpeakerOk">Got it</button>
+      </div>
+      <div class="tiny muted">Speaker support is for supporters.</div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
