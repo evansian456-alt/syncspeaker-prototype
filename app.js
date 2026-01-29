@@ -91,7 +91,9 @@ function handleServer(msg) {
   }
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
-    state.partyPro = (msg.snapshot?.members || []).some(m => m.isPro);
+    // Preserve Party Pass Pro status or detect from members
+    const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
+    state.partyPro = state.partyPassActive || membersPro;
     setPlanPill();
     renderRoom();
     return;
@@ -105,6 +107,15 @@ function showHome() {
   hide("viewLanding"); show("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  
+  // Clear Party Pass state when leaving party
+  if (state.partyPassTimerInterval) {
+    clearInterval(state.partyPassTimerInterval);
+    state.partyPassTimerInterval = null;
+  }
+  state.partyPassActive = false;
+  state.partyPassEndTime = null;
+  
   setPlanPill();
 }
 
@@ -206,6 +217,11 @@ function escapeHtml(s) {
 }
 
 function activatePartyPass() {
+  if (!state.code) {
+    toast("Join or start a party first!");
+    return;
+  }
+  
   if (state.partyPassActive) {
     toast("Party Pass already active!");
     return;
@@ -229,12 +245,12 @@ function activatePartyPass() {
     }));
   }
   
-  // Start the timer
+  // Start the timer - update every minute instead of every second
   updatePartyPassTimer();
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
   }
-  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 1000);
+  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000); // Update every minute
   
   // Update UI
   setPlanPill();
@@ -269,7 +285,8 @@ function updatePartyPassTimer() {
 function expirePartyPass() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
-  state.partyPro = state.snapshot?.members?.some(m => m.isPro && !m.isPartyPass) || false;
+  // Check if any members have regular Pro (not Party Pass)
+  state.partyPro = state.snapshot?.members?.some(m => m.isPro) || false;
   
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -348,7 +365,7 @@ function checkPartyPassStatus() {
         if (state.partyPassTimerInterval) {
           clearInterval(state.partyPassTimerInterval);
         }
-        state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 1000);
+        state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000); // Update every minute
         
         setPlanPill();
         updatePartyPassUI();

@@ -823,6 +823,7 @@ h2,h3{margin:0}
 .party-pass-title {
   font-size: 20px;
   font-weight: 900;
+  color: #8B7CFF; /* Fallback color */
   background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -859,6 +860,7 @@ h2,h3{margin:0}
 .party-pass-upgrade-title {
   font-size: 22px;
   font-weight: 800;
+  color: #8B7CFF; /* Fallback color */
   background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -891,6 +893,7 @@ h2,h3{margin:0}
 .party-pass-friend-title {
   font-size: 18px;
   font-weight: 900;
+  color: #8B7CFF; /* Fallback color */
   background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
