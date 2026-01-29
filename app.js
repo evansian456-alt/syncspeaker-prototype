@@ -99,12 +99,19 @@ function showHome() {
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
   
-  // Clean up audio URL when returning to home
+  // Clean up audio when returning to home
+  const audio = el("hostAudio");
+  audio.pause();
+  audio.src = "";
+  
   if (state.audioUrl) {
     URL.revokeObjectURL(state.audioUrl);
     state.audioUrl = null;
   }
   state.selectedFile = null;
+  
+  // Reset file input and status
+  el("musicFile").value = "";
   el("fileStatus").textContent = "";
   
   setPlanPill();
@@ -315,11 +322,11 @@ function attemptAddPhone() {
       console.error("[Audio] Playback failed:", err);
       
       // Show user-friendly error message
-      let errorMsg = "Tap Play to allow audio";
+      let errorMsg = "Unable to play audio. Please try again.";
       if (err.name === "NotAllowedError") {
-        errorMsg = "Browser blocked autoplay. Please tap the play button on your audio player.";
+        errorMsg = "Browser blocked audio playback. Please enable audio permissions and try again.";
       } else if (err.name === "NotSupportedError") {
-        errorMsg = "This audio format is not supported. Please try a different file.";
+        errorMsg = "This audio format is not supported. Please try a different file (MP3, WAV, M4A, etc.).";
       }
       
       el("startError").textContent = errorMsg;
