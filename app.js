@@ -70,7 +70,29 @@ function setPlanPill() {
   pill.textContent = state.partyPro ? "Supporter · party unlocked" : "Free · up to 2 phones";
 }
 
+function updateConnectionStatus(status) {
+  const statusDot = el("statusDot");
+  const statusText = el("statusText");
+  
+  if (!statusDot || !statusText) return;
+  
+  statusDot.className = `status-dot ${status}`;
+  
+  switch(status) {
+    case 'connected':
+      statusText.textContent = 'Connected';
+      break;
+    case 'connecting':
+      statusText.textContent = 'Connecting...';
+      break;
+    case 'disconnected':
+      statusText.textContent = 'Disconnected';
+      break;
+  }
+}
+
 function connectWS() {
+  updateConnectionStatus('connecting');
   return new Promise((resolve, reject) => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const wsUrl = `${proto}://${location.host}`;
@@ -81,12 +103,14 @@ function connectWS() {
 
     ws.onopen = () => {
       debugLog("WebSocket connected successfully", 'success');
+      updateConnectionStatus('connected');
       resolve();
     };
     
     ws.onerror = (e) => {
       debugLog("WebSocket connection error", 'error');
       console.error("[WS] Connection error:", e);
+      updateConnectionStatus('disconnected');
       toast("Connection error - check network");
       reject(e);
     };
@@ -105,6 +129,7 @@ function connectWS() {
     
     ws.onclose = () => {
       debugLog("WebSocket connection closed", 'warn');
+      updateConnectionStatus('disconnected');
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
