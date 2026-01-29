@@ -60,8 +60,19 @@ body::before {
   border-radius: var(--radius);
   padding:18px;
   box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+}
+
+@supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
+  .card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+@supports not ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+  .card {
+    background: rgba(18,24,35,0.92);
+  }
 }
 h1{margin:0 0 8px 0}
 h2,h3{margin:0}
@@ -286,4 +297,25 @@ h2,h3{margin:0}
 @keyframes equalizeSlow {
   0%, 100% { transform: scaleY(1); }
   50% { transform: scaleY(1.2); }
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .dj-svg {
+    animation: none;
+    filter: drop-shadow(0 0 20px rgba(139,69,255,0.5));
+  }
+  
+  .bg-blob {
+    animation: none;
+  }
+  
+  .eq-bar {
+    animation: none;
+    opacity: 0.6;
+  }
+  
+  .equalizer.paused .eq-bar {
+    animation: none;
+  }
 }
