@@ -107,7 +107,7 @@
       <!-- Pricing -->
       <div class="glass-card pricing-card">
         <h2>💎 Pricing</h2>
-        <div class="pricing-grid">
+        <div class="pricing-grid pricing-grid-three">
           <div class="pricing-option">
             <div class="pricing-badge free">Free</div>
             <h3>Free Plan</h3>
@@ -118,7 +118,24 @@
               <li>• Includes ads</li>
             </ul>
           </div>
-          <div class="pricing-option featured">
+          <div class="pricing-option party-pass-featured">
+            <div class="popular-badge">Most popular</div>
+            <div class="pricing-badge party-pass">Party Pass</div>
+            <h3>🎉 Party Pass</h3>
+            <p class="pricing-subtitle">(One-Night Only)</p>
+            <p class="pricing-price">£2.99</p>
+            <p class="pricing-desc">Go Pro for tonight. No commitment.</p>
+            <ul class="pricing-features">
+              <li>✓ No ads during playback</li>
+              <li>✓ Higher phone/speaker limit</li>
+              <li>✓ Pro DJ visuals &amp; effects</li>
+              <li>✓ Priority sync stability</li>
+              <li>✓ Party-wide unlock</li>
+            </ul>
+            <button class="btn-party-pass" id="btnActivatePartyPassLanding">Activate Party Pass</button>
+            <p class="pricing-fine-print">Single-use · Valid for one party · Auto-expires after 6 hours</p>
+          </div>
+          <div class="pricing-option">
             <div class="pricing-badge pro">Pro</div>
             <h3>Pro Yearly</h3>
             <p class="pricing-price">£29.99/year</p>
@@ -130,9 +147,6 @@
               <li>✓ Speaker support</li>
             </ul>
           </div>
-        </div>
-        <div class="promo-hint">
-          <p>💫 Have a promo code? Unlock Pro features for one party!</p>
         </div>
       </div>
 
@@ -214,6 +228,25 @@
           <div class="muted tiny" id="partyMeta"></div>
         </div>
         <button class="btn danger" id="btnLeave">Leave</button>
+      </div>
+
+      <!-- Party Pass Status/Upgrade Banner -->
+      <div class="party-pass-banner hidden" id="partyPassBanner">
+        <div class="party-pass-status hidden" id="partyPassActive">
+          <div class="party-pass-icon">🎉</div>
+          <div class="party-pass-info">
+            <div class="party-pass-title" id="partyPassTitle">Party Pass Active</div>
+            <div class="party-pass-timer" id="partyPassTimer">5h 42m remaining</div>
+            <div class="party-pass-desc hidden" id="partyPassDesc">Pro features unlocked for this party</div>
+          </div>
+        </div>
+        <div class="party-pass-upgrade hidden" id="partyPassUpgrade">
+          <div class="party-pass-upgrade-content">
+            <div class="party-pass-upgrade-title">🎉 Upgrade this party — £2.99 · 6 hours</div>
+            <p class="party-pass-upgrade-tagline">Go Pro for tonight. No commitment.</p>
+            <button class="btn-party-pass" id="btnActivatePartyPass">Activate Party Pass</button>
+          </div>
+        </div>
       </div>
 
       <div class="grid3">

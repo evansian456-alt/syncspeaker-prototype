@@ -11,7 +11,10 @@ const state = {
   partyPro: false,
   playing: false,
   adActive: false,
-  snapshot: null
+  snapshot: null,
+  partyPassActive: false,
+  partyPassEndTime: null,
+  partyPassTimerInterval: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -28,7 +31,13 @@ function hide(id) { el(id).classList.add("hidden"); }
 
 function setPlanPill() {
   const pill = el("planPill");
-  pill.textContent = state.partyPro ? "Supporter · party unlocked" : "Free · up to 2 phones";
+  if (state.partyPassActive) {
+    pill.textContent = "🎉 Party Pass · Active";
+  } else if (state.partyPro) {
+    pill.textContent = "Supporter · party unlocked";
+  } else {
+    pill.textContent = "Free · up to 2 phones";
+  }
 }
 
 function connectWS() {
@@ -103,6 +112,15 @@ function showLanding() {
   show("viewLanding"); hide("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  
+  // Clear Party Pass state when leaving party
+  if (state.partyPassTimerInterval) {
+    clearInterval(state.partyPassTimerInterval);
+    state.partyPassTimerInterval = null;
+  }
+  state.partyPassActive = false;
+  state.partyPassEndTime = null;
+  
   setPlanPill();
 }
 
@@ -111,7 +129,12 @@ function showParty() {
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
+  
+  // Check if Party Pass is active for this party
+  checkPartyPassStatus();
+  
   setPlanPill();
+  updatePartyPassUI();
   renderRoom();
   updatePlaybackUI();
   updateQualityUI();
@@ -170,8 +193,9 @@ function updateQualityUI() {
 function updatePlaybackUI() {
   el("btnPlay").disabled = state.adActive;
   el("btnPause").disabled = state.adActive;
-  el("btnAd").disabled = state.partyPro || state.source === "mic";
-  el("adLine").textContent = state.partyPro ? "No ads (Pro)"
+  const isProOrPartyPass = state.partyPro || state.partyPassActive;
+  el("btnAd").disabled = isProOrPartyPass || state.source === "mic";
+  el("adLine").textContent = isProOrPartyPass ? "No ads (Pro)"
     : (state.source === "mic" ? "No ads in mic mode" : "Ads interrupt playback for free users.");
 }
 
@@ -179,6 +203,165 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[c]));
+}
+
+function activatePartyPass() {
+  if (state.partyPassActive) {
+    toast("Party Pass already active!");
+    return;
+  }
+  
+  // Set 6 hours from now
+  const sixHours = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+  state.partyPassEndTime = Date.now() + sixHours;
+  state.partyPassActive = true;
+  state.partyPro = true; // Party Pass gives Pro benefits
+  state.isPro = true; // Mark this client as Pro
+  
+  // Notify server that this client is now Pro (makes whole party Pro)
+  send({ t: "SET_PRO", isPro: true });
+  
+  // Store in localStorage for this party
+  if (state.code) {
+    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+      endTime: state.partyPassEndTime,
+      active: true
+    }));
+  }
+  
+  // Start the timer
+  updatePartyPassTimer();
+  if (state.partyPassTimerInterval) {
+    clearInterval(state.partyPassTimerInterval);
+  }
+  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 1000);
+  
+  // Update UI
+  setPlanPill();
+  updatePartyPassUI();
+  updatePlaybackUI();
+  
+  toast("🎉 Party Pass activated! Enjoy 6 hours of Pro features!");
+}
+
+function updatePartyPassTimer() {
+  if (!state.partyPassActive || !state.partyPassEndTime) return;
+  
+  const now = Date.now();
+  const remaining = state.partyPassEndTime - now;
+  
+  if (remaining <= 0) {
+    // Party Pass expired
+    expirePartyPass();
+    return;
+  }
+  
+  // Calculate hours and minutes
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+  
+  const timerEl = el("partyPassTimer");
+  if (timerEl) {
+    timerEl.textContent = `${hours}h ${minutes}m remaining`;
+  }
+}
+
+function expirePartyPass() {
+  state.partyPassActive = false;
+  state.partyPassEndTime = null;
+  state.partyPro = state.snapshot?.members?.some(m => m.isPro && !m.isPartyPass) || false;
+  
+  if (state.partyPassTimerInterval) {
+    clearInterval(state.partyPassTimerInterval);
+    state.partyPassTimerInterval = null;
+  }
+  
+  // Remove from localStorage
+  if (state.code) {
+    localStorage.removeItem(`partyPass_${state.code}`);
+  }
+  
+  setPlanPill();
+  updatePartyPassUI();
+  updatePlaybackUI();
+  
+  toast("⏰ Party Pass has expired");
+}
+
+function updatePartyPassUI() {
+  const banner = el("partyPassBanner");
+  const activeStatus = el("partyPassActive");
+  const upgradeCard = el("partyPassUpgrade");
+  const descEl = el("partyPassDesc");
+  const titleEl = el("partyPassTitle");
+  
+  if (!banner || !activeStatus || !upgradeCard) return;
+  
+  if (state.partyPassActive) {
+    // Host with active Party Pass
+    banner.classList.remove("hidden");
+    activeStatus.classList.remove("hidden");
+    upgradeCard.classList.add("hidden");
+    
+    if (titleEl) titleEl.textContent = "Party Pass Active";
+    if (descEl) descEl.classList.add("hidden");
+  } else if (state.partyPro && !state.isHost) {
+    // Friend in a Pro/Party Pass party
+    banner.classList.remove("hidden");
+    activeStatus.classList.remove("hidden");
+    upgradeCard.classList.add("hidden");
+    
+    if (titleEl) titleEl.textContent = "🎉 Party Pass Active";
+    if (descEl) descEl.classList.remove("hidden");
+    
+    // Hide timer for friends since we don't have the end time
+    const timerEl = el("partyPassTimer");
+    if (timerEl) timerEl.classList.add("hidden");
+  } else if (!state.partyPro && state.isHost) {
+    // Show upgrade banner for free users on host page
+    banner.classList.remove("hidden");
+    activeStatus.classList.add("hidden");
+    upgradeCard.classList.remove("hidden");
+  } else {
+    // Hide banner
+    banner.classList.add("hidden");
+  }
+}
+
+function checkPartyPassStatus() {
+  if (!state.code) return;
+  
+  const stored = localStorage.getItem(`partyPass_${state.code}`);
+  if (!stored) return;
+  
+  try {
+    const data = JSON.parse(stored);
+    if (data.active && data.endTime) {
+      const now = Date.now();
+      if (data.endTime > now) {
+        // Party Pass is still valid
+        state.partyPassActive = true;
+        state.partyPassEndTime = data.endTime;
+        state.partyPro = true;
+        
+        // Start the timer
+        updatePartyPassTimer();
+        if (state.partyPassTimerInterval) {
+          clearInterval(state.partyPassTimerInterval);
+        }
+        state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 1000);
+        
+        setPlanPill();
+        updatePartyPassUI();
+        updatePlaybackUI();
+      } else {
+        // Party Pass has expired
+        localStorage.removeItem(`partyPass_${state.code}`);
+      }
+    }
+  } catch (e) {
+    console.error("Error loading Party Pass state:", e);
+  }
 }
 
 function renderRoom() {
@@ -233,10 +416,11 @@ function attemptAddPhone() {
   if (next > q.hardCap) { toast(`Hard cap reached (${q.hardCap})`); return; }
   if (q.score < 50) { toast("Connection is weak — try moving closer or using a hotspot"); return; }
 
-  if (!state.partyPro && next > FREE_LIMIT) { openPaywall(); return; }
+  const isProOrPartyPass = state.partyPro || state.partyPassActive;
+  if (!isProOrPartyPass && next > FREE_LIMIT) { openPaywall(); return; }
 
   if (next > q.rec) {
-    if (!state.partyPro) { openPaywall(); return; }
+    if (!isProOrPartyPass) { openPaywall(); return; }
     openWarn(q.rec, next); return;
   }
 
@@ -291,7 +475,7 @@ function attemptAddPhone() {
   el("btnPause").onclick = () => { if (state.adActive) return; state.playing = false; toast("Pause (simulated)"); };
 
   el("btnAd").onclick = () => {
-    if (state.partyPro || state.source === "mic") return;
+    if (state.partyPro || state.partyPassActive || state.source === "mic") return;
     state.adActive = true; state.playing = false; updatePlaybackUI();
     toast("Ad (20s) — supporters remove ads");
     setTimeout(() => { state.adActive = false; updatePlaybackUI(); toast("Ad finished"); }, 20000);
@@ -299,7 +483,7 @@ function attemptAddPhone() {
 
   el("btnAddPhone").onclick = attemptAddPhone;
 
-  el("btnSpeaker").onclick = () => { if (!state.partyPro) openPaywall(); else openSpeaker(); };
+  el("btnSpeaker").onclick = () => { if (!state.partyPro && !state.partyPassActive) openPaywall(); else openSpeaker(); };
 
   el("btnProYes").onclick = () => {
     el("togglePro").checked = true;
@@ -314,6 +498,22 @@ function attemptAddPhone() {
   el("btnWarnAnyway").onclick = () => { closeWarn(); toast("Okay — you chose to add more phones"); };
 
   el("btnSpeakerOk").onclick = closeSpeaker;
+
+  // Party Pass activation buttons
+  const btnActivateLanding = el("btnActivatePartyPassLanding");
+  if (btnActivateLanding) {
+    btnActivateLanding.onclick = () => {
+      toast("Start a party to activate Party Pass");
+      showHome();
+    };
+  }
+
+  const btnActivateParty = el("btnActivatePartyPass");
+  if (btnActivateParty) {
+    btnActivateParty.onclick = () => {
+      activatePartyPass();
+    };
+  }
 })();
 
 
