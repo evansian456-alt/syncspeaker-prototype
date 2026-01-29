@@ -9,9 +9,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 // In-memory room state (prototype)
@@ -45,6 +42,9 @@ function roomSnapshot(code) {
   members.sort((a, b) => (b.isHost - a.isHost) || (a.joinedAt - b.joinedAt));
   return { code, createdAt: room.createdAt, hostId: room.hostId, members };
 }
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws) => {
   ws._clientId = nanoid(10);
@@ -139,6 +139,7 @@ wss.on("connection", (ws) => {
   ws.on("error", (err) => {
     console.error("WebSocket error:", err);
   });
+});
 
 // Serve static files safely
 app.use("/static", express.static(path.resolve(__dirname, "../web")));
