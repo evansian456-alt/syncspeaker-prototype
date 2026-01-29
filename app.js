@@ -166,6 +166,16 @@ function updatePlaybackUI() {
   el("btnAd").disabled = state.partyPro || state.source === "mic";
   el("adLine").textContent = state.partyPro ? "No ads (Pro)"
     : (state.source === "mic" ? "No ads in mic mode" : "Ads interrupt playback for free users.");
+  
+  // Update equalizer animation based on playing state
+  const equalizer = el("equalizer");
+  if (equalizer) {
+    if (state.playing && !state.adActive) {
+      equalizer.classList.remove("paused");
+    } else {
+      equalizer.classList.add("paused");
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -269,8 +279,18 @@ function attemptAddPhone() {
     catch { toast("Copy failed (permission)"); }
   };
 
-  el("btnPlay").onclick = () => { if (state.adActive) return; state.playing = true; toast("Play (simulated)"); };
-  el("btnPause").onclick = () => { if (state.adActive) return; state.playing = false; toast("Pause (simulated)"); };
+  el("btnPlay").onclick = () => { 
+    if (state.adActive) return; 
+    state.playing = true; 
+    updatePlaybackUI();
+    toast("Play (simulated)"); 
+  };
+  el("btnPause").onclick = () => { 
+    if (state.adActive) return; 
+    state.playing = false; 
+    updatePlaybackUI();
+    toast("Pause (simulated)"); 
+  };
 
   el("btnAd").onclick = () => {
     if (state.partyPro || state.source === "mic") return;
