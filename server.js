@@ -12,7 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 // In-memory room state (prototype)
 const rooms = new Map();
@@ -54,7 +54,10 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (raw) => {
     let msg;
-    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    try { msg = JSON.parse(raw.toString()); } catch {
+      console.error("Invalid message received:", raw);
+      return;
+    }
     const t = msg?.t;
 
     if (t === "CREATE") {
@@ -72,7 +75,10 @@ wss.on("connection", (ws) => {
     if (t === "JOIN") {
       const code = (msg.code || "").toUpperCase().trim();
       const room = rooms.get(code);
-      if (!room) { safeSend(ws, { t: "ERROR", message: "Party code not found" }); return; }
+      if (!room) {
+        safeSend(ws, { t: "ERROR", message: "Party code not found" });
+        return;
+      }
       room.members.set(ws._clientId, { name: msg.name || "Guest", isPro: !!msg.isPro, joinedAt: Date.now() });
       ws._roomCode = code;
       safeSend(ws, { t: "JOINED", code });
@@ -96,7 +102,10 @@ wss.on("connection", (ws) => {
       const code = ws._roomCode;
       const room = rooms.get(code);
       if (!room) return;
-      if (ws._clientId !== room.hostId) { safeSend(ws, { t: "ERROR", message: "Only host can remove people" }); return; }
+      if (ws._clientId !== room.hostId) {
+        safeSend(ws, { t: "ERROR", message: "Only host can remove people" });
+        return;
+      }
       const targetId = msg.targetId;
       if (!room.members.has(targetId)) return;
       room.members.delete(targetId);
@@ -126,8 +135,36 @@ wss.on("connection", (ws) => {
     }
     broadcast(code, { t: "ROOM", snapshot: roomSnapshot(code) });
   });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err);
+  });
 });
 
-app.use(express.static(path.join(__dirname, "../web")));
+// Serve static files safely
+app.use(express.static(path.resolve(__dirname, "../web")));
+
+// Health check endpoint
 app.get("/health", (_, res) => res.json({ ok: true }));
-server.listen(PORT, () => console.log(`SyncSpeaker prototype on http://localhost:${PORT}`));
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal Server Error" });
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`SyncSpeaker prototype running on http://localhost:${PORT}`);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("SIGTERM", () => {
+  console.info("SIGTERM received. Closing server...");
+  server.close(() => {
+    console.info("Server closed.");
+    process.exit(0);
+  });
+});
