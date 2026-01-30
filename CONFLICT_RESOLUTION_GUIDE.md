@@ -10,6 +10,30 @@ This document provides detailed instructions for resolving merge conflicts in op
 
 Both PRs have conflicts with the main branch and need to be updated.
 
+## Quick Start: Using Patches
+
+The fastest way to resolve these conflicts is to apply the pre-generated patches:
+
+```bash
+# For PR #28
+git checkout copilot/add-timers-and-event-names
+git am < patches/pr28-conflict-resolution.patch
+git push origin copilot/add-timers-and-event-names
+
+# For PR #26  
+git checkout copilot/implement-upgrade-ux-flows
+git am < patches/pr26-conflict-resolution.patch
+git push origin copilot/implement-upgrade-ux-flows
+```
+
+See [patches/README.md](patches/README.md) for more details about the patches.
+
+---
+
+## Manual Resolution (Alternative Approach)
+
+If you prefer to resolve conflicts manually or need to understand what changed, follow the detailed instructions below.
+
 ## PR #28: Add real-time playback timers and consistent event naming
 
 ### Conflicts Found
