@@ -60,7 +60,8 @@ const state = {
     isPlaying: false,
     currentTime: 0,
     duration: 0
-  }
+  },
+  localTickInterval: null // For local playback simulation
 };
 
 // Client-side party code generator for offline fallback
@@ -282,6 +283,18 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
+  // Stop local tick simulation
+  stopLocalTickSimulation();
+  
+  // Reset playback state
+  state.currentTrack = null;
+  state.nextTrack = null;
+  state.playbackState = {
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0
+  };
+  
   setPlanPill();
 }
 
@@ -300,6 +313,18 @@ function showLanding() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Stop local tick simulation
+  stopLocalTickSimulation();
+  
+  // Reset playback state
+  state.currentTrack = null;
+  state.nextTrack = null;
+  state.playbackState = {
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0
+  };
   
   setPlanPill();
 }
@@ -331,6 +356,16 @@ function showParty() {
   renderRoom();
   updatePlaybackUI();
   updateQualityUI();
+  
+  // Show queue management for host only
+  const queueMgmt = el("queueManagement");
+  if (queueMgmt) {
+    if (state.isHost) {
+      queueMgmt.classList.remove("hidden");
+    } else {
+      queueMgmt.classList.add("hidden");
+    }
+  }
 }
 
 function hashStr(s){
@@ -436,6 +471,53 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function startLocalTickSimulation() {
+  // Clear any existing interval
+  if (state.localTickInterval) {
+    clearInterval(state.localTickInterval);
+  }
+  
+  // Start a local tick simulation for prototype mode
+  state.localTickInterval = setInterval(() => {
+    if (!state.playbackState.isPlaying) return;
+    
+    const audioEl = musicState.audioElement;
+    if (audioEl && audioEl.src && !audioEl.paused) {
+      // Update from actual audio element
+      state.playbackState.currentTime = audioEl.currentTime;
+      state.playbackState.duration = audioEl.duration || state.playbackState.duration;
+    } else if (state.playbackState.duration > 0) {
+      // Simulate progression
+      state.playbackState.currentTime += 0.25; // 250ms increment
+      
+      // Check if track ended
+      if (state.playbackState.currentTime >= state.playbackState.duration) {
+        state.playbackState.currentTime = state.playbackState.duration;
+        state.playbackState.isPlaying = false;
+        state.playing = false;
+        
+        // Switch to next track if available
+        if (state.nextTrack) {
+          state.currentTrack = state.nextTrack;
+          state.nextTrack = null;
+          state.playbackState.currentTime = 0;
+          state.playbackState.duration = state.currentTrack.duration || 0;
+          toast("Switched to next track");
+        }
+      }
+    }
+    
+    updateTimersDisplay();
+  }, 250); // 250ms interval
+}
+
+function stopLocalTickSimulation() {
+  if (state.localTickInterval) {
+    clearInterval(state.localTickInterval);
+    state.localTickInterval = null;
+  }
 }
 
 function escapeHtml(s) {
@@ -1185,6 +1267,9 @@ function attemptAddPhone() {
           }
           
           updateTimersDisplay();
+          
+          // Start local tick simulation for timer updates
+          startLocalTickSimulation();
         })
         .catch((error) => {
           console.error("[Music] Play failed:", error);
@@ -1207,9 +1292,21 @@ function attemptAddPhone() {
     } else {
       state.playing = true;
       state.playbackState.isPlaying = true;
+      // Set a demo track for simulation
+      if (!state.currentTrack) {
+        state.currentTrack = {
+          name: "Demo Track",
+          duration: 210 // 3.5 minutes
+        };
+        state.playbackState.duration = 210;
+        state.playbackState.currentTime = 0;
+      }
       updateMusicStatus("Play (simulated - no music file loaded)");
       toast("Play (simulated)");
       updateTimersDisplay();
+      
+      // Start local tick simulation
+      startLocalTickSimulation();
     }
   };
   
@@ -1223,6 +1320,9 @@ function attemptAddPhone() {
       state.playbackState.isPlaying = false;
       state.playbackState.currentTime = audioEl.currentTime;
       updateMusicStatus("Paused");
+      
+      // Stop local tick simulation
+      stopLocalTickSimulation();
       
       // Notify server if connected and host
       if (state.ws && state.isHost) {
@@ -1239,6 +1339,9 @@ function attemptAddPhone() {
       updateMusicStatus("Pause (simulated)");
       toast("Pause (simulated)");
       updateTimersDisplay();
+      
+      // Stop local tick simulation
+      stopLocalTickSimulation();
     }
   };
 
@@ -1266,6 +1369,47 @@ function attemptAddPhone() {
   el("btnWarnAnyway").onclick = () => { closeWarn(); toast("Okay — you chose to add more phones"); };
 
   el("btnSpeakerOk").onclick = closeSpeaker;
+
+  // Queue management buttons
+  el("btnQueueNext").onclick = () => {
+    if (!state.isHost) {
+      toast("Only host can queue tracks");
+      return;
+    }
+    
+    // Create a demo next track
+    const demoTrack = {
+      name: "Demo Next Track",
+      duration: 180 // 3 minutes
+    };
+    
+    state.nextTrack = demoTrack;
+    
+    // Send to server if connected
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      send({ t: EVENT.TRACK_NEXT_QUEUED, track: demoTrack });
+    }
+    
+    updateTimersDisplay();
+    toast("Next track queued!");
+  };
+
+  el("btnClearNext").onclick = () => {
+    if (!state.isHost) {
+      toast("Only host can clear queue");
+      return;
+    }
+    
+    state.nextTrack = null;
+    
+    // Send to server if connected
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      send({ t: EVENT.TRACK_NEXT_CLEARED });
+    }
+    
+    updateTimersDisplay();
+    toast("Next track cleared");
+  };
 
   // Party Pass activation buttons
   const btnActivateLanding = el("btnActivatePartyPassLanding");
