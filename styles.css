@@ -1533,3 +1533,59 @@ h2,h3{margin:0}
   }
 }
 
+
+/* Debug Panel (Prototype Only) */
+.debug-panel {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(18, 24, 35, 0.95);
+  border: 1px solid rgba(90, 169, 255, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  max-width: 320px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+}
+
+.debug-title {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #5AA9FF);
+  border-bottom: 1px solid rgba(90, 169, 255, 0.2);
+  padding-bottom: 4px;
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.debug-label {
+  color: var(--text-muted, #888);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.debug-value {
+  color: var(--text, #fff);
+  text-align: right;
+  word-break: break-word;
+  flex: 1;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+@media (max-width: 640px) {
+  .debug-panel {
+    bottom: 5px;
+    right: 5px;
+    left: 5px;
+    max-width: none;
+  }
+}
+
