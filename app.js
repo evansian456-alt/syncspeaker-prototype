@@ -5,7 +5,8 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const musicState = {
   selectedFile: null,
   currentObjectURL: null,
-  audioElement: null
+  audioElement: null,
+  initialized: false // Track if audio player has been initialized
 };
 
 // Debug state for tracking API calls and errors
@@ -217,6 +218,10 @@ function showParty() {
   }
   
   el("partyCode").textContent = state.code || "------";
+  
+  // Initialize music player now that viewParty is visible
+  // This ensures the audio element reference is properly set
+  initializeMusicPlayer();
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -442,9 +447,33 @@ function handleMusicFileSelection(file) {
 }
 
 function initializeMusicPlayer() {
+  // Only initialize once to avoid duplicate event listeners
+  if (musicState.initialized) {
+    console.log("[Music] Player already initialized, updating element reference");
+    // Update the element reference in case it changed
+    const audioEl = el("hostAudioPlayer");
+    if (audioEl) {
+      musicState.audioElement = audioEl;
+      // Restore the audio src if a file was previously selected
+      if (musicState.currentObjectURL) {
+        audioEl.src = musicState.currentObjectURL;
+        console.log("[Music] Restored audio src after navigation");
+      }
+    }
+    return;
+  }
+  
   const audioEl = el("hostAudioPlayer");
   if (audioEl) {
     musicState.audioElement = audioEl;
+    musicState.initialized = true;
+    console.log("[Music] Player initialized successfully");
+    
+    // Restore the audio src if a file was previously selected
+    if (musicState.currentObjectURL) {
+      audioEl.src = musicState.currentObjectURL;
+      console.log("[Music] Restored audio src during initialization");
+    }
     
     // Audio event listeners
     audioEl.addEventListener("play", () => {
@@ -496,11 +525,13 @@ function initializeMusicPlayer() {
     audioEl.addEventListener("loadedmetadata", () => {
       console.log("[Music] Audio loaded, duration:", audioEl.duration);
     });
+  } else {
+    console.warn("[Music] Audio element not found - viewParty may not be visible yet");
   }
   
-  // File input handler
+  // File input handler - only set up once
   const fileInputEl = el("musicFileInput");
-  if (fileInputEl) {
+  if (fileInputEl && !musicState.initialized) {
     fileInputEl.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (file) {
