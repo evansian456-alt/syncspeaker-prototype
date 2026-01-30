@@ -206,7 +206,16 @@ function showLanding() {
 function showParty() {
   hide("viewLanding"); hide("viewHome"); show("viewParty");
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
-  el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
+  
+  // Display prototype mode message if in offline/local mode
+  if (state.offlineMode && state.isHost) {
+    el("partyMeta").textContent = "Party created locally (prototype mode)";
+    el("partyMeta").style.color = "var(--accent, #5AA9FF)";
+  } else {
+    el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
+    el("partyMeta").style.color = "";
+  }
+  
   el("partyCode").textContent = state.code || "------";
   
   // Check if Party Pass is active for this party
@@ -753,7 +762,9 @@ function attemptAddPhone() {
 }
 
 (async function init(){
-  await connectWS();
+  // TODO: Enable real-time sync later in native app
+  // For browser prototype, we skip WebSocket connection for Start Party to work instantly
+  // await connectWS();
   showLanding();
   
   // Initialize music player
@@ -771,11 +782,8 @@ function attemptAddPhone() {
   };
 
   el("btnCreate").onclick = async () => {
-    console.log("[UI] Start party button clicked");
+    console.log("[UI] Start party button clicked - PROTOTYPE MODE (no backend dependency)");
     const btn = el("btnCreate");
-    const statusEl = el("partyStatus");
-    const messageEl = el("createStatusMessage");
-    const debugEl = el("createDebugInfo");
     
     // Prevent multiple clicks - check if button is already disabled
     if (btn.disabled) {
@@ -783,130 +791,47 @@ function attemptAddPhone() {
       return;
     }
     
-    // Helper function to update status
-    const updateStatus = (message, isError = false) => {
-      if (statusEl) statusEl.classList.remove("hidden");
-      if (messageEl) {
-        messageEl.textContent = message;
-        messageEl.style.color = isError ? "var(--danger, #ff5a6a)" : "var(--text, #fff)";
-      }
-      console.log(`[Party] ${message}`);
-    };
+    // BROWSER PROTOTYPE MODE: Create party instantly without network dependency
+    // Disable button briefly for visual feedback
+    btn.disabled = true;
+    btn.textContent = "Creating party...";
     
-    // Helper function to update debug info
-    const updateDebug = (message) => {
-      if (debugEl) {
-        debugEl.textContent = message;
-      }
-    };
+    // Get user configuration
+    state.name = el("hostName").value.trim() || "Host";
+    state.source = "local"; // Always use local source for music from phone
+    state.isPro = el("togglePro").checked;
+    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     
-    let serverCallSucceeded = false;
+    // Generate party code client-side (6 random letters/numbers)
+    const partyCode = generatePartyCode();
+    console.log("[Party] Generated party code:", partyCode);
     
-    try {
-      // Provide visual feedback by disabling button immediately
-      btn.disabled = true;
-      btn.textContent = "Creating party...";
-      updateStatus("Creating party…");
-      
-      state.name = el("hostName").value.trim() || "Host";
-      state.source = "local"; // Always use local source for music from phone
-      state.isPro = el("togglePro").checked;
-      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
-      
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-      
-      const endpoint = "POST /api/create-party";
-      updateDebug(`Endpoint: ${endpoint}`);
-      updateDebugPanel(endpoint, null);
-      updateStatus("Calling server…");
-      
-      let response;
-      try {
-        response = await fetch("/api/create-party", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        const errorMsg = fetchError.name === "AbortError" 
-          ? "Server not responding. Try again." 
-          : fetchError.message;
-        
-        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "error"})`);
-        throw new Error(errorMsg);
+    // Set party state immediately
+    state.code = partyCode;
+    state.isHost = true;
+    state.offlineMode = true; // Mark as prototype/offline mode
+    
+    // Show party view immediately
+    showParty();
+    
+    // Add visible status message about prototype mode
+    setTimeout(() => {
+      const partyMeta = el("partyMeta");
+      if (partyMeta) {
+        partyMeta.textContent = "Party created locally (prototype mode)";
+        partyMeta.style.color = "var(--accent, #5AA9FF)";
       }
-      
-      updateStatus("Server responded…");
-      
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "Unknown error");
-        const errorMsg = `Server error: ${response.status} - ${errorText}`;
-        updateDebugPanel(endpoint, errorMsg);
-        throw new Error(errorMsg);
-      }
-      
-      const data = await response.json();
-      updateStatus(`Server ready`);
-      updateDebug(`Server validated: ${data.partyCode}`);
-      updateDebugPanel(endpoint, null); // Clear error on success
-      
-      serverCallSucceeded = true;
-      
-      // Server is responsive, now create party via WebSocket (actual party creation)
-      updateStatus("Creating party via WebSocket…");
-      send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
-      
-      // The WebSocket handler will call showParty() when CREATED message is received
-      // and will set state.code and state.isHost
-      // Clear status after a short delay
-      setTimeout(() => {
-        if (statusEl) statusEl.classList.add("hidden");
-      }, 2000);
-      
-    } catch (error) {
-      console.error("[Party] Server call failed, using fallback:", error);
-      updateStatus(error.message || "Error creating party. Try again.", true);
-      
-      // INSTANT FALLBACK: Generate party code client-side and continue
-      if (!serverCallSucceeded) {
-        const fallbackCode = generatePartyCode();
-        console.log("[Party] Using offline fallback mode with code:", fallbackCode);
-        
-        state.code = fallbackCode;
-        state.isHost = true;
-        state.offlineMode = true;
-        
-        updateStatus("Offline mode: party created locally", false);
-        toast("Offline mode: party created locally (some features may not sync).");
-        
-        // Show party view with warning
-        showParty();
-        
-        // Add warning message to party view
-        setTimeout(() => {
-          const partyMeta = el("partyMeta");
-          if (partyMeta && state.offlineMode) {
-            partyMeta.textContent = "⚠️ Offline mode: some features may not sync";
-            partyMeta.style.color = "var(--warning, #ffaa00)";
-          }
-        }, 100);
-      } else {
-        // Show toast with error
-        toast(error.message || "Error creating party");
-      }
-    } finally {
-      // ALWAYS re-enable button and reset text
-      btn.disabled = false;
-      btn.textContent = "Start party";
-    }
+    }, 100);
+    
+    // Show success toast
+    toast(`Party created: ${partyCode}`);
+    
+    // Re-enable button
+    btn.disabled = false;
+    btn.textContent = "Start party";
+    
+    // TODO: Enable real-time sync later in native app
+    // For browser prototype, we skip WebSocket connection to ensure Start Party works instantly
   };
 
   el("btnJoin").onclick = async () => {
