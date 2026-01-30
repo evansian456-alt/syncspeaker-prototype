@@ -1382,3 +1382,123 @@ h2,h3{margin:0}
     letter-spacing: 4px;
   }
 }
+
+/* ===== MUSIC PICKER STYLES ===== */
+.music-section {
+  margin: 20px 0;
+  padding: 16px;
+  background: rgba(90, 169, 255, 0.08);
+  border: 1px solid rgba(90, 169, 255, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+.music-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px 0;
+}
+
+.music-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.music-info {
+  margin: 12px 0;
+  padding: 12px;
+  background: rgba(11, 15, 20, 0.4);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.music-file-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.music-filename {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.music-filesize {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.music-status-ready {
+  background: rgba(92, 255, 138, 0.2);
+  border-color: rgba(92, 255, 138, 0.4);
+  color: var(--good);
+  font-weight: 600;
+  width: fit-content;
+}
+
+.music-helper {
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.music-warning {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 198, 90, 0.15);
+  border: 1px solid rgba(255, 198, 90, 0.4);
+  border-radius: var(--radius-sm);
+  color: #FFC65A;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.music-warning.error {
+  background: rgba(255, 90, 106, 0.15);
+  border-color: rgba(255, 90, 106, 0.4);
+  color: #FF5A6A;
+}
+
+/* Playback Status */
+.playback-status {
+  padding: 10px 12px;
+  background: rgba(11, 15, 20, 0.4);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.status-label {
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+.status-message {
+  color: var(--text);
+}
+
+/* Audio Player Styling */
+#hostAudioPlayer {
+  border-radius: var(--radius-sm);
+  background: rgba(11, 15, 20, 0.4);
+}
+
+#hostAudioPlayer::-webkit-media-controls-panel {
+  background: rgba(18, 24, 35, 0.9);
+}
+
+@media (max-width: 640px) {
+  .music-controls {
+    flex-direction: column;
+  }
+  
+  .music-controls .btn {
+    width: 100%;
+  }
+}
+

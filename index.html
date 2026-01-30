@@ -186,12 +186,27 @@
           <h3>Start a party (Host)</h3>
           <label class="lbl">Your name</label>
           <input id="hostName" class="input" value="Host" />
-          <label class="lbl">Where is the music coming from?</label>
-          <select id="source" class="input">
-            <option value="local">On this phone (best)</option>
-            <option value="external">Another app (timing only)</option>
-            <option value="mic">Mic (for talking)</option>
-          </select>
+          
+          <!-- Music from Phone Section -->
+          <div class="music-section">
+            <h4 class="music-section-title">🎵 Music (from your phone)</h4>
+            <div class="music-controls">
+              <input type="file" id="musicFileInput" accept="audio/*" style="display: none;" />
+              <button class="btn secondary" id="btnChooseMusic">Choose music file</button>
+              <button class="btn secondary hidden" id="btnChangeMusic">Change file</button>
+            </div>
+            <div class="music-info hidden" id="musicInfo">
+              <div class="music-file-details">
+                <span class="music-filename" id="musicFilename"></span>
+                <span class="music-filesize" id="musicFilesize"></span>
+                <span class="pill-enhanced music-status-ready" id="musicStatusReady">✓ Ready</span>
+              </div>
+            </div>
+            <div class="tiny muted music-helper">
+              Pick any audio file from your phone (MP3, WAV, M4A, etc). We don't provide music.
+            </div>
+            <div class="music-warning hidden" id="musicWarning"></div>
+          </div>
 
           <button class="btn primary" id="btnCreate">Start party</button>
           <div class="tiny muted">
@@ -277,7 +292,17 @@
         </div>
 
         <div class="box">
-          <div class="lbl">Playback (demo)</div>
+          <div class="lbl">Playback</div>
+          
+          <!-- Audio Player -->
+          <audio id="hostAudioPlayer" controls style="width: 100%; margin-bottom: 10px;"></audio>
+          
+          <!-- Status Area -->
+          <div class="playback-status" id="playbackStatus">
+            <span class="status-label">Status:</span>
+            <span class="status-message" id="statusMessage">No music loaded</span>
+          </div>
+          
           <div class="row gap">
             <button class="btn primary" id="btnPlay">Play</button>
             <button class="btn" id="btnPause">Pause</button>
