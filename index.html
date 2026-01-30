@@ -302,12 +302,23 @@
             <div class="party-pass-timer" id="partyPassTimer">5h 42m remaining</div>
             <div class="party-pass-desc hidden" id="partyPassDesc">Pro features unlocked for this party</div>
           </div>
+          <button class="btn-extend-party hidden" id="btnExtendParty">Extend +1h</button>
         </div>
         <div class="party-pass-upgrade hidden" id="partyPassUpgrade">
           <div class="party-pass-upgrade-content">
             <div class="party-pass-upgrade-title">🎉 Upgrade this party — £2.99 · 2 hours</div>
             <p class="party-pass-upgrade-tagline">Go Pro for tonight. No commitment.</p>
             <button class="btn-party-pass" id="btnActivatePartyPass">Activate Party Pass</button>
+          </div>
+        </div>
+        <div class="host-gifted-upgrade hidden" id="hostGiftedUpgrade">
+          <div class="host-gifted-content">
+            <div class="host-gifted-icon">🎁</div>
+            <div class="host-gifted-text">
+              <div class="host-gifted-title">Unlock this party for everyone 🎉</div>
+              <p class="host-gifted-tagline">Activate Party Pass for all guests (£2.99 · 2 hours)</p>
+            </div>
+            <button class="btn-party-pass" id="btnHostGiftPartyPass">Gift Party Pass</button>
           </div>
         </div>
       </div>
@@ -391,6 +402,101 @@
           </label>
         </div>
         <div class="tiny muted">Control guest messaging permissions</div>
+      </div>
+
+      <!-- DJ Mode Pro Features (Pro Monthly Only) -->
+      <div class="box hidden" id="djModeProPanel">
+        <div class="dj-mode-header">
+          <h3>💎 DJ Mode Pro</h3>
+          <span class="pro-badge-small">Pro</span>
+        </div>
+        
+        <!-- DJ Moment Buttons -->
+        <div class="dj-moments-section">
+          <div class="lbl">DJ Moment Buttons</div>
+          <div class="dj-moment-buttons">
+            <button class="btn-dj-moment" id="btnMomentDrop" data-moment="drop">
+              <span class="moment-icon">🎵</span>
+              <span>Drop</span>
+            </button>
+            <button class="btn-dj-moment" id="btnMomentBuildUp" data-moment="buildup">
+              <span class="moment-icon">📈</span>
+              <span>Build Up</span>
+            </button>
+            <button class="btn-dj-moment" id="btnMomentBreakdown" data-moment="breakdown">
+              <span class="moment-icon">🎹</span>
+              <span>Breakdown</span>
+            </button>
+            <button class="btn-dj-moment" id="btnMomentPeak" data-moment="peak">
+              <span class="moment-icon">🔥</span>
+              <span>Peak</span>
+            </button>
+          </div>
+          <div class="tiny muted">Trigger visual effects on guest screens</div>
+        </div>
+
+        <!-- Crowd Energy Meter -->
+        <div class="crowd-energy-section">
+          <div class="row space">
+            <div class="lbl">Crowd Energy</div>
+            <div class="energy-value" id="energyValue">50%</div>
+          </div>
+          <div class="energy-meter">
+            <div class="energy-fill" id="energyFill" style="width: 50%"></div>
+          </div>
+          <div class="tiny muted">Based on guest reactions and engagement</div>
+        </div>
+
+        <!-- DJ Packs -->
+        <div class="dj-packs-section">
+          <div class="lbl">DJ Packs (Visual Themes)</div>
+          <div class="dj-pack-selector">
+            <label class="dj-pack-option" data-pack="none">
+              <input type="radio" name="djPack" value="none" id="packNone" checked />
+              <span class="pack-label">
+                <span class="pack-name">Default</span>
+              </span>
+            </label>
+            <label class="dj-pack-option" data-pack="rave">
+              <input type="radio" name="djPack" value="rave" id="packRave" />
+              <span class="pack-label">
+                <span class="pack-icon">🌈</span>
+                <span class="pack-name">Rave Pack</span>
+              </span>
+            </label>
+            <label class="dj-pack-option" data-pack="festival">
+              <input type="radio" name="djPack" value="festival" id="packFestival" />
+              <span class="pack-label">
+                <span class="pack-icon">🎪</span>
+                <span class="pack-name">Festival Pack</span>
+              </span>
+            </label>
+            <label class="dj-pack-option" data-pack="darkclub">
+              <input type="radio" name="djPack" value="darkclub" id="packDarkClub" />
+              <span class="pack-label">
+                <span class="pack-icon">🌃</span>
+                <span class="pack-name">Dark Club Pack</span>
+              </span>
+            </label>
+          </div>
+          <div class="tiny muted">Change visualizer theme across all devices</div>
+        </div>
+      </div>
+
+      <!-- Locked DJ Mode Pro Panel (Non-Pro Users) -->
+      <div class="box hidden" id="djModeProLocked">
+        <div class="locked-feature-panel">
+          <div class="locked-icon">🔒</div>
+          <h3>DJ Mode Pro Features</h3>
+          <p class="muted">Unlock advanced DJ features with Pro Monthly</p>
+          <ul class="locked-features-list">
+            <li>DJ Moment buttons (Drop, Build Up, Breakdown, Peak)</li>
+            <li>Crowd Energy meter</li>
+            <li>DJ Packs visual themes</li>
+            <li>Party Recap at end</li>
+          </ul>
+          <button class="btn-pro-upgrade" id="btnUpgradeToPro">Upgrade to Pro Monthly - £9.99/mo</button>
+        </div>
       </div>
 
       <div class="line"></div>
@@ -593,47 +699,68 @@
           </div>
         </div>
         
-        <!-- Emoji Reactions (always visible) -->
-        <div class="guest-emoji-reactions" id="guestEmojiReactions">
-          <button class="btn-emoji-reaction" id="btnEmojiHeart" data-emoji="❤️" data-message="❤️">
-            ❤️
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiLove" data-emoji="😍" data-message="😍">
-            😍
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiFire" data-emoji="🔥" data-message="🔥">
-            🔥
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiParty" data-emoji="🎉" data-message="🎉">
-            🎉
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiDance" data-emoji="💃" data-message="💃">
-            💃
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiThumbsUp" data-emoji="👍" data-message="👍">
-            👍
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiStar" data-emoji="⭐" data-message="⭐">
-            ⭐
-          </button>
-          <button class="btn-emoji-reaction" id="btnEmojiLightning" data-emoji="⚡" data-message="⚡">
-            ⚡
-          </button>
+        <!-- Free Tier: Limited Emoji Reactions -->
+        <div class="guest-emoji-reactions-free hidden" id="guestEmojiReactionsFree">
+          <div class="tier-limit-notice">
+            <span class="lock-icon">🔒</span>
+            <span class="limit-text">Free: Limited emoji reactions only</span>
+          </div>
+          <div class="emoji-reactions-limited">
+            <button class="btn-emoji-reaction" data-emoji="👍" data-message="👍">👍</button>
+            <button class="btn-emoji-reaction" data-emoji="❤️" data-message="❤️">❤️</button>
+            <button class="btn-emoji-reaction" data-emoji="🔥" data-message="🔥">🔥</button>
+          </div>
+          <div class="tiny muted">Upgrade to Party Pass for more reactions and shoutouts</div>
         </div>
-        
-        <!-- Text Messages (shown when not emoji-only or locked) -->
-        <div class="guest-message-buttons" id="guestTextMessages">
-          <button class="btn-guest-message" id="btnMessageTune" data-message="TUUUUNE!!!">
-            🔥 TUUUUNE!!!
-          </button>
-          <button class="btn-guest-message" id="btnMessageTuneUp" data-message="Tune it up!!">
-            🎚️ Tune it up!!
-          </button>
-          <button class="btn-guest-message" id="btnMessageNext" data-message="Next!">
-            ⏭️ Next!
-          </button>
+
+        <!-- Party Pass: Preset Shoutouts + Full Emoji Reactions -->
+        <div class="guest-reactions-party-pass hidden" id="guestReactionsPartyPass">
+          <div class="party-pass-shoutouts">
+            <div class="lbl">Tap to hype the DJ</div>
+            <button class="btn-shoutout" data-message="TUUUUNE!!! 🔥">🔥 TUUUUNE!!!</button>
+            <button class="btn-shoutout" data-message="Let's gooo! 🎉">🎉 Let's gooo!</button>
+            <button class="btn-shoutout" data-message="Drop it! 💥">💥 Drop it!</button>
+            <button class="btn-shoutout" data-message="Vibes! ✨">✨ Vibes!</button>
+          </div>
+          
+          <!-- Full Emoji Reactions -->
+          <div class="lbl">Quick reactions</div>
+          <div class="guest-emoji-reactions">
+            <button class="btn-emoji-reaction" data-emoji="❤️" data-message="❤️">❤️</button>
+            <button class="btn-emoji-reaction" data-emoji="😍" data-message="😍">😍</button>
+            <button class="btn-emoji-reaction" data-emoji="🔥" data-message="🔥">🔥</button>
+            <button class="btn-emoji-reaction" data-emoji="🎉" data-message="🎉">🎉</button>
+            <button class="btn-emoji-reaction" data-emoji="💃" data-message="💃">💃</button>
+            <button class="btn-emoji-reaction" data-emoji="👍" data-message="👍">👍</button>
+            <button class="btn-emoji-reaction" data-emoji="⭐" data-message="⭐">⭐</button>
+            <button class="btn-emoji-reaction" data-emoji="⚡" data-message="⚡">⚡</button>
+          </div>
         </div>
-        <div class="tiny muted">Send reactions to the host's DJ screen</div>
+
+        <!-- Pro Monthly: Typed Messages (DJ Approval) + All Reactions -->
+        <div class="guest-reactions-pro hidden" id="guestReactionsPro">
+          <div class="pro-typed-messages">
+            <div class="lbl">Send custom message (DJ approval)</div>
+            <div class="typed-message-input-group">
+              <input type="text" class="input-typed-message" id="inputTypedMessage" placeholder="Type your message..." maxlength="100" />
+              <button class="btn-send-typed" id="btnSendTypedMessage">Send</button>
+            </div>
+            <div class="tiny muted">DJ will approve before showing to everyone</div>
+          </div>
+          
+          <!-- Full Emoji Reactions -->
+          <div class="lbl">Quick reactions</div>
+          <div class="guest-emoji-reactions">
+            <button class="btn-emoji-reaction" data-emoji="❤️" data-message="❤️">❤️</button>
+            <button class="btn-emoji-reaction" data-emoji="😍" data-message="😍">😍</button>
+            <button class="btn-emoji-reaction" data-emoji="🔥" data-message="🔥">🔥</button>
+            <button class="btn-emoji-reaction" data-emoji="🎉" data-message="🎉">🎉</button>
+            <button class="btn-emoji-reaction" data-emoji="💃" data-message="💃">💃</button>
+            <button class="btn-emoji-reaction" data-emoji="👍" data-message="👍">👍</button>
+            <button class="btn-emoji-reaction" data-emoji="⭐" data-message="⭐">⭐</button>
+            <button class="btn-emoji-reaction" data-emoji="⚡" data-message="⚡">⚡</button>
+          </div>
+        </div>
       </div>
 
       <div class="tiny muted" style="margin-top:20px; text-align: center;">
@@ -741,6 +868,67 @@
         <button class="btn primary" id="btnSpeakerOk">Got it</button>
       </div>
       <div class="tiny muted">Speaker support is for supporters.</div>
+    </div>
+  </div>
+
+  <!-- Party Extension Modal -->
+  <div class="modal hidden" id="modalExtendParty">
+    <div class="modalCard">
+      <h3>🎉 Extend Your Party</h3>
+      <p class="muted">Your Party Pass is running low on time!</p>
+      <div class="extend-info">
+        <div class="extend-time-left" id="extendTimeLeft">10 minutes remaining</div>
+        <div class="extend-offer">
+          <div class="extend-price">£1.99</div>
+          <div class="extend-duration">+1 hour</div>
+        </div>
+      </div>
+      <p class="tiny muted">Keep the party going without interrupting music</p>
+      <div class="row gap">
+        <button class="btn" id="btnExtendCancel">Not now</button>
+        <button class="btn primary" id="btnExtendConfirm">Extend Party</button>
+      </div>
+      <div class="tiny muted" id="extendCount">Extensions: 0</div>
+    </div>
+  </div>
+
+  <!-- Party Recap Modal (Pro Only) -->
+  <div class="modal hidden" id="modalPartyRecap">
+    <div class="modalCard recap-card">
+      <h2>🎉 Party Recap</h2>
+      <div class="recap-stats">
+        <div class="recap-stat">
+          <div class="recap-stat-value" id="recapDuration">0:00</div>
+          <div class="recap-stat-label">Duration</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-value" id="recapGuests">0</div>
+          <div class="recap-stat-label">Guests</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-value" id="recapTracks">0</div>
+          <div class="recap-stat-label">Tracks Played</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-value" id="recapReactions">0</div>
+          <div class="recap-stat-label">Reactions</div>
+        </div>
+      </div>
+      <div class="recap-moments" id="recapMoments">
+        <h4>DJ Moments</h4>
+        <div class="moments-list" id="momentsList">
+          <div class="tiny muted">No DJ moments triggered</div>
+        </div>
+      </div>
+      <div class="recap-energy">
+        <h4>Peak Crowd Energy</h4>
+        <div class="energy-meter">
+          <div class="energy-fill" id="recapEnergyFill" style="width: 0%"></div>
+        </div>
+        <div class="energy-value" id="recapEnergyValue">0%</div>
+      </div>
+      <button class="btn primary" id="btnCloseRecap">Close</button>
+      <div class="tiny muted">Pro feature - Party recap saved locally</div>
     </div>
   </div>
 

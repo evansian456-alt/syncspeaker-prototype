@@ -33,6 +33,7 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
+  partyPassExtensions: 0, // Track number of party extensions
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   // Guest-specific state
@@ -42,7 +43,16 @@ const state = {
   lastHostEvent: null, // PLAY, PAUSE, TRACK_SELECTED, NEXT_TRACK_QUEUED, TRACK_CHANGED
   visualMode: "idle", // playing, paused, idle
   connected: false,
-  guestVolume: 80
+  guestVolume: 80,
+  // DJ Mode Pro features
+  activeDjPack: null, // null, 'rave', 'festival', 'darkclub'
+  crowdEnergy: 50, // 0-100
+  peakCrowdEnergy: 50, // Track peak for recap
+  djMoments: [], // Array of DJ moment records
+  partyRecap: null, // Generated at party end
+  partyStartTime: null, // Track when party started
+  tracksPlayed: 0, // Count tracks played
+  totalReactions: 0 // Count total reactions received
 };
 
 // Client-side party code generator for offline fallback
@@ -156,6 +166,7 @@ function handleServer(msg) {
     state.code = msg.code; 
     state.isHost = true; 
     state.connected = true;
+    state.partyStartTime = Date.now(); // Track party start time
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
@@ -646,6 +657,16 @@ function updateBackToDjButton() {
 function handleGuestMessageReceived(message, guestName, guestId, isEmoji) {
   console.log(`[DJ] Received message from ${guestName}: ${message}, isEmoji: ${isEmoji}`);
   
+  // Track reaction for stats
+  state.totalReactions++;
+  
+  // Increase crowd energy slightly with each reaction
+  if (state.isPro && !state.partyPassActive) {
+    state.crowdEnergy = Math.min(100, state.crowdEnergy + 2);
+    state.peakCrowdEnergy = Math.max(state.peakCrowdEnergy, state.crowdEnergy);
+    updateCrowdEnergy();
+  }
+  
   // Handle emoji reactions with special visual effects
   if (isEmoji) {
     createEmojiReactionEffect(message);
@@ -775,9 +796,26 @@ function setupEmojiReactionButtons() {
         }, 300);
         
         toast(`Sent: ${emoji}`);
+        
+        // Increase crowd energy if Pro
+        increaseCrowdEnergy(3);
       }
     };
   });
+}
+
+// Helper function to send guest messages (used by tier-specific buttons)
+function sendGuestMessage(message, isEmoji = false) {
+  if (!state.ws) {
+    toast("Not connected to party");
+    return;
+  }
+  
+  send({ t: "GUEST_MESSAGE", message: message, isEmoji: isEmoji });
+  toast(`Sent: ${message}`);
+  
+  // Increase crowd energy if Pro
+  increaseCrowdEnergy(isEmoji ? 3 : 5);
 }
 
 function setupChatModeSelector() {
@@ -1356,6 +1394,9 @@ function updatePartyPassTimer() {
   if (timerEl) {
     timerEl.textContent = `${hours}h ${minutes}m remaining`;
   }
+  
+  // Check if we should show the extension prompt
+  checkPartyPassLowTime();
 }
 
 function expirePartyPass() {
@@ -1418,6 +1459,9 @@ function updatePartyPassUI() {
     // Hide banner
     banner.classList.add("hidden");
   }
+  
+  // Update host-gifted UI
+  updateHostGiftedUI();
 }
 
 function checkPartyPassStatus() {
@@ -1489,6 +1533,306 @@ function renderRoom() {
   updateQualityUI();
   updatePlaybackUI();
   updatePartyPassUI();
+  updateDjModeProPanel();
+  updateGuestMessageTier();
+}
+
+// ===== NEW MONETIZATION FEATURES =====
+
+// Host-Gifted Party Pass
+function activateHostGiftedPartyPass() {
+  if (!state.isHost) {
+    toast("Only the host can gift Party Pass!");
+    return;
+  }
+  
+  if (state.partyPassActive) {
+    toast("Party Pass already active!");
+    return;
+  }
+  
+  // Activate Party Pass for the entire party
+  activatePartyPass();
+  toast("🎁 Party Pass gifted to all guests!");
+}
+
+// Party Extension
+function showExtendPartyModal() {
+  if (!state.partyPassActive) {
+    toast("Party Pass not active!");
+    return;
+  }
+  
+  const modal = el("modalExtendParty");
+  const timeLeftEl = el("extendTimeLeft");
+  const extendCountEl = el("extendCount");
+  
+  if (modal) {
+    const now = Date.now();
+    const remaining = state.partyPassEndTime - now;
+    const minutes = Math.floor(remaining / (60 * 1000));
+    
+    if (timeLeftEl) {
+      timeLeftEl.textContent = `${minutes} minutes remaining`;
+    }
+    
+    if (extendCountEl) {
+      extendCountEl.textContent = `Extensions: ${state.partyPassExtensions}`;
+    }
+    
+    show("modalExtendParty");
+  }
+}
+
+function extendParty() {
+  if (!state.partyPassActive) {
+    toast("Party Pass not active!");
+    return;
+  }
+  
+  // Add 1 hour to the Party Pass
+  const oneHour = 60 * 60 * 1000;
+  state.partyPassEndTime += oneHour;
+  state.partyPassExtensions++;
+  
+  // Update localStorage
+  if (state.code) {
+    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+      endTime: state.partyPassEndTime,
+      active: true,
+      extensions: state.partyPassExtensions
+    }));
+  }
+  
+  // Update timer
+  updatePartyPassTimer();
+  
+  hide("modalExtendParty");
+  toast("🎉 Party extended by 1 hour!");
+}
+
+// Check if Party Pass is running low and show extension prompt
+function checkPartyPassLowTime() {
+  if (!state.partyPassActive || !state.partyPassEndTime) return;
+  
+  const now = Date.now();
+  const remaining = state.partyPassEndTime - now;
+  const tenMinutes = 10 * 60 * 1000;
+  
+  // Show modal when 10 minutes or less remaining
+  if (remaining <= tenMinutes && remaining > 0) {
+    const extendBtn = el("btnExtendParty");
+    if (extendBtn) {
+      extendBtn.classList.remove("hidden");
+    }
+  } else {
+    const extendBtn = el("btnExtendParty");
+    if (extendBtn) {
+      extendBtn.classList.add("hidden");
+    }
+  }
+}
+
+// Update DJ Mode Pro Panel visibility based on tier
+function updateDjModeProPanel() {
+  const proPanel = el("djModeProPanel");
+  const lockedPanel = el("djModeProLocked");
+  
+  if (!proPanel || !lockedPanel) return;
+  
+  // Pro Monthly users get access to DJ Mode Pro features
+  const hasProAccess = state.isPro && !state.partyPassActive; // Only Pro Monthly, not Party Pass
+  
+  if (state.isHost) {
+    if (hasProAccess) {
+      proPanel.classList.remove("hidden");
+      lockedPanel.classList.add("hidden");
+    } else {
+      proPanel.classList.add("hidden");
+      lockedPanel.classList.remove("hidden");
+    }
+  } else {
+    // Guests don't see DJ Mode Pro features
+    proPanel.classList.add("hidden");
+    lockedPanel.classList.add("hidden");
+  }
+}
+
+// Update guest message tier based on plan
+function updateGuestMessageTier() {
+  const freeReactions = el("guestEmojiReactionsFree");
+  const partyPassReactions = el("guestReactionsPartyPass");
+  const proReactions = el("guestReactionsPro");
+  
+  if (!freeReactions || !partyPassReactions || !proReactions) return;
+  
+  // Hide all first
+  freeReactions.classList.add("hidden");
+  partyPassReactions.classList.add("hidden");
+  proReactions.classList.add("hidden");
+  
+  // Show appropriate tier
+  if (state.isPro && !state.partyPassActive) {
+    // Pro Monthly: Full features including typed messages
+    proReactions.classList.remove("hidden");
+  } else if (state.partyPassActive || state.partyPro) {
+    // Party Pass: Preset shoutouts + full emoji reactions
+    partyPassReactions.classList.remove("hidden");
+  } else {
+    // Free: Limited emoji reactions only
+    freeReactions.classList.remove("hidden");
+  }
+}
+
+// DJ Packs
+function activateDjPack(packName) {
+  const hasProAccess = state.isPro && !state.partyPassActive;
+  
+  if (!hasProAccess && packName !== 'none') {
+    toast("🔒 DJ Packs require Pro Monthly subscription");
+    // Reset to default
+    const noneRadio = el("packNone");
+    if (noneRadio) noneRadio.checked = true;
+    return;
+  }
+  
+  state.activeDjPack = packName === 'none' ? null : packName;
+  
+  // Apply visual theme to body
+  if (state.activeDjPack) {
+    document.body.setAttribute('data-dj-pack', state.activeDjPack);
+    toast(`🎨 ${packName.charAt(0).toUpperCase() + packName.slice(1)} Pack activated!`);
+  } else {
+    document.body.removeAttribute('data-dj-pack');
+    toast("Default theme restored");
+  }
+}
+
+// DJ Moments
+function triggerDjMoment(momentType) {
+  const hasProAccess = state.isPro && !state.partyPassActive;
+  
+  if (!hasProAccess) {
+    toast("🔒 DJ Moments require Pro Monthly subscription");
+    return;
+  }
+  
+  const moment = {
+    type: momentType,
+    timestamp: Date.now(),
+    trackName: state.nowPlayingFilename || "Unknown"
+  };
+  
+  state.djMoments.push(moment);
+  
+  // Update crowd energy based on moment type
+  switch(momentType) {
+    case 'drop':
+      state.crowdEnergy = Math.min(100, state.crowdEnergy + 20);
+      break;
+    case 'peak':
+      state.crowdEnergy = Math.min(100, state.crowdEnergy + 15);
+      break;
+    case 'buildup':
+      state.crowdEnergy = Math.min(100, state.crowdEnergy + 10);
+      break;
+    case 'breakdown':
+      state.crowdEnergy = Math.max(0, state.crowdEnergy - 5);
+      break;
+  }
+  
+  updateCrowdEnergy();
+  
+  const icons = { drop: '🎵', buildup: '📈', breakdown: '🎹', peak: '🔥' };
+  toast(`${icons[momentType]} DJ Moment: ${momentType.toUpperCase()}`);
+}
+
+// Update Crowd Energy display
+function updateCrowdEnergy() {
+  const energyValueEl = el("energyValue");
+  const energyFillEl = el("energyFill");
+  
+  if (energyValueEl) {
+    energyValueEl.textContent = `${Math.round(state.crowdEnergy)}%`;
+  }
+  
+  if (energyFillEl) {
+    energyFillEl.style.width = `${state.crowdEnergy}%`;
+  }
+}
+
+// Simulate crowd energy changes based on reactions
+function increaseCrowdEnergy(amount = 5) {
+  const hasProAccess = state.isPro && !state.partyPassActive;
+  if (!hasProAccess) return;
+  
+  state.crowdEnergy = Math.min(100, state.crowdEnergy + amount);
+  updateCrowdEnergy();
+}
+
+// Generate Party Recap (Pro only)
+function generatePartyRecap() {
+  const hasProAccess = state.isPro && !state.partyPassActive;
+  
+  if (!hasProAccess) {
+    toast("🔒 Party Recap is a Pro Monthly feature");
+    return;
+  }
+  
+  const partyStartTime = state.partyStartTime || Date.now();
+  const duration = Date.now() - partyStartTime;
+  const hours = Math.floor(duration / (60 * 60 * 1000));
+  const minutes = Math.floor((duration % (60 * 60 * 1000)) / (60 * 1000));
+  
+  state.partyRecap = {
+    duration: `${hours}h ${minutes}m`,
+    guests: state.snapshot?.members?.length || 0,
+    tracksPlayed: state.tracksPlayed || 0,
+    reactions: state.totalReactions || 0,
+    peakEnergy: state.peakCrowdEnergy || state.crowdEnergy,
+    djMoments: state.djMoments.length
+  };
+  
+  showPartyRecap();
+}
+
+function showPartyRecap() {
+  if (!state.partyRecap) return;
+  
+  const modal = el("modalPartyRecap");
+  if (!modal) return;
+  
+  el("recapDuration").textContent = state.partyRecap.duration;
+  el("recapGuests").textContent = state.partyRecap.guests;
+  el("recapTracks").textContent = state.partyRecap.tracksPlayed;
+  el("recapReactions").textContent = state.partyRecap.reactions;
+  el("recapEnergyValue").textContent = `${Math.round(state.partyRecap.peakEnergy)}%`;
+  el("recapEnergyFill").style.width = `${state.partyRecap.peakEnergy}%`;
+  
+  const momentsList = el("momentsList");
+  if (momentsList && state.djMoments.length > 0) {
+    momentsList.innerHTML = state.djMoments.map(m => 
+      `<div class="tiny">${new Date(m.timestamp).toLocaleTimeString()}: ${m.type} - ${m.trackName}</div>`
+    ).join('');
+  }
+  
+  show("modalPartyRecap");
+}
+
+// Update Host-Gifted UI
+function updateHostGiftedUI() {
+  const hostGiftedEl = el("hostGiftedUpgrade");
+  if (!hostGiftedEl) return;
+  
+  // Show host-gifted option only if:
+  // - User is host
+  // - Party Pass not active
+  // - Not Pro already
+  if (state.isHost && !state.partyPassActive && !state.partyPro) {
+    hostGiftedEl.classList.remove("hidden");
+  } else {
+    hostGiftedEl.classList.add("hidden");
+  }
 }
 
 function openPaywall() { show("modalPaywall"); }
@@ -1979,6 +2323,109 @@ function attemptAddPhone() {
     btnSubscribeMonthly.onclick = () => {
       console.log("[UI] Subscribe Monthly clicked");
       showHome();
+    };
+  }
+
+  // ===== NEW MONETIZATION EVENT LISTENERS =====
+  
+  // Host-Gifted Party Pass
+  const btnHostGiftPartyPass = el("btnHostGiftPartyPass");
+  if (btnHostGiftPartyPass) {
+    btnHostGiftPartyPass.onclick = () => {
+      activateHostGiftedPartyPass();
+    };
+  }
+  
+  // Party Extension
+  const btnExtendParty = el("btnExtendParty");
+  if (btnExtendParty) {
+    btnExtendParty.onclick = () => {
+      showExtendPartyModal();
+    };
+  }
+  
+  const btnExtendConfirm = el("btnExtendConfirm");
+  if (btnExtendConfirm) {
+    btnExtendConfirm.onclick = () => {
+      extendParty();
+    };
+  }
+  
+  const btnExtendCancel = el("btnExtendCancel");
+  if (btnExtendCancel) {
+    btnExtendCancel.onclick = () => {
+      hide("modalExtendParty");
+    };
+  }
+  
+  // DJ Moment Buttons
+  const djMomentButtons = document.querySelectorAll('.btn-dj-moment');
+  djMomentButtons.forEach(btn => {
+    btn.onclick = () => {
+      const momentType = btn.getAttribute('data-moment');
+      if (momentType) {
+        triggerDjMoment(momentType);
+      }
+    };
+  });
+  
+  // DJ Packs
+  const djPackRadios = document.querySelectorAll('input[name="djPack"]');
+  djPackRadios.forEach(radio => {
+    radio.onchange = () => {
+      if (radio.checked) {
+        activateDjPack(radio.value);
+      }
+    };
+  });
+  
+  // Pro Upgrade Button
+  const btnUpgradeToPro = el("btnUpgradeToPro");
+  if (btnUpgradeToPro) {
+    btnUpgradeToPro.onclick = () => {
+      toast("Pro Monthly subscription - UI only (no real payment)");
+      // In a real app, this would open a payment flow
+    };
+  }
+  
+  // Party Recap
+  const btnCloseRecap = el("btnCloseRecap");
+  if (btnCloseRecap) {
+    btnCloseRecap.onclick = () => {
+      hide("modalPartyRecap");
+    };
+  }
+  
+  // Guest Shoutout Buttons (Party Pass tier)
+  const shoutoutButtons = document.querySelectorAll('.btn-shoutout');
+  shoutoutButtons.forEach(btn => {
+    btn.onclick = () => {
+      const message = btn.getAttribute('data-message');
+      if (message) {
+        sendGuestMessage(message);
+      }
+    };
+  });
+  
+  // Pro Typed Message
+  const btnSendTypedMessage = el("btnSendTypedMessage");
+  const inputTypedMessage = el("inputTypedMessage");
+  if (btnSendTypedMessage && inputTypedMessage) {
+    btnSendTypedMessage.onclick = () => {
+      const message = inputTypedMessage.value.trim();
+      if (message) {
+        sendGuestMessage(message);
+        inputTypedMessage.value = '';
+        toast("Message sent to DJ for approval");
+      }
+    };
+    
+    // Send on Enter key
+    inputTypedMessage.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        btnSendTypedMessage.click();
+      }
     };
   }
 })();
