@@ -1382,3 +1382,52 @@ h2,h3{margin:0}
     letter-spacing: 4px;
   }
 }
+
+/* ===== MUSIC FILE PICKER STYLES ===== */
+.music-file-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.file-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(90, 169, 255, 0.1);
+  border: 1px solid rgba(90, 169, 255, 0.3);
+  border-radius: var(--radius-sm);
+}
+
+.file-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 10px;
+}
+
+.file-ready {
+  background: rgba(92, 255, 138, 0.2);
+  border-color: rgba(92, 255, 138, 0.4);
+  color: var(--good);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.autoplay-error {
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(255, 198, 90, 0.15);
+  border: 1px solid rgba(255, 198, 90, 0.4);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: #FFC65A;
+  text-align: center;
+}

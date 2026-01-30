@@ -193,6 +193,28 @@
             <option value="mic">Mic (for talking)</option>
           </select>
 
+          <!-- Local Music File Picker -->
+          <div id="musicFileSection" class="music-file-section">
+            <label class="lbl">Choose music file</label>
+            <input type="file" id="musicFileInput" accept="audio/*" class="hidden" />
+            <button class="btn" id="btnChooseFile">Choose music file</button>
+            <div id="fileStatus" class="file-status hidden">
+              <span class="file-name" id="fileName"></span>
+              <span class="badge file-ready">Ready</span>
+            </div>
+            <div class="tiny muted" style="margin-top: 8px;">
+              Choose an MP3/M4A/WAV from your phone. The app does not provide music.
+            </div>
+            
+            <!-- Host Audio Player -->
+            <audio id="hostAudio" controls style="width: 100%; margin-top: 12px;" class="hidden"></audio>
+            
+            <!-- Autoplay Error Message -->
+            <div id="autoplayError" class="autoplay-error hidden">
+              ⚠️ Tap play to allow audio (browser blocked autoplay)
+            </div>
+          </div>
+
           <button class="btn primary" id="btnCreate">Start party</button>
           <div class="tiny muted">
             Users are responsible for music source. This app does not provide music.

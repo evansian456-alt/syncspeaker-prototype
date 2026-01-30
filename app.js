@@ -14,7 +14,10 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null
+  partyPassTimerInterval: null,
+  // Music file state
+  selectedFile: null,
+  audioObjectURL: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -116,6 +119,27 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
+  // Reset file selection and audio when returning to home
+  state.selectedFile = null;
+  if (state.audioObjectURL) {
+    URL.revokeObjectURL(state.audioObjectURL);
+    state.audioObjectURL = null;
+  }
+  
+  // Reset UI elements
+  const musicFileInput = el("musicFileInput");
+  const fileStatus = el("fileStatus");
+  const hostAudio = el("hostAudio");
+  const autoplayError = el("autoplayError");
+  
+  if (musicFileInput) musicFileInput.value = "";
+  if (fileStatus) fileStatus.classList.add("hidden");
+  if (hostAudio) {
+    hostAudio.src = "";
+    hostAudio.classList.add("hidden");
+  }
+  if (autoplayError) autoplayError.classList.add("hidden");
+  
   setPlanPill();
 }
 
@@ -131,6 +155,13 @@ function showLanding() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Cleanup audio resources
+  if (state.audioObjectURL) {
+    URL.revokeObjectURL(state.audioObjectURL);
+    state.audioObjectURL = null;
+  }
+  state.selectedFile = null;
   
   setPlanPill();
 }
@@ -448,6 +479,49 @@ function attemptAddPhone() {
   await connectWS();
   showLanding();
 
+  // Music file picker handlers
+  const musicFileInput = el("musicFileInput");
+  const btnChooseFile = el("btnChooseFile");
+  const fileStatus = el("fileStatus");
+  const fileName = el("fileName");
+  const hostAudio = el("hostAudio");
+  const autoplayError = el("autoplayError");
+
+  if (btnChooseFile && musicFileInput) {
+    btnChooseFile.onclick = () => {
+      musicFileInput.click();
+    };
+
+    musicFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        // Revoke old object URL to prevent memory leaks
+        if (state.audioObjectURL) {
+          URL.revokeObjectURL(state.audioObjectURL);
+        }
+
+        // Store the file and create object URL
+        state.selectedFile = file;
+        state.audioObjectURL = URL.createObjectURL(file);
+
+        // Update UI
+        fileName.textContent = file.name;
+        fileStatus.classList.remove("hidden");
+        
+        // Set audio source
+        if (hostAudio) {
+          hostAudio.src = state.audioObjectURL;
+          hostAudio.classList.remove("hidden");
+        }
+
+        // Hide autoplay error when new file is selected
+        autoplayError.classList.add("hidden");
+
+        toast(`Selected: ${file.name}`);
+      }
+    };
+  }
+
   // Landing page navigation
   el("btnLandingStart").onclick = () => {
     console.log("[UI] Landing: Start Party clicked");
@@ -461,11 +535,41 @@ function attemptAddPhone() {
 
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");
+    
+    // Validate file selection for local source
+    const source = el("source").value;
+    if (source === "local" && !state.selectedFile) {
+      toast("Please choose a music file first");
+      autoplayError.textContent = "⚠️ Please select a music file to continue";
+      autoplayError.classList.remove("hidden");
+      return;
+    }
+
     state.name = el("hostName").value.trim() || "Host";
-    state.source = el("source").value;
+    state.source = source;
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
-    send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    
+    // Attempt to play audio if file is selected
+    if (source === "local" && state.selectedFile && hostAudio) {
+      autoplayError.classList.add("hidden");
+      
+      hostAudio.play().then(() => {
+        console.log("[Audio] Playback started successfully");
+        // Continue with party creation
+        send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+      }).catch((err) => {
+        console.error("[Audio] Playback failed:", err);
+        // Show error message but still allow party creation
+        autoplayError.textContent = "⚠️ Tap play to allow audio (browser blocked autoplay)";
+        autoplayError.classList.remove("hidden");
+        // Continue with party creation anyway
+        send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+      });
+    } else {
+      // For non-local sources, just create the party
+      send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    }
   };
 
   el("btnJoin").onclick = () => {
