@@ -334,6 +334,38 @@
 
       <div class="line"></div>
 
+      <!-- DJ Controls Card -->
+      <div class="box" id="djControlsCard">
+        <h3>DJ Controls</h3>
+        <div class="lbl">Chat Mode</div>
+        <div class="chat-mode-selector">
+          <label class="chat-mode-option">
+            <input type="radio" name="chatMode" value="OPEN" id="chatModeOpen" checked />
+            <span class="chat-mode-label">
+              <span class="chat-mode-icon">💬</span>
+              <span class="chat-mode-text">OPEN</span>
+            </span>
+          </label>
+          <label class="chat-mode-option">
+            <input type="radio" name="chatMode" value="EMOJI_ONLY" id="chatModeEmojiOnly" />
+            <span class="chat-mode-label">
+              <span class="chat-mode-icon">😀</span>
+              <span class="chat-mode-text">EMOJI ONLY</span>
+            </span>
+          </label>
+          <label class="chat-mode-option">
+            <input type="radio" name="chatMode" value="LOCKED" id="chatModeLocked" />
+            <span class="chat-mode-label">
+              <span class="chat-mode-icon">🔒</span>
+              <span class="chat-mode-text">LOCKED</span>
+            </span>
+          </label>
+        </div>
+        <div class="tiny muted">Control guest messaging permissions</div>
+      </div>
+
+      <div class="line"></div>
+
       <div class="row space">
         <h3>Friends connected</h3>
         <div class="row gap">
@@ -524,8 +556,44 @@
 
       <!-- Guest Messages to Host -->
       <div class="glass-card guest-messages">
-        <h4 class="section-title-small">💬 Send Message to DJ</h4>
-        <div class="guest-message-buttons">
+        <div class="guest-messages-header">
+          <h4 class="section-title-small">💬 Send Message to DJ</h4>
+          <div class="guest-chat-mode-badge" id="guestChatModeBadge">
+            <span class="chat-mode-status-icon" id="guestChatModeIcon">💬</span>
+            <span class="chat-mode-status-text" id="guestChatModeText">Chat: OPEN</span>
+          </div>
+        </div>
+        
+        <!-- Emoji Reactions (always visible) -->
+        <div class="guest-emoji-reactions" id="guestEmojiReactions">
+          <button class="btn-emoji-reaction" id="btnEmojiHeart" data-emoji="❤️" data-message="❤️">
+            ❤️
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiLove" data-emoji="😍" data-message="😍">
+            😍
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiFire" data-emoji="🔥" data-message="🔥">
+            🔥
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiParty" data-emoji="🎉" data-message="🎉">
+            🎉
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiDance" data-emoji="💃" data-message="💃">
+            💃
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiThumbsUp" data-emoji="👍" data-message="👍">
+            👍
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiStar" data-emoji="⭐" data-message="⭐">
+            ⭐
+          </button>
+          <button class="btn-emoji-reaction" id="btnEmojiLightning" data-emoji="⚡" data-message="⚡">
+            ⚡
+          </button>
+        </div>
+        
+        <!-- Text Messages (shown when not emoji-only or locked) -->
+        <div class="guest-message-buttons" id="guestTextMessages">
           <button class="btn-guest-message" id="btnMessageTune" data-message="TUUUUNE!!!">
             🔥 TUUUUNE!!!
           </button>

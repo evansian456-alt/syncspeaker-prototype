@@ -93,7 +93,7 @@ app.post("/api/join-party", (req, res) => {
 });
 
 // Party state management
-const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }] }
+const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN" }
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 
@@ -177,6 +177,9 @@ function handleMessage(ws, msg) {
     case "GUEST_MESSAGE":
       handleGuestMessage(ws, msg);
       break;
+    case "CHAT_MODE_SET":
+      handleChatModeSet(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -211,7 +214,8 @@ function handleCreate(ws, msg) {
   
   parties.set(code, {
     host: ws,
-    members: [member]
+    members: [member],
+    chatMode: "OPEN" // Default chat mode
   });
   
   client.party = code;
@@ -366,7 +370,8 @@ function broadcastRoomState(code) {
       name: m.name,
       isPro: m.isPro,
       isHost: m.isHost
-    }))
+    })),
+    chatMode: party.chatMode || "OPEN"
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
@@ -516,7 +521,23 @@ function handleGuestMessage(ws, msg) {
     return;
   }
   
+  // Check chat mode restrictions
+  const chatMode = party.chatMode || "OPEN";
   const messageText = (msg.message || "").trim().substring(0, 100);
+  const isEmoji = msg.isEmoji || false;
+  
+  // LOCKED mode: no messages allowed
+  if (chatMode === "LOCKED") {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Chat is locked by the DJ" }));
+    return;
+  }
+  
+  // EMOJI_ONLY mode: only emoji messages allowed
+  if (chatMode === "EMOJI_ONLY" && !isEmoji) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only emoji reactions allowed" }));
+    return;
+  }
+  
   const guestName = member.name || "Guest";
   
   console.log(`[Party] Guest "${guestName}" sent message "${messageText}" in party ${client.party}`);
@@ -526,12 +547,44 @@ function handleGuestMessage(ws, msg) {
     t: "GUEST_MESSAGE", 
     message: messageText,
     guestName: guestName,
-    guestId: member.id
+    guestId: member.id,
+    isEmoji: isEmoji
   });
   
   if (party.host && party.host.readyState === WebSocket.OPEN) {
     party.host.send(message);
   }
+}
+
+function handleChatModeSet(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can set chat mode
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can set chat mode" }));
+    return;
+  }
+  
+  const mode = msg.mode;
+  if (!["OPEN", "EMOJI_ONLY", "LOCKED"].includes(mode)) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Invalid chat mode" }));
+    return;
+  }
+  
+  party.chatMode = mode;
+  console.log(`[Party] Chat mode set to ${mode} in party ${client.party}`);
+  
+  // Broadcast to all members
+  const message = JSON.stringify({ t: "CHAT_MODE_SET", mode });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
 }
 
 // Start server if run directly (not imported as module)

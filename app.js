@@ -34,6 +34,7 @@ const state = {
   partyPassEndTime: null,
   partyPassTimerInterval: null,
   offlineMode: false, // Track if party was created in offline fallback mode
+  chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   // Guest-specific state
   nowPlayingFilename: null,
   upNextFilename: null,
@@ -171,6 +172,11 @@ function handleServer(msg) {
   }
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
+    // Update chat mode from snapshot
+    if (msg.snapshot?.chatMode) {
+      state.chatMode = msg.snapshot.chatMode;
+      updateChatModeUI();
+    }
     // Preserve Party Pass Pro status or detect from members
     const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
     state.partyPro = state.partyPassActive || membersPro;
@@ -282,8 +288,16 @@ function handleServer(msg) {
   // Host-specific messages
   if (msg.t === "GUEST_MESSAGE") {
     if (state.isHost) {
-      handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId);
+      handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
     }
+    return;
+  }
+  
+  // Chat mode update
+  if (msg.t === "CHAT_MODE_SET") {
+    state.chatMode = msg.mode;
+    updateChatModeUI();
+    updateDebugState();
     return;
   }
 }
@@ -629,8 +643,13 @@ function updateBackToDjButton() {
   }
 }
 
-function handleGuestMessageReceived(message, guestName, guestId) {
-  console.log(`[DJ] Received message from ${guestName}: ${message}`);
+function handleGuestMessageReceived(message, guestName, guestId, isEmoji) {
+  console.log(`[DJ] Received message from ${guestName}: ${message}, isEmoji: ${isEmoji}`);
+  
+  // Handle emoji reactions with special visual effects
+  if (isEmoji) {
+    createEmojiReactionEffect(message);
+  }
   
   // Show DJ screen if not already shown and playing
   if (state.playing) {
@@ -649,7 +668,7 @@ function handleGuestMessageReceived(message, guestName, guestId) {
     
     // Create message element
     const messageEl = document.createElement("div");
-    messageEl.className = "dj-message";
+    messageEl.className = isEmoji ? "dj-message dj-message-emoji" : "dj-message";
     messageEl.innerHTML = `
       <div class="dj-message-text">${escapeHtml(message)}</div>
       <div class="dj-message-sender">${escapeHtml(guestName)}</div>
@@ -684,6 +703,30 @@ function handleGuestMessageReceived(message, guestName, guestId) {
   toast(`${guestName}: ${message}`);
 }
 
+function createEmojiReactionEffect(emoji) {
+  // Create floating emoji animation on DJ screen
+  const djOverlay = el("djScreenOverlay");
+  if (!djOverlay) return;
+  
+  const emojiEl = document.createElement("div");
+  emojiEl.className = "emoji-reaction-float";
+  emojiEl.textContent = emoji;
+  
+  // Random horizontal position
+  const randomX = Math.random() * 80 + 10; // 10-90% of width
+  emojiEl.style.left = `${randomX}%`;
+  emojiEl.style.bottom = "10%";
+  
+  djOverlay.appendChild(emojiEl);
+  
+  // Remove after animation completes
+  setTimeout(() => {
+    if (emojiEl.parentNode) {
+      emojiEl.parentNode.removeChild(emojiEl);
+    }
+  }, 2000);
+}
+
 function triggerDjFlash() {
   const flashOverlay = el("djFlashOverlay");
   if (flashOverlay) {
@@ -701,7 +744,7 @@ function setupGuestMessageButtons() {
     btn.onclick = () => {
       const message = btn.getAttribute("data-message");
       if (message && state.ws) {
-        send({ t: "GUEST_MESSAGE", message: message });
+        send({ t: "GUEST_MESSAGE", message: message, isEmoji: false });
         
         // Visual feedback
         btn.classList.add("btn-sending");
@@ -713,6 +756,100 @@ function setupGuestMessageButtons() {
       }
     };
   });
+}
+
+function setupEmojiReactionButtons() {
+  const emojiButtons = document.querySelectorAll(".btn-emoji-reaction");
+  
+  emojiButtons.forEach(btn => {
+    btn.onclick = () => {
+      const emoji = btn.getAttribute("data-emoji");
+      const message = btn.getAttribute("data-message") || emoji;
+      if (message && state.ws) {
+        send({ t: "GUEST_MESSAGE", message: message, isEmoji: true });
+        
+        // Visual feedback
+        btn.classList.add("btn-sending");
+        setTimeout(() => {
+          btn.classList.remove("btn-sending");
+        }, 300);
+        
+        toast(`Sent: ${emoji}`);
+      }
+    };
+  });
+}
+
+function setupChatModeSelector() {
+  const chatModeRadios = document.querySelectorAll('input[name="chatMode"]');
+  
+  chatModeRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      if (e.target.checked && state.ws && state.isHost) {
+        const mode = e.target.value;
+        send({ t: "CHAT_MODE_SET", mode: mode });
+        toast(`Chat mode: ${mode}`);
+      }
+    });
+  });
+}
+
+function updateChatModeUI() {
+  const mode = state.chatMode;
+  
+  // Update host UI
+  if (state.isHost) {
+    const radioOpen = el("chatModeOpen");
+    const radioEmojiOnly = el("chatModeEmojiOnly");
+    const radioLocked = el("chatModeLocked");
+    
+    if (radioOpen && mode === "OPEN") radioOpen.checked = true;
+    if (radioEmojiOnly && mode === "EMOJI_ONLY") radioEmojiOnly.checked = true;
+    if (radioLocked && mode === "LOCKED") radioLocked.checked = true;
+  }
+  
+  // Update guest UI
+  if (!state.isHost) {
+    const badge = el("guestChatModeBadge");
+    const icon = el("guestChatModeIcon");
+    const text = el("guestChatModeText");
+    const textMessages = el("guestTextMessages");
+    const emojiReactions = el("guestEmojiReactions");
+    
+    if (badge) {
+      badge.className = "guest-chat-mode-badge";
+      if (mode === "EMOJI_ONLY") badge.classList.add("mode-emoji-only");
+      if (mode === "LOCKED") badge.classList.add("mode-locked");
+    }
+    
+    if (icon) {
+      if (mode === "OPEN") icon.textContent = "💬";
+      if (mode === "EMOJI_ONLY") icon.textContent = "😀";
+      if (mode === "LOCKED") icon.textContent = "🔒";
+    }
+    
+    if (text) {
+      text.textContent = `Chat: ${mode.replace("_", " ")}`;
+    }
+    
+    // Control visibility and interactivity
+    if (textMessages) {
+      if (mode === "OPEN") {
+        textMessages.style.display = "flex";
+        textMessages.classList.remove("disabled");
+      } else {
+        textMessages.style.display = "none";
+      }
+    }
+    
+    if (emojiReactions) {
+      if (mode === "LOCKED") {
+        emojiReactions.classList.add("disabled");
+      } else {
+        emojiReactions.classList.remove("disabled");
+      }
+    }
+  }
 }
 
 function updateDebugState() {
@@ -1795,6 +1932,12 @@ function attemptAddPhone() {
 
   // Setup guest message buttons
   setupGuestMessageButtons();
+  
+  // Setup emoji reaction buttons
+  setupEmojiReactionButtons();
+  
+  // Setup chat mode selector (for host)
+  setupChatModeSelector();
 
   el("btnAddPhone").onclick = attemptAddPhone;
 
