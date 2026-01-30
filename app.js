@@ -276,6 +276,14 @@ function handleServer(msg) {
     
     return;
   }
+  
+  // Host-specific messages
+  if (msg.t === "GUEST_MESSAGE") {
+    if (state.isHost) {
+      handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId);
+    }
+    return;
+  }
 }
 
 function showHome() {
@@ -548,6 +556,131 @@ function setupGuestVolumeControl() {
     valueEl.textContent = `${state.guestVolume}%`;
     // In a real app, this would control local audio volume
   };
+}
+
+// DJ Screen Functions
+function showDjScreen() {
+  const djOverlay = el("djScreenOverlay");
+  if (djOverlay) {
+    djOverlay.classList.remove("hidden");
+    updateDjScreen();
+  }
+}
+
+function hideDjScreen() {
+  const djOverlay = el("djScreenOverlay");
+  if (djOverlay) {
+    djOverlay.classList.add("hidden");
+  }
+}
+
+function updateDjScreen() {
+  // Update party code
+  const djPartyCodeEl = el("djPartyCode");
+  if (djPartyCodeEl) {
+    djPartyCodeEl.textContent = state.code || "------";
+  }
+  
+  // Update guest count (exclude host)
+  const djGuestCountEl = el("djGuestCount");
+  if (djGuestCountEl) {
+    const guestCount = (state.snapshot?.members || []).filter(m => !m.isHost).length;
+    djGuestCountEl.textContent = guestCount;
+  }
+  
+  // Update now playing
+  const djNowPlayingEl = el("djNowPlayingTrack");
+  if (djNowPlayingEl && musicState.selectedFile) {
+    djNowPlayingEl.textContent = musicState.selectedFile.name;
+  } else if (djNowPlayingEl) {
+    djNowPlayingEl.textContent = "No Track";
+  }
+}
+
+function handleGuestMessageReceived(message, guestName, guestId) {
+  console.log(`[DJ] Received message from ${guestName}: ${message}`);
+  
+  // Show DJ screen if not already shown and playing
+  if (state.playing) {
+    showDjScreen();
+  }
+  
+  // Add message to DJ screen
+  const messagesContainer = el("djMessagesContainer");
+  const noMessagesEl = el("djNoMessages");
+  
+  if (messagesContainer) {
+    // Hide "no messages" text
+    if (noMessagesEl) {
+      noMessagesEl.style.display = "none";
+    }
+    
+    // Create message element
+    const messageEl = document.createElement("div");
+    messageEl.className = "dj-message";
+    messageEl.innerHTML = `
+      <div class="dj-message-text">${escapeHtml(message)}</div>
+      <div class="dj-message-sender">${escapeHtml(guestName)}</div>
+    `;
+    
+    // Add to container
+    messagesContainer.appendChild(messageEl);
+    
+    // Trigger flash effect
+    triggerDjFlash();
+    
+    // Remove message after 5 seconds
+    setTimeout(() => {
+      if (messageEl.parentNode) {
+        messageEl.classList.add("fade-out");
+        setTimeout(() => {
+          if (messageEl.parentNode) {
+            messageEl.parentNode.removeChild(messageEl);
+            
+            // Show "no messages" if container is empty
+            const remainingMessages = messagesContainer.querySelectorAll(".dj-message");
+            if (remainingMessages.length === 0 && noMessagesEl) {
+              noMessagesEl.style.display = "block";
+            }
+          }
+        }, 300);
+      }
+    }, 5000);
+  }
+  
+  // Show toast notification
+  toast(`${guestName}: ${message}`);
+}
+
+function triggerDjFlash() {
+  const flashOverlay = el("djFlashOverlay");
+  if (flashOverlay) {
+    flashOverlay.classList.add("flash-active");
+    setTimeout(() => {
+      flashOverlay.classList.remove("flash-active");
+    }, 200);
+  }
+}
+
+function setupGuestMessageButtons() {
+  const messageButtons = document.querySelectorAll(".btn-guest-message");
+  
+  messageButtons.forEach(btn => {
+    btn.onclick = () => {
+      const message = btn.getAttribute("data-message");
+      if (message && state.ws) {
+        send({ t: "GUEST_MESSAGE", message: message });
+        
+        // Visual feedback
+        btn.classList.add("btn-sending");
+        setTimeout(() => {
+          btn.classList.remove("btn-sending");
+        }, 300);
+        
+        toast(`Sent: ${message}`);
+      }
+    };
+  });
 }
 
 function updateDebugState() {
@@ -1398,6 +1531,11 @@ function attemptAddPhone() {
           updateMusicStatus("Playing…");
           console.log("[Music] Playback started");
           
+          // Show DJ screen for host
+          if (state.isHost) {
+            showDjScreen();
+          }
+          
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
             send({ t: "HOST_PLAY" });
@@ -1425,6 +1563,11 @@ function attemptAddPhone() {
       state.playing = true;
       updateMusicStatus("Play (simulated - no music file loaded)");
       toast("Play (simulated)");
+      
+      // Show DJ screen for host even in simulated mode
+      if (state.isHost) {
+        showDjScreen();
+      }
       
       // Broadcast PLAY to guests even in simulated mode
       if (state.isHost && state.ws) {
@@ -1459,6 +1602,41 @@ function attemptAddPhone() {
     toast("Ad (20s) — supporters remove ads");
     setTimeout(() => { state.adActive = false; updatePlaybackUI(); toast("Ad finished"); }, 20000);
   };
+
+  // DJ Screen Controls
+  const btnCloseDj = el("btnCloseDj");
+  if (btnCloseDj) {
+    btnCloseDj.onclick = () => {
+      hideDjScreen();
+    };
+  }
+
+  const btnDjPlay = el("btnDjPlay");
+  if (btnDjPlay) {
+    btnDjPlay.onclick = () => {
+      // Trigger the main play button
+      el("btnPlay").click();
+    };
+  }
+
+  const btnDjPause = el("btnDjPause");
+  if (btnDjPause) {
+    btnDjPause.onclick = () => {
+      // Trigger the main pause button
+      el("btnPause").click();
+    };
+  }
+
+  const btnDjNext = el("btnDjNext");
+  if (btnDjNext) {
+    btnDjNext.onclick = () => {
+      toast("Next track feature (coming soon)");
+      // In a real implementation, this would skip to the next track
+    };
+  }
+
+  // Setup guest message buttons
+  setupGuestMessageButtons();
 
   el("btnAddPhone").onclick = attemptAddPhone;
 
