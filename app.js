@@ -8,6 +8,12 @@ const musicState = {
   audioElement: null
 };
 
+// Debug state for tracking API calls and errors
+const debugState = {
+  lastEndpoint: null,
+  lastError: null
+};
+
 const state = {
   ws: null,
   clientId: null,
@@ -22,8 +28,19 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null
+  partyPassTimerInterval: null,
+  offlineMode: false // Track if party was created in offline fallback mode
 };
+
+// Client-side party code generator for offline fallback
+function generatePartyCode() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
 
 const el = (id) => document.getElementById(id);
 const toastEl = el("toast");
@@ -32,6 +49,32 @@ function toast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.remove("hidden");
   setTimeout(() => toastEl.classList.add("hidden"), 2200);
+}
+
+// Update debug panel with last API call and error
+function updateDebugPanel(endpoint = null, error = null) {
+  if (endpoint) debugState.lastEndpoint = endpoint;
+  if (error) debugState.lastError = error;
+  
+  const debugPanel = el("debugPanel");
+  if (!debugPanel) return;
+  
+  const endpointEl = el("debugEndpoint");
+  const errorEl = el("debugError");
+  
+  if (endpointEl && debugState.lastEndpoint) {
+    endpointEl.textContent = debugState.lastEndpoint;
+  }
+  
+  if (errorEl) {
+    if (debugState.lastError) {
+      errorEl.textContent = debugState.lastError;
+      errorEl.style.color = "var(--danger, #ff5a6a)";
+    } else {
+      errorEl.textContent = "None";
+      errorEl.style.color = "var(--text-muted, #888)";
+    }
+  }
 }
 
 function show(id) { el(id).classList.remove("hidden"); }
@@ -757,11 +800,13 @@ function attemptAddPhone() {
       }
     };
     
+    let serverCallSucceeded = false;
+    
     try {
       // Provide visual feedback by disabling button immediately
       btn.disabled = true;
       btn.textContent = "Creating party...";
-      updateStatus("Start clicked");
+      updateStatus("Creating party…");
       
       state.name = el("hostName").value.trim() || "Host";
       state.source = "local"; // Always use local source for music from phone
@@ -772,13 +817,14 @@ function attemptAddPhone() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      const endpoint = "/api/create-party";
-      updateDebug(`Endpoint: POST ${endpoint}`);
+      const endpoint = "POST /api/create-party";
+      updateDebug(`Endpoint: ${endpoint}`);
+      updateDebugPanel(endpoint, null);
       updateStatus("Calling server…");
       
       let response;
       try {
-        response = await fetch(endpoint, {
+        response = await fetch("/api/create-party", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -790,22 +836,29 @@ function attemptAddPhone() {
       } catch (fetchError) {
         clearTimeout(timeoutId);
         
-        if (fetchError.name === "AbortError") {
-          throw new Error("Server not responding. Try again.");
-        }
-        throw fetchError;
+        const errorMsg = fetchError.name === "AbortError" 
+          ? "Server not responding. Try again." 
+          : fetchError.message;
+        
+        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "error"})`);
+        throw new Error(errorMsg);
       }
       
-      updateStatus("Server responded");
+      updateStatus("Server responded…");
       
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
-        throw new Error(`Server error: ${response.status} - ${errorText}`);
+        const errorMsg = `Server error: ${response.status} - ${errorText}`;
+        updateDebugPanel(endpoint, errorMsg);
+        throw new Error(errorMsg);
       }
       
       const data = await response.json();
       updateStatus(`Server ready`);
       updateDebug(`Server validated: ${data.partyCode}`);
+      updateDebugPanel(endpoint, null); // Clear error on success
+      
+      serverCallSucceeded = true;
       
       // Server is responsive, now create party via WebSocket (actual party creation)
       updateStatus("Creating party via WebSocket…");
@@ -819,15 +872,39 @@ function attemptAddPhone() {
       }, 2000);
       
     } catch (error) {
-      console.error("[Party] Error creating party:", error);
+      console.error("[Party] Server call failed, using fallback:", error);
       updateStatus(error.message || "Error creating party. Try again.", true);
       
-      // Re-enable button on error
+      // INSTANT FALLBACK: Generate party code client-side and continue
+      if (!serverCallSucceeded) {
+        const fallbackCode = generatePartyCode();
+        console.log("[Party] Using offline fallback mode with code:", fallbackCode);
+        
+        state.code = fallbackCode;
+        state.isHost = true;
+        state.offlineMode = true;
+        
+        updateStatus("Offline mode: party created locally", false);
+        toast("Offline mode: party created locally (some features may not sync).");
+        
+        // Show party view with warning
+        showParty();
+        
+        // Add warning message to party view
+        setTimeout(() => {
+          const partyMeta = el("partyMeta");
+          if (partyMeta) {
+            partyMeta.innerHTML = `<span style="color: var(--warning, #ffaa00);">⚠️ Offline mode: some features may not sync</span>`;
+          }
+        }, 100);
+      } else {
+        // Show toast with error
+        toast(error.message || "Error creating party");
+      }
+    } finally {
+      // ALWAYS re-enable button and reset text
       btn.disabled = false;
       btn.textContent = "Start party";
-      
-      // Show toast with error
-      toast(error.message || "Error creating party");
     }
   };
 
