@@ -2667,7 +2667,6 @@ h2,h3{margin:0}
   }
   
   .dj-moments-grid-view {
-    grid-template-columns: repeat(2, 1fr);
     gap: 10px;
   }
   
