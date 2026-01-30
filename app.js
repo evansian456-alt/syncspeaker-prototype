@@ -1,5 +1,12 @@
 const FREE_LIMIT = 2;
 
+// Music player state
+const musicState = {
+  selectedFile: null,
+  currentObjectURL: null,
+  audioElement: null
+};
+
 const state = {
   ws: null,
   clientId: null,
@@ -108,6 +115,9 @@ function showHome() {
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
   
+  // Cleanup audio and ObjectURL
+  cleanupMusicPlayer();
+  
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -123,6 +133,9 @@ function showLanding() {
   show("viewLanding"); hide("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  
+  // Cleanup audio and ObjectURL
+  cleanupMusicPlayer();
   
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
@@ -215,6 +228,246 @@ function escapeHtml(s) {
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[c]));
 }
+
+// Music file handling functions
+function formatFileSize(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+function updateMusicStatus(message, isError = false) {
+  const statusEl = el("statusMessage");
+  if (statusEl) {
+    statusEl.textContent = message;
+    if (isError) {
+      statusEl.style.color = "var(--danger)";
+    } else {
+      statusEl.style.color = "var(--text)";
+    }
+  }
+  console.log(`[Music] Status: ${message}`);
+}
+
+function showMusicWarning(message, isError = false) {
+  const warningEl = el("musicWarning");
+  if (warningEl) {
+    warningEl.textContent = message;
+    warningEl.classList.remove("hidden");
+    if (isError) {
+      warningEl.classList.add("error");
+    } else {
+      warningEl.classList.remove("error");
+    }
+  }
+}
+
+function hideMusicWarning() {
+  const warningEl = el("musicWarning");
+  if (warningEl) {
+    warningEl.classList.add("hidden");
+    warningEl.classList.remove("error");
+  }
+}
+
+function cleanupMusicPlayer() {
+  // Stop audio playback
+  const audioEl = musicState.audioElement;
+  if (audioEl) {
+    audioEl.pause();
+    audioEl.src = "";
+    audioEl.load(); // Reset the audio element
+  }
+  
+  // Revoke ObjectURL to prevent memory leak
+  if (musicState.currentObjectURL) {
+    URL.revokeObjectURL(musicState.currentObjectURL);
+    musicState.currentObjectURL = null;
+  }
+  
+  // Reset music state
+  musicState.selectedFile = null;
+  
+  console.log("[Music] Player cleaned up");
+}
+
+function checkFileTypeSupport(file) {
+  const audio = musicState.audioElement || document.createElement("audio");
+  
+  // Try to check if the browser can play this file type
+  if (file.type) {
+    const canPlay = audio.canPlayType(file.type);
+    if (canPlay === "" || canPlay === "no") {
+      return false;
+    }
+  } else {
+    // If file.type is empty, check file extension as fallback
+    const extension = file.name.split('.').pop().toLowerCase();
+    const commonFormats = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
+    if (!commonFormats.includes(extension)) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+function handleMusicFileSelection(file) {
+  if (!file) return;
+  
+  console.log(`[Music] File selected:`, file.name, file.type, file.size);
+  
+  // Revoke old ObjectURL to prevent memory leaks
+  if (musicState.currentObjectURL) {
+    URL.revokeObjectURL(musicState.currentObjectURL);
+    musicState.currentObjectURL = null;
+  }
+  
+  hideMusicWarning();
+  
+  // Store the selected file
+  musicState.selectedFile = file;
+  
+  // Show file info
+  const filenameEl = el("musicFilename");
+  const filesizeEl = el("musicFilesize");
+  const infoEl = el("musicInfo");
+  
+  if (filenameEl) filenameEl.textContent = file.name;
+  if (filesizeEl) filesizeEl.textContent = formatFileSize(file.size);
+  if (infoEl) infoEl.classList.remove("hidden");
+  
+  // Show "Change file" button, hide "Choose music file" button
+  const chooseBtnEl = el("btnChooseMusic");
+  const changeBtnEl = el("btnChangeMusic");
+  if (chooseBtnEl) chooseBtnEl.classList.add("hidden");
+  if (changeBtnEl) changeBtnEl.classList.remove("hidden");
+  
+  // Check file size (50MB = 52428800 bytes)
+  const MAX_SIZE = 52428800;
+  const warnings = [];
+  
+  if (file.size > MAX_SIZE) {
+    warnings.push("⚠️ Large file — may take longer to load or stream.");
+  }
+  
+  // Check if browser can play this file type
+  const canPlay = checkFileTypeSupport(file);
+  if (!canPlay) {
+    warnings.push("⚠️ This file type may not play on this device. Try MP3 or M4A.");
+  }
+  
+  // Display warnings
+  if (warnings.length > 0) {
+    showMusicWarning(warnings.join(" "), !canPlay);
+  }
+  
+  // Create ObjectURL and set audio source
+  const objectURL = URL.createObjectURL(file);
+  musicState.currentObjectURL = objectURL;
+  
+  const audioEl = musicState.audioElement;
+  if (audioEl) {
+    audioEl.src = objectURL;
+    updateMusicStatus(`File selected: ${file.name}`);
+  }
+  
+  toast(`✓ Music file selected: ${file.name}`);
+}
+
+function initializeMusicPlayer() {
+  const audioEl = el("hostAudioPlayer");
+  if (audioEl) {
+    musicState.audioElement = audioEl;
+    
+    // Audio event listeners
+    audioEl.addEventListener("play", () => {
+      state.playing = true;
+      updateMusicStatus("Playing…");
+    });
+    
+    audioEl.addEventListener("pause", () => {
+      state.playing = false;
+      updateMusicStatus("Paused");
+    });
+    
+    audioEl.addEventListener("ended", () => {
+      state.playing = false;
+      updateMusicStatus("Ended");
+    });
+    
+    audioEl.addEventListener("error", (e) => {
+      // Only show error if a file was actually selected
+      if (!musicState.selectedFile) {
+        return;
+      }
+      
+      console.error("[Music] Audio error:", e);
+      let errorMsg = "Error: Unable to play this file";
+      
+      if (audioEl.error) {
+        // Use numeric values instead of MediaError constants for better compatibility
+        switch (audioEl.error.code) {
+          case 1: // MEDIA_ERR_ABORTED
+            errorMsg = "Error: Playback aborted";
+            break;
+          case 2: // MEDIA_ERR_NETWORK
+            errorMsg = "Error: Network error";
+            break;
+          case 3: // MEDIA_ERR_DECODE
+            errorMsg = "Error: File format not supported or corrupted";
+            break;
+          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+            errorMsg = "Error: File type not supported on this device";
+            break;
+        }
+      }
+      
+      updateMusicStatus(errorMsg, true);
+      showMusicWarning(errorMsg + ". Try a different file format (MP3, M4A).", true);
+    });
+    
+    audioEl.addEventListener("loadedmetadata", () => {
+      console.log("[Music] Audio loaded, duration:", audioEl.duration);
+    });
+  }
+  
+  // File input handler
+  const fileInputEl = el("musicFileInput");
+  if (fileInputEl) {
+    fileInputEl.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        handleMusicFileSelection(file);
+      }
+    });
+  }
+  
+  // Choose music button
+  const chooseBtnEl = el("btnChooseMusic");
+  if (chooseBtnEl) {
+    chooseBtnEl.onclick = () => {
+      const fileInputEl = el("musicFileInput");
+      if (fileInputEl) {
+        fileInputEl.click();
+      }
+    };
+  }
+  
+  // Change file button
+  const changeBtnEl = el("btnChangeMusic");
+  if (changeBtnEl) {
+    changeBtnEl.onclick = () => {
+      const fileInputEl = el("musicFileInput");
+      if (fileInputEl) {
+        fileInputEl.click();
+      }
+    };
+  }
+}
+
 
 function activatePartyPass() {
   if (!state.code) {
@@ -447,6 +700,9 @@ function attemptAddPhone() {
 (async function init(){
   await connectWS();
   showLanding();
+  
+  // Initialize music player
+  initializeMusicPlayer();
 
   // Landing page navigation
   el("btnLandingStart").onclick = () => {
@@ -462,7 +718,7 @@ function attemptAddPhone() {
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");
     state.name = el("hostName").value.trim() || "Host";
-    state.source = el("source").value;
+    state.source = "local"; // Always use local source for music from phone
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
@@ -488,8 +744,57 @@ function attemptAddPhone() {
     catch { toast("Copy failed (permission)"); }
   };
 
-  el("btnPlay").onclick = () => { if (state.adActive) return; state.playing = true; toast("Play (simulated)"); };
-  el("btnPause").onclick = () => { if (state.adActive) return; state.playing = false; toast("Pause (simulated)"); };
+  el("btnPlay").onclick = () => {
+    if (state.adActive) return;
+    
+    const audioEl = musicState.audioElement;
+    if (audioEl && audioEl.src && musicState.selectedFile) {
+      // Play from user gesture
+      audioEl.play()
+        .then(() => {
+          state.playing = true;
+          updateMusicStatus("Playing…");
+          console.log("[Music] Playback started");
+        })
+        .catch((error) => {
+          console.error("[Music] Play failed:", error);
+          let errorMsg = "Error: Playback failed";
+          
+          if (error.name === "NotAllowedError") {
+            errorMsg = "⚠️ Your browser blocked autoplay. Tap Play to start audio.";
+            showMusicWarning(errorMsg, false);
+          } else if (error.name === "NotSupportedError") {
+            errorMsg = "Error: File type not supported";
+            showMusicWarning(errorMsg + ". Try MP3 or M4A.", true);
+          } else {
+            errorMsg = `Error: ${error.message || "Unable to play"}`;
+            showMusicWarning(errorMsg, true);
+          }
+          
+          updateMusicStatus(errorMsg, true);
+          toast(errorMsg);
+        });
+    } else {
+      state.playing = true;
+      updateMusicStatus("Play (simulated - no music file loaded)");
+      toast("Play (simulated)");
+    }
+  };
+  
+  el("btnPause").onclick = () => {
+    if (state.adActive) return;
+    
+    const audioEl = musicState.audioElement;
+    if (audioEl && audioEl.src && musicState.selectedFile) {
+      audioEl.pause();
+      state.playing = false;
+      updateMusicStatus("Paused");
+    } else {
+      state.playing = false;
+      updateMusicStatus("Pause (simulated)");
+      toast("Pause (simulated)");
+    }
+  };
 
   el("btnAd").onclick = () => {
     if (state.partyPro || state.partyPassActive || state.source === "mic") return;
