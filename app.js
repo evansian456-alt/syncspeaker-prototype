@@ -811,24 +811,21 @@ function attemptAddPhone() {
     state.isHost = true;
     state.offlineMode = true; // Mark as prototype/offline mode
     
+    // Initialize snapshot with host member for prototype mode
+    state.snapshot = {
+      members: [{
+        id: "host-" + Date.now(),
+        name: state.name,
+        isHost: true,
+        isPro: state.isPro
+      }]
+    };
+    
     // Show party view immediately
     showParty();
     
-    // Add visible status message about prototype mode
-    setTimeout(() => {
-      const partyMeta = el("partyMeta");
-      if (partyMeta) {
-        partyMeta.textContent = "Party created locally (prototype mode)";
-        partyMeta.style.color = "var(--accent, #5AA9FF)";
-      }
-    }, 100);
-    
     // Show success toast
     toast(`Party created: ${partyCode}`);
-    
-    // Re-enable button
-    btn.disabled = false;
-    btn.textContent = "Start party";
     
     // TODO: Enable real-time sync later in native app
     // For browser prototype, we skip WebSocket connection to ensure Start Party works instantly
