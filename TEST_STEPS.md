@@ -92,12 +92,12 @@ This PR fixes the "Start Party" button hang issue by:
 ## Key Changes Made
 
 ### Frontend (app.js)
-- Changed endpoint from `/api/ping` to `/api/create-party`
-- Added POST request with JSON body
-- Implemented AbortController for 5-second timeout
-- Added visible status messages: "Start clicked", "Calling server…", "Server responded", "Party created: CODE"
-- Enhanced error handling with detailed error messages
-- Proper button state management (disabled/enabled)
+- **Added HTTP API health check**: Calls `/api/create-party` to verify server responsiveness before party creation
+- **Implemented AbortController** for 5-second timeout on HTTP check
+- **Added visible status messages**: "Start clicked", "Calling server…", "Server responded", "Server ready", "Creating party via WebSocket…"
+- **Enhanced error handling** with detailed error messages
+- **Proper button state management** (disabled/enabled)
+- **Party creation via WebSocket**: Actual party is created via WebSocket CREATE message (preserves original architecture)
 
 ### Backend (server.js)
 - Already had `/api/create-party` endpoint implemented
@@ -106,19 +106,21 @@ This PR fixes the "Start Party" button hang issue by:
 
 ## HTTP Request/Response Examples
 
-### Create Party Request
+### Create Party Request (Health Check)
 ```
 POST /api/create-party
 Content-Type: application/json
 ```
 
-### Create Party Response (Success)
+### Create Party Response (Health Check - Success)
 ```json
 {
   "partyCode": "J1VQAN",
   "hostId": 1
 }
 ```
+
+Note: The HTTP API response is used to validate server responsiveness. The actual party creation happens via WebSocket CREATE message, which generates the final party code that users will see.
 
 ### Join Party Request
 ```

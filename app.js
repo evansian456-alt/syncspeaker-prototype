@@ -804,15 +804,15 @@ function attemptAddPhone() {
       }
       
       const data = await response.json();
-      updateStatus(`Party created: ${data.partyCode}`);
-      updateDebug(`hostId: ${data.hostId}`);
+      updateStatus(`Server ready`);
+      updateDebug(`Server validated: ${data.partyCode}`);
       
-      // Now create party via WebSocket
-      state.code = data.partyCode;
-      state.isHost = true;
+      // Server is responsive, now create party via WebSocket (actual party creation)
+      updateStatus("Creating party via WebSocket…");
       send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
       
       // The WebSocket handler will call showParty() when CREATED message is received
+      // and will set state.code and state.isHost
       // Clear status after a short delay
       setTimeout(() => {
         if (statusEl) statusEl.classList.add("hidden");
