@@ -92,48 +92,55 @@ app.post("/api/join-party", (req, res) => {
   }
 });
 
-// Start the HTTP server
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-});
-
-// WebSocket server setup
-const wss = new WebSocket.Server({ server });
-
 // Party state management
 const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }] }
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 
-wss.on("connection", (ws) => {
-  const clientId = nextClientId++;
-  clients.set(ws, { id: clientId, party: null });
-  
-  console.log(`[WS] Client ${clientId} connected`);
-  
-  // Send welcome message
-  ws.send(JSON.stringify({ t: "WELCOME", clientId }));
-  
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(data.toString());
-      console.log(`[WS] Client ${clientId} sent:`, msg);
-      handleMessage(ws, msg);
-    } catch (err) {
-      console.error(`[WS] Error parsing message from client ${clientId}:`, err);
-    }
+// Start the HTTP server only if not imported as a module
+let server;
+let wss;
+
+function startServer() {
+  server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
   
-  ws.on("close", () => {
-    console.log(`[WS] Client ${clientId} disconnected`);
-    handleDisconnect(ws);
-    clients.delete(ws);
+  // WebSocket server setup
+  wss = new WebSocket.Server({ server });
+
+  wss.on("connection", (ws) => {
+    const clientId = nextClientId++;
+    clients.set(ws, { id: clientId, party: null });
+    
+    console.log(`[WS] Client ${clientId} connected`);
+    
+    // Send welcome message
+    ws.send(JSON.stringify({ t: "WELCOME", clientId }));
+    
+    ws.on("message", (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        console.log(`[WS] Client ${clientId} sent:`, msg);
+        handleMessage(ws, msg);
+      } catch (err) {
+        console.error(`[WS] Error parsing message from client ${clientId}:`, err);
+      }
+    });
+    
+    ws.on("close", () => {
+      console.log(`[WS] Client ${clientId} disconnected`);
+      handleDisconnect(ws);
+      clients.delete(ws);
+    });
+    
+    ws.on("error", (err) => {
+      console.error(`[WS] Client ${clientId} error:`, err);
+    });
   });
   
-  ws.on("error", (err) => {
-    console.error(`[WS] Client ${clientId} error:`, err);
-  });
-});
+  return server;
+}
 
 function handleMessage(ws, msg) {
   const client = clients.get(ws);
@@ -352,3 +359,17 @@ function broadcastRoomState(code) {
     }
   });
 }
+
+// Start server if run directly (not imported as module)
+if (require.main === module) {
+  startServer();
+}
+
+// Export for testing
+module.exports = {
+  app,
+  server,
+  generateCode,
+  httpParties,
+  startServer
+};
