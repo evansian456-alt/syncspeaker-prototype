@@ -3,19 +3,48 @@ Browser prototype for SyncSpeaker
 
 ## Getting Started
 
-### Installation
+### Quick Start (Browser-Only Mode)
+
+For **single-device testing** without installing dependencies:
+
+1. Open `index.html` directly in your browser, or
+2. Use Python's built-in HTTP server:
+   ```bash
+   python3 -m http.server 8080
+   # Then open http://localhost:8080
+   ```
+
+**Browser-Only Features:**
+- ✅ Landing page and UI testing
+- ✅ Create party (local/offline mode)
+- ✅ Music file selection and playback
+- ✅ Party Pass activation (simulated)
+- ✅ Single-device party experience
+
+**Limitations in Browser-Only Mode:**
+- ❌ Multi-device sync (requires server)
+- ❌ Join party from other devices
+- ❌ WebSocket real-time updates
+
+### Full Installation (Multi-Device Mode)
+
+For **multi-device testing** with real-time sync:
+
 ```bash
 npm install
-```
-
-### Running the Application
-```bash
 npm start
 # or for development
 npm run dev
 ```
 
 The server will start on `http://localhost:8080`
+
+**Full Server Features:**
+- ✅ All browser-only features
+- ✅ Multi-device party sync
+- ✅ Join party from other devices
+- ✅ WebSocket real-time updates
+- ✅ Party state management
 
 ## Testing
 
