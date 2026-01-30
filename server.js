@@ -159,6 +159,21 @@ function handleMessage(ws, msg) {
     case "SET_PRO":
       handleSetPro(ws, msg);
       break;
+    case "HOST_PLAY":
+      handleHostPlay(ws, msg);
+      break;
+    case "HOST_PAUSE":
+      handleHostPause(ws, msg);
+      break;
+    case "HOST_TRACK_SELECTED":
+      handleHostTrackSelected(ws, msg);
+      break;
+    case "HOST_NEXT_TRACK_QUEUED":
+      handleHostNextTrackQueued(ws, msg);
+      break;
+    case "HOST_TRACK_CHANGED":
+      handleHostTrackChanged(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -355,6 +370,130 @@ function broadcastRoomState(code) {
   
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostPlay(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send play events
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
+    return;
+  }
+  
+  console.log(`[Party] Host playing in party ${client.party}`);
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "PLAY" });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostPause(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send pause events
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
+    return;
+  }
+  
+  console.log(`[Party] Host paused in party ${client.party}`);
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "PAUSE" });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostTrackSelected(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can select tracks
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can select tracks" }));
+    return;
+  }
+  
+  const filename = msg.filename || "Unknown Track";
+  console.log(`[Party] Host selected track "${filename}" in party ${client.party}`);
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "TRACK_SELECTED", filename });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostNextTrackQueued(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can queue tracks
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can queue tracks" }));
+    return;
+  }
+  
+  const filename = msg.filename || null;
+  console.log(`[Party] Host queued next track "${filename}" in party ${client.party}`);
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "NEXT_TRACK_QUEUED", filename });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostTrackChanged(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can change tracks
+  if (party.host !== ws) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can change tracks" }));
+    return;
+  }
+  
+  const filename = msg.filename || "Unknown Track";
+  const nextFilename = msg.nextFilename || null;
+  console.log(`[Party] Host changed to track "${filename}" (next: "${nextFilename}") in party ${client.party}`);
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "TRACK_CHANGED", filename, nextFilename });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
     }
   });

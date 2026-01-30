@@ -336,10 +336,130 @@
         Browser prototype — next step is the real Android app for proper sync.
       </div>
     </section>
+
+    <!-- Guest Party View -->
+    <section class="card hidden" id="viewGuest">
+      <div class="row space">
+        <div>
+          <h2>🎵 Guest Party</h2>
+          <div class="muted tiny" id="guestMeta">Connected to party</div>
+        </div>
+        <button class="btn danger" id="btnGuestLeave">Leave Party</button>
+      </div>
+
+      <!-- Party Code and Connection Status -->
+      <div class="guest-header">
+        <div class="glass-card">
+          <div class="row space">
+            <div>
+              <div class="lbl">Party Code</div>
+              <div class="code" id="guestPartyCode">------</div>
+            </div>
+            <div class="guest-connection-status">
+              <div class="lbl">Status</div>
+              <span class="badge" id="guestConnectionStatus">Connecting...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Party Status Badge -->
+      <div class="guest-party-status">
+        <div class="party-status-badge" id="guestPartyStatusBadge">
+          <span class="party-status-icon">✨</span>
+          <span class="party-status-text" id="guestPartyStatusText">Free Plan</span>
+          <span class="party-status-timer hidden" id="guestPartyPassTimer"></span>
+        </div>
+      </div>
+
+      <!-- Now Playing Section -->
+      <div class="glass-card guest-now-playing">
+        <h3 class="section-title">🎵 Now Playing</h3>
+        <div class="now-playing-content">
+          <div class="track-info">
+            <div class="track-filename" id="guestNowPlayingFilename">No track selected</div>
+            <div class="playback-state-badge">
+              <span class="playback-state-icon" id="guestPlaybackStateIcon">⏸</span>
+              <span class="playback-state-text" id="guestPlaybackStateText">Waiting</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Up Next Section -->
+      <div class="glass-card guest-up-next hidden" id="guestUpNextSection">
+        <h4 class="section-title-small">⏭ Up Next</h4>
+        <div class="up-next-content">
+          <div class="up-next-filename" id="guestUpNextFilename">No track queued</div>
+          <span class="up-next-status-badge">Ready</span>
+        </div>
+      </div>
+
+      <!-- DJ Visuals Area -->
+      <div class="glass-card guest-dj-visuals">
+        <h3 class="section-title">🎧 DJ Visuals</h3>
+        <div class="dj-visual-container" id="guestDjVisuals">
+          <div class="equalizer guest-equalizer" id="guestEqualizer">
+            <div class="eq-bar"></div>
+            <div class="eq-bar"></div>
+            <div class="eq-bar"></div>
+            <div class="eq-bar"></div>
+            <div class="eq-bar"></div>
+          </div>
+          <div class="visual-status-text" id="guestVisualStatus">Synced visuals (prototype)</div>
+        </div>
+      </div>
+
+      <!-- Guest Volume Control -->
+      <div class="glass-card guest-volume">
+        <h4 class="section-title-small">🔊 Your Volume (Local)</h4>
+        <div class="volume-control">
+          <input type="range" min="0" max="100" value="80" class="volume-slider" id="guestVolumeSlider" />
+          <span class="volume-value" id="guestVolumeValue">80%</span>
+        </div>
+        <div class="tiny muted">Adjust volume on your device only</div>
+      </div>
+
+      <div class="tiny muted" style="margin-top:20px; text-align: center;">
+        Playback controlled by host · Browser prototype
+      </div>
+    </section>
   
 <!-- Debug Panel (Prototype Only) -->
 <div class="debug-panel" id="debugPanel" aria-hidden="true">
   <h4 class="debug-title">Debug Panel (Prototype)</h4>
+  <div class="debug-row">
+    <span class="debug-label">Role:</span>
+    <span class="debug-value" id="debugRole">None</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Party Code:</span>
+    <span class="debug-value" id="debugPartyCode">None</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Connected:</span>
+    <span class="debug-value" id="debugConnected">false</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Now Playing:</span>
+    <span class="debug-value" id="debugNowPlaying">None</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Up Next:</span>
+    <span class="debug-value" id="debugUpNext">None</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Playback State:</span>
+    <span class="debug-value" id="debugPlaybackState">STOPPED</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Last Host Event:</span>
+    <span class="debug-value" id="debugLastHostEvent">None</span>
+  </div>
+  <div class="debug-row">
+    <span class="debug-label">Visual Mode:</span>
+    <span class="debug-value" id="debugVisualMode">idle</span>
+  </div>
   <div class="debug-row">
     <span class="debug-label">Last endpoint:</span>
     <span class="debug-value" id="debugEndpoint">None</span>

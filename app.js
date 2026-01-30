@@ -31,7 +31,15 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
-  offlineMode: false // Track if party was created in offline fallback mode
+  offlineMode: false, // Track if party was created in offline fallback mode
+  // Guest-specific state
+  nowPlayingFilename: null,
+  upNextFilename: null,
+  playbackState: "STOPPED", // PLAYING, PAUSED, STOPPED
+  lastHostEvent: null, // PLAY, PAUSE, TRACK_SELECTED, NEXT_TRACK_QUEUED, TRACK_CHANGED
+  visualMode: "idle", // playing, paused, idle
+  connected: false,
+  guestVolume: 80
 };
 
 // Client-side party code generator for offline fallback
@@ -135,12 +143,29 @@ function send(obj) {
 }
 
 function handleServer(msg) {
-  if (msg.t === "WELCOME") { state.clientId = msg.clientId; return; }
+  if (msg.t === "WELCOME") { 
+    state.clientId = msg.clientId; 
+    state.connected = true;
+    updateDebugState();
+    return; 
+  }
   if (msg.t === "CREATED") {
-    state.code = msg.code; state.isHost = true; showParty(); toast(`Party created: ${msg.code}`); return;
+    state.code = msg.code; 
+    state.isHost = true; 
+    state.connected = true;
+    showParty(); 
+    toast(`Party created: ${msg.code}`); 
+    updateDebugState();
+    return;
   }
   if (msg.t === "JOINED") {
-    state.code = msg.code; state.isHost = false; showParty(); toast(`Joined party ${msg.code}`); return;
+    state.code = msg.code; 
+    state.isHost = false; 
+    state.connected = true;
+    showGuest(); 
+    toast(`Joined party ${msg.code}`); 
+    updateDebugState();
+    return;
   }
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
@@ -148,11 +173,97 @@ function handleServer(msg) {
     const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
     state.partyPro = state.partyPassActive || membersPro;
     setPlanPill();
-    renderRoom();
+    if (state.isHost) {
+      renderRoom();
+    } else {
+      updateGuestPartyStatus();
+    }
+    updateDebugState();
     return;
   }
-  if (msg.t === "ENDED") { toast("Party ended (host left)"); showLanding(); return; }
-  if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
+  if (msg.t === "ENDED") { 
+    state.connected = false;
+    state.lastHostEvent = "PARTY_ENDED";
+    if (!state.isHost) {
+      updateGuestPlaybackState("STOPPED");
+      updateGuestVisualMode("idle");
+    }
+    toast("Party ended (host left)"); 
+    showLanding(); 
+    updateDebugState();
+    return; 
+  }
+  if (msg.t === "KICKED") { 
+    state.connected = false;
+    toast("Removed by host"); 
+    showLanding(); 
+    updateDebugState();
+    return; 
+  }
+  
+  // Guest-specific messages
+  if (msg.t === "TRACK_SELECTED") {
+    state.nowPlayingFilename = msg.filename;
+    state.lastHostEvent = "TRACK_SELECTED";
+    if (!state.isHost) {
+      updateGuestNowPlaying(msg.filename);
+      // Don't change playback state yet - wait for PLAY
+    }
+    updateDebugState();
+    return;
+  }
+  
+  if (msg.t === "NEXT_TRACK_QUEUED") {
+    state.upNextFilename = msg.filename;
+    state.lastHostEvent = "NEXT_TRACK_QUEUED";
+    if (!state.isHost) {
+      updateGuestUpNext(msg.filename);
+    }
+    updateDebugState();
+    return;
+  }
+  
+  if (msg.t === "PLAY") {
+    state.playing = true;
+    state.lastHostEvent = "PLAY";
+    if (!state.isHost) {
+      updateGuestPlaybackState("PLAYING");
+      updateGuestVisualMode("playing");
+    }
+    updateDebugState();
+    return;
+  }
+  
+  if (msg.t === "PAUSE") {
+    state.playing = false;
+    state.lastHostEvent = "PAUSE";
+    if (!state.isHost) {
+      updateGuestPlaybackState("PAUSED");
+      updateGuestVisualMode("paused");
+    }
+    updateDebugState();
+    return;
+  }
+  
+  if (msg.t === "TRACK_CHANGED") {
+    state.nowPlayingFilename = msg.filename;
+    state.upNextFilename = msg.nextFilename || null;
+    state.lastHostEvent = "TRACK_CHANGED";
+    if (!state.isHost) {
+      updateGuestNowPlaying(msg.filename);
+      updateGuestUpNext(msg.nextFilename);
+      updateGuestVisualMode("track-change");
+      // Flash effect then return to playing
+      setTimeout(() => {
+        if (state.playing && !state.isHost) {
+          updateGuestVisualMode("playing");
+        }
+      }, 500);
+    }
+    updateDebugState();
+    return;
+  }
+  
   if (msg.t === "ERROR") {
     toast(msg.message || "Error");
     
@@ -168,9 +279,18 @@ function handleServer(msg) {
 }
 
 function showHome() {
-  hide("viewLanding"); show("viewHome"); hide("viewParty");
+  hide("viewLanding"); 
+  show("viewHome"); 
+  hide("viewParty");
+  hide("viewGuest");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false; state.offlineMode = false;
+  state.connected = false;
+  state.nowPlayingFilename = null;
+  state.upNextFilename = null;
+  state.playbackState = "STOPPED";
+  state.lastHostEvent = null;
+  state.visualMode = "idle";
   
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
@@ -184,12 +304,22 @@ function showHome() {
   state.partyPassEndTime = null;
   
   setPlanPill();
+  updateDebugState();
 }
 
 function showLanding() {
-  show("viewLanding"); hide("viewHome"); hide("viewParty");
+  show("viewLanding"); 
+  hide("viewHome"); 
+  hide("viewParty");
+  hide("viewGuest");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false; state.offlineMode = false;
+  state.connected = false;
+  state.nowPlayingFilename = null;
+  state.upNextFilename = null;
+  state.playbackState = "STOPPED";
+  state.lastHostEvent = null;
+  state.visualMode = "idle";
   
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
@@ -203,6 +333,7 @@ function showLanding() {
   state.partyPassEndTime = null;
   
   setPlanPill();
+  updateDebugState();
 }
 
 function showParty() {
@@ -232,6 +363,215 @@ function showParty() {
   renderRoom();
   updatePlaybackUI();
   updateQualityUI();
+}
+
+function showGuest() {
+  hide("viewLanding"); 
+  hide("viewHome"); 
+  hide("viewParty"); 
+  show("viewGuest");
+  
+  // Update guest meta
+  el("guestMeta").textContent = `You: ${state.name}`;
+  
+  // Update party code
+  el("guestPartyCode").textContent = state.code || "------";
+  
+  // Update connection status
+  updateGuestConnectionStatus();
+  
+  // Update party status
+  updateGuestPartyStatus();
+  
+  // Initialize guest UI
+  updateGuestNowPlaying(state.nowPlayingFilename);
+  updateGuestUpNext(state.upNextFilename);
+  updateGuestPlaybackState(state.playbackState);
+  updateGuestVisualMode(state.visualMode);
+  
+  // Setup volume control
+  setupGuestVolumeControl();
+  
+  setPlanPill();
+  updateDebugState();
+}
+
+function updateGuestConnectionStatus() {
+  const statusEl = el("guestConnectionStatus");
+  if (!statusEl) return;
+  
+  if (state.connected) {
+    statusEl.textContent = "Connected";
+    statusEl.className = "badge";
+    statusEl.style.background = "rgba(92, 255, 138, 0.2)";
+    statusEl.style.borderColor = "rgba(92, 255, 138, 0.4)";
+  } else {
+    statusEl.textContent = "Disconnected";
+    statusEl.className = "badge";
+    statusEl.style.background = "rgba(255, 90, 106, 0.2)";
+    statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+  }
+}
+
+function updateGuestPartyStatus() {
+  const statusTextEl = el("guestPartyStatusText");
+  const statusIconEl = el("guestPartyStatusBadge")?.querySelector(".party-status-icon");
+  const timerEl = el("guestPartyPassTimer");
+  
+  if (!statusTextEl) return;
+  
+  if (state.partyPassActive) {
+    if (statusIconEl) statusIconEl.textContent = "🎉";
+    statusTextEl.textContent = "Party Pass Active";
+    if (timerEl && state.partyPassEndTime) {
+      const remaining = Math.max(0, state.partyPassEndTime - Date.now());
+      const minutes = Math.floor(remaining / 60000);
+      timerEl.textContent = `${minutes}m remaining`;
+      timerEl.classList.remove("hidden");
+    }
+  } else if (state.partyPro) {
+    if (statusIconEl) statusIconEl.textContent = "💎";
+    statusTextEl.textContent = "Pro";
+    if (timerEl) timerEl.classList.add("hidden");
+  } else {
+    if (statusIconEl) statusIconEl.textContent = "✨";
+    statusTextEl.textContent = "Free Plan";
+    if (timerEl) timerEl.classList.add("hidden");
+  }
+}
+
+function updateGuestNowPlaying(filename) {
+  const filenameEl = el("guestNowPlayingFilename");
+  if (!filenameEl) return;
+  
+  if (filename) {
+    filenameEl.textContent = filename;
+  } else {
+    filenameEl.textContent = "No track selected";
+  }
+  
+  updateDebugState();
+}
+
+function updateGuestUpNext(filename) {
+  const sectionEl = el("guestUpNextSection");
+  const filenameEl = el("guestUpNextFilename");
+  
+  if (!sectionEl || !filenameEl) return;
+  
+  if (filename) {
+    filenameEl.textContent = filename;
+    sectionEl.classList.remove("hidden");
+  } else {
+    filenameEl.textContent = "No track queued";
+    sectionEl.classList.add("hidden");
+  }
+  
+  updateDebugState();
+}
+
+function updateGuestPlaybackState(newState) {
+  state.playbackState = newState;
+  
+  const iconEl = el("guestPlaybackStateIcon");
+  const textEl = el("guestPlaybackStateText");
+  const badgeEl = iconEl?.parentElement;
+  
+  if (!iconEl || !textEl || !badgeEl) return;
+  
+  // Remove all state classes
+  badgeEl.classList.remove("paused", "stopped");
+  
+  switch (newState) {
+    case "PLAYING":
+      iconEl.textContent = "▶️";
+      textEl.textContent = "Playing";
+      break;
+    case "PAUSED":
+      iconEl.textContent = "⏸";
+      textEl.textContent = "Paused by Host";
+      badgeEl.classList.add("paused");
+      break;
+    case "STOPPED":
+    default:
+      iconEl.textContent = "⏹";
+      textEl.textContent = "Stopped";
+      badgeEl.classList.add("stopped");
+      break;
+  }
+  
+  updateDebugState();
+}
+
+function updateGuestVisualMode(mode) {
+  state.visualMode = mode;
+  
+  const equalizerEl = el("guestEqualizer");
+  if (!equalizerEl) return;
+  
+  // Remove all mode classes
+  equalizerEl.classList.remove("playing", "paused", "idle", "track-change");
+  
+  // Add the new mode class
+  if (mode) {
+    equalizerEl.classList.add(mode);
+  }
+  
+  updateDebugState();
+}
+
+function setupGuestVolumeControl() {
+  const sliderEl = el("guestVolumeSlider");
+  const valueEl = el("guestVolumeValue");
+  
+  if (!sliderEl || !valueEl) return;
+  
+  // Set initial value
+  sliderEl.value = state.guestVolume;
+  valueEl.textContent = `${state.guestVolume}%`;
+  
+  // Update on change
+  sliderEl.oninput = () => {
+    state.guestVolume = parseInt(sliderEl.value);
+    valueEl.textContent = `${state.guestVolume}%`;
+    // In a real app, this would control local audio volume
+  };
+}
+
+function updateDebugState() {
+  // Check if debug mode is enabled
+  const urlParams = new URLSearchParams(window.location.search);
+  const debugEnabled = urlParams.get('debug') === '1' || localStorage.getItem('debug') === 'true';
+  
+  const debugPanel = el("debugPanel");
+  if (!debugPanel) return;
+  
+  if (debugEnabled) {
+    debugPanel.style.display = "block";
+    debugPanel.setAttribute("aria-hidden", "false");
+    
+    // Update all debug fields
+    const roleEl = el("debugRole");
+    const partyCodeEl = el("debugPartyCode");
+    const connectedEl = el("debugConnected");
+    const nowPlayingEl = el("debugNowPlaying");
+    const upNextEl = el("debugUpNext");
+    const playbackStateEl = el("debugPlaybackState");
+    const lastHostEventEl = el("debugLastHostEvent");
+    const visualModeEl = el("debugVisualMode");
+    
+    if (roleEl) roleEl.textContent = state.isHost ? "host" : "guest";
+    if (partyCodeEl) partyCodeEl.textContent = state.code || "None";
+    if (connectedEl) connectedEl.textContent = state.connected ? "true" : "false";
+    if (nowPlayingEl) nowPlayingEl.textContent = state.nowPlayingFilename || "None";
+    if (upNextEl) upNextEl.textContent = state.upNextFilename || "None";
+    if (playbackStateEl) playbackStateEl.textContent = state.playbackState;
+    if (lastHostEventEl) lastHostEventEl.textContent = state.lastHostEvent || "None";
+    if (visualModeEl) visualModeEl.textContent = state.visualMode;
+  } else {
+    debugPanel.style.display = "none";
+    debugPanel.setAttribute("aria-hidden", "true");
+  }
 }
 
 function hashStr(s){
@@ -443,6 +783,12 @@ function handleMusicFileSelection(file) {
     audioEl.src = objectURL;
     audioEl.load(); // Force buffering/loading, especially important for iOS Safari
     updateMusicStatus(`File selected: ${file.name}`);
+    
+    // Broadcast TRACK_SELECTED to guests
+    if (state.isHost && state.ws) {
+      state.nowPlayingFilename = file.name;
+      send({ t: "HOST_TRACK_SELECTED", filename: file.name });
+    }
   }
   
   toast(`✓ Music file selected: ${file.name}`);
@@ -994,6 +1340,18 @@ function attemptAddPhone() {
     }
   };
 
+  // Guest leave button handler
+  const btnGuestLeave = el("btnGuestLeave");
+  if (btnGuestLeave) {
+    btnGuestLeave.onclick = () => {
+      if (state.ws) {
+        state.ws.close();
+      } else {
+        showLanding();
+      }
+    };
+  }
+
   el("btnCopy").onclick = async () => {
     try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
     catch { toast("Copy failed (permission)"); }
@@ -1010,6 +1368,11 @@ function attemptAddPhone() {
           state.playing = true;
           updateMusicStatus("Playing…");
           console.log("[Music] Playback started");
+          
+          // Broadcast PLAY to guests
+          if (state.isHost && state.ws) {
+            send({ t: "HOST_PLAY" });
+          }
         })
         .catch((error) => {
           console.error("[Music] Play failed:", error);
@@ -1033,6 +1396,11 @@ function attemptAddPhone() {
       state.playing = true;
       updateMusicStatus("Play (simulated - no music file loaded)");
       toast("Play (simulated)");
+      
+      // Broadcast PLAY to guests even in simulated mode
+      if (state.isHost && state.ws) {
+        send({ t: "HOST_PLAY" });
+      }
     }
   };
   
@@ -1048,6 +1416,11 @@ function attemptAddPhone() {
       state.playing = false;
       updateMusicStatus("Pause (simulated)");
       toast("Pause (simulated)");
+    }
+    
+    // Broadcast PAUSE to guests
+    if (state.isHost && state.ws) {
+      send({ t: "HOST_PAUSE" });
     }
   };
 
