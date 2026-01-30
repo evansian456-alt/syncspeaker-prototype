@@ -2419,8 +2419,12 @@ function activateGiftedPartyPass() {
   state.partyPro = true;
   state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours
   
-  // Start timer
-  startPartyPassTimer();
+  // Start timer - update every minute
+  updatePartyPassTimer();
+  if (state.partyPassTimerInterval) {
+    clearInterval(state.partyPassTimerInterval);
+  }
+  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000);
   
   // Update UI
   updatePartyPassUI();
