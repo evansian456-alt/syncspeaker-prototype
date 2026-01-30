@@ -31,6 +31,8 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
+  partyPassWarningShown: false, // Track if 10-min warning has been shown
+  isProMonthly: false, // Track if user has Pro Monthly subscription
   offlineMode: false // Track if party was created in offline fallback mode
 };
 
@@ -84,7 +86,9 @@ function hide(id) { el(id).classList.add("hidden"); }
 
 function setPlanPill() {
   const pill = el("planPill");
-  if (state.partyPassActive) {
+  if (state.isProMonthly) {
+    pill.textContent = "💎 Pro Monthly";
+  } else if (state.partyPassActive) {
     pill.textContent = "🎉 Party Pass · Active";
   } else if (state.partyPro) {
     pill.textContent = "Supporter · party unlocked";
@@ -287,7 +291,7 @@ function updateQualityUI() {
 function updatePlaybackUI() {
   el("btnPlay").disabled = state.adActive;
   el("btnPause").disabled = state.adActive;
-  const isProOrPartyPass = state.partyPro || state.partyPassActive;
+  const isProOrPartyPass = state.isProMonthly || state.partyPro || state.partyPassActive;
   el("btnAd").disabled = isProOrPartyPass || state.source === "mic";
   el("adLine").textContent = isProOrPartyPass ? "No ads (Pro)"
     : (state.source === "mic" ? "No ads in mic mode" : "Ads interrupt playback for free users.");
@@ -573,7 +577,21 @@ function activatePartyPass() {
   }
   
   if (state.partyPassActive) {
-    toast("Party Pass already active!");
+    // If extending an existing Party Pass, add 2 more hours
+    const twoHours = 2 * 60 * 60 * 1000;
+    state.partyPassEndTime += twoHours;
+    state.partyPassWarningShown = false; // Reset warning for the extension
+    
+    // Update localStorage
+    if (state.code) {
+      localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+        endTime: state.partyPassEndTime,
+        active: true
+      }));
+    }
+    
+    toast("🎉 Party Pass extended by 2 hours!");
+    updatePartyPassTimer();
     return;
   }
   
@@ -581,6 +599,7 @@ function activatePartyPass() {
   const twoHours = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
   state.partyPassEndTime = Date.now() + twoHours;
   state.partyPassActive = true;
+  state.partyPassWarningShown = false; // Reset warning flag
   state.partyPro = true; // Party Pass gives Pro benefits
   state.isPro = true; // Mark this client as Pro
   
@@ -622,6 +641,12 @@ function updatePartyPassTimer() {
     return;
   }
   
+  // Show warning modal when 10 minutes remaining
+  const tenMinutes = 10 * 60 * 1000;
+  if (remaining <= tenMinutes && !state.partyPassWarningShown) {
+    openPartyPassWarning();
+  }
+  
   // Calculate hours and minutes
   const hours = Math.floor(remaining / (60 * 60 * 1000));
   const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
@@ -635,8 +660,10 @@ function updatePartyPassTimer() {
 function expirePartyPass() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
-  // Check if any members have regular Pro (not Party Pass)
-  state.partyPro = state.snapshot?.members?.some(m => m.isPro) || false;
+  state.partyPassWarningShown = false; // Reset for next activation
+  
+  // Check if any members have regular Pro (not Party Pass) or Pro Monthly
+  state.partyPro = state.isProMonthly || (state.snapshot?.members?.some(m => m.isPro) || false);
   
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -652,7 +679,8 @@ function expirePartyPass() {
   updatePartyPassUI();
   updatePlaybackUI();
   
-  toast("⏰ Party Pass has expired");
+  // Show expiry modal instead of just a toast
+  openPartyPassExpired();
 }
 
 function updatePartyPassUI() {
@@ -776,6 +804,101 @@ function closeWarn(){ hide("modalWarn"); }
 function openSpeaker(){ show("modalSpeaker"); }
 function closeSpeaker(){ hide("modalSpeaker"); }
 
+// ===== UPGRADE MODAL CONTROLS =====
+function openPartyPassUnlock() { show("modalPartyPassUnlock"); }
+function closePartyPassUnlock() { hide("modalPartyPassUnlock"); }
+
+function openPartyPassWarning() { 
+  if (!state.partyPassWarningShown) {
+    state.partyPassWarningShown = true;
+    show("modalPartyPassWarning"); 
+  }
+}
+function closePartyPassWarning() { hide("modalPartyPassWarning"); }
+
+function openPartyPassExpired() { show("modalPartyPassExpired"); }
+function closePartyPassExpired() { hide("modalPartyPassExpired"); }
+
+function openProAccountRequired() { show("modalProAccountRequired"); }
+function closeProAccountRequired() { hide("modalProAccountRequired"); }
+
+function openProSubscription() { show("modalProSubscription"); }
+function closeProSubscription() { hide("modalProSubscription"); }
+
+function openAdInterrupt() { show("modalAdInterrupt"); }
+function closeAdInterrupt() { hide("modalAdInterrupt"); }
+
+// ===== PARTY PASS ACTIVATION WITH CHECKOUT SIMULATION =====
+async function activatePartyPassWithCheckout() {
+  closePartyPassUnlock();
+  closePartyPassWarning();
+  closePartyPassExpired();
+  closeAdInterrupt();
+  
+  // Simulate 1-2s checkout delay
+  toast("Processing payment...");
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  activatePartyPass();
+}
+
+// ===== PRO MONTHLY ACTIVATION =====
+function startProMonthlyFlow() {
+  // Close any open modals
+  closePartyPassWarning();
+  closePartyPassExpired();
+  closeAdInterrupt();
+  
+  // Show account requirement modal
+  openProAccountRequired();
+}
+
+async function simulateAccountCreation(provider) {
+  closeProAccountRequired();
+  toast(`Connecting to ${provider}...`);
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Show subscription modal
+  openProSubscription();
+}
+
+async function activateProMonthly() {
+  closeProSubscription();
+  
+  // Simulate checkout
+  toast("Processing subscription...");
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  // Activate Pro Monthly
+  state.isProMonthly = true;
+  state.isPro = true;
+  state.partyPro = true;
+  
+  // Clear Party Pass if active (Pro Monthly takes over)
+  if (state.partyPassActive) {
+    state.partyPassActive = false;
+    state.partyPassEndTime = null;
+    if (state.partyPassTimerInterval) {
+      clearInterval(state.partyPassTimerInterval);
+      state.partyPassTimerInterval = null;
+    }
+  }
+  
+  // Notify server
+  send({ t: "SET_PRO", isPro: true });
+  
+  // Update UI
+  setPlanPill();
+  updatePartyPassUI();
+  updatePlaybackUI();
+  
+  toast("🎉 Pro Monthly activated! Enjoy unlimited ad-free parties!");
+}
+
+function closeWarn(){ hide("modalWarn"); }
+function openSpeaker(){ show("modalSpeaker"); }
+function closeSpeaker(){ hide("modalSpeaker"); }
+
 function attemptAddPhone() {
   const q = computeQualitySnapshot();
   const next = q.n + 1;
@@ -783,11 +906,17 @@ function attemptAddPhone() {
   if (next > q.hardCap) { toast(`Hard cap reached (${q.hardCap})`); return; }
   if (q.score < 50) { toast("Connection is weak — try moving closer or using a hotspot"); return; }
 
-  const isProOrPartyPass = state.partyPro || state.partyPassActive;
-  if (!isProOrPartyPass && next > FREE_LIMIT) { openPaywall(); return; }
+  const isProOrPartyPass = state.isProMonthly || state.partyPro || state.partyPassActive;
+  if (!isProOrPartyPass && next > FREE_LIMIT) { 
+    openPartyPassUnlock(); // Use new upgrade modal instead of generic paywall
+    return; 
+  }
 
   if (next > q.rec) {
-    if (!isProOrPartyPass) { openPaywall(); return; }
+    if (!isProOrPartyPass) { 
+      openPartyPassUnlock(); // Use new upgrade modal instead of generic paywall
+      return; 
+    }
     openWarn(q.rec, next); return;
   }
 
@@ -1052,15 +1181,31 @@ function attemptAddPhone() {
   };
 
   el("btnAd").onclick = () => {
-    if (state.partyPro || state.partyPassActive || state.source === "mic") return;
+    if (state.isProMonthly || state.partyPro || state.partyPassActive || state.source === "mic") return;
     state.adActive = true; state.playing = false; updatePlaybackUI();
     toast("Ad (20s) — supporters remove ads");
-    setTimeout(() => { state.adActive = false; updatePlaybackUI(); toast("Ad finished"); }, 20000);
+    
+    // Show upgrade modal after a short delay (simulate ad interruption)
+    setTimeout(() => { 
+      openAdInterrupt(); 
+    }, 2000);
+    
+    setTimeout(() => { 
+      state.adActive = false; 
+      updatePlaybackUI(); 
+      toast("Ad finished"); 
+    }, 20000);
   };
 
   el("btnAddPhone").onclick = attemptAddPhone;
 
-  el("btnSpeaker").onclick = () => { if (!state.partyPro && !state.partyPassActive) openPaywall(); else openSpeaker(); };
+  el("btnSpeaker").onclick = () => { 
+    if (!state.isProMonthly && !state.partyPro && !state.partyPassActive) {
+      openPartyPassUnlock(); 
+    } else {
+      openSpeaker(); 
+    }
+  };
 
   el("btnProYes").onclick = () => {
     el("togglePro").checked = true;
@@ -1088,9 +1233,43 @@ function attemptAddPhone() {
   const btnActivateParty = el("btnActivatePartyPass");
   if (btnActivateParty) {
     btnActivateParty.onclick = () => {
-      activatePartyPass();
+      openPartyPassUnlock(); // Open modal first instead of direct activation
     };
   }
+  
+  // ===== NEW UPGRADE MODAL EVENT LISTENERS =====
+  
+  // Party Pass Unlock Modal
+  el("btnConfirmPartyPass")?.addEventListener("click", activatePartyPassWithCheckout);
+  el("btnCancelPartyPass")?.addEventListener("click", closePartyPassUnlock);
+  
+  // Party Pass Warning Modal (10 min remaining)
+  el("btnExtendPartyPass")?.addEventListener("click", () => {
+    state.partyPassWarningShown = false; // Allow another warning after extension
+    activatePartyPassWithCheckout();
+  });
+  el("btnGoProFromWarning")?.addEventListener("click", startProMonthlyFlow);
+  el("btnDismissWarning")?.addEventListener("click", closePartyPassWarning);
+  
+  // Party Pass Expired Modal
+  el("btnRestartPartyPass")?.addEventListener("click", activatePartyPassWithCheckout);
+  el("btnGoProFromExpired")?.addEventListener("click", startProMonthlyFlow);
+  el("btnDismissExpired")?.addEventListener("click", closePartyPassExpired);
+  
+  // Pro Account Required Modal
+  el("btnAuthApple")?.addEventListener("click", () => simulateAccountCreation("Apple"));
+  el("btnAuthGoogle")?.addEventListener("click", () => simulateAccountCreation("Google"));
+  el("btnAuthEmail")?.addEventListener("click", () => simulateAccountCreation("Email"));
+  el("btnCancelProAccount")?.addEventListener("click", closeProAccountRequired);
+  
+  // Pro Subscription Modal
+  el("btnConfirmProSubscription")?.addEventListener("click", activateProMonthly);
+  el("btnCancelProSubscription")?.addEventListener("click", closeProSubscription);
+  
+  // Ad Interrupt Modal
+  el("btnPartyPassFromAd")?.addEventListener("click", activatePartyPassWithCheckout);
+  el("btnProMonthlyFromAd")?.addEventListener("click", startProMonthlyFlow);
+  el("btnDismissAdInterrupt")?.addEventListener("click", closeAdInterrupt);
 })();
 
 
