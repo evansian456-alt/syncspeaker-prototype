@@ -156,12 +156,28 @@ function showLanding() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
-  // Cleanup audio resources
+  // Cleanup audio resources and reset file selection
   if (state.audioObjectURL) {
     URL.revokeObjectURL(state.audioObjectURL);
     state.audioObjectURL = null;
   }
   state.selectedFile = null;
+  
+  // Reset UI elements (will be reset when returning to home view)
+  const musicFileInput = el("musicFileInput");
+  const fileStatus = el("fileStatus");
+  const hostAudio = el("hostAudio");
+  const autoplayError = el("autoplayError");
+  const musicFileSection = el("musicFileSection");
+  
+  if (musicFileInput) musicFileInput.value = "";
+  if (fileStatus) fileStatus.classList.add("hidden");
+  if (hostAudio) {
+    hostAudio.src = "";
+    hostAudio.classList.add("hidden");
+  }
+  if (autoplayError) autoplayError.classList.add("hidden");
+  if (musicFileSection) musicFileSection.classList.add("hidden");
   
   setPlanPill();
 }
@@ -486,6 +502,26 @@ function attemptAddPhone() {
   const fileName = el("fileName");
   const hostAudio = el("hostAudio");
   const autoplayError = el("autoplayError");
+  const musicFileSection = el("musicFileSection");
+  const sourceSelect = el("source");
+
+  // Show/hide file picker based on source selection
+  if (sourceSelect && musicFileSection) {
+    const updateMusicFileVisibility = () => {
+      const source = sourceSelect.value;
+      if (source === "local") {
+        musicFileSection.classList.remove("hidden");
+      } else {
+        musicFileSection.classList.add("hidden");
+      }
+    };
+    
+    // Set initial visibility
+    updateMusicFileVisibility();
+    
+    // Update on change
+    sourceSelect.onchange = updateMusicFileVisibility;
+  }
 
   if (btnChooseFile && musicFileInput) {
     btnChooseFile.onclick = () => {
@@ -505,8 +541,8 @@ function attemptAddPhone() {
         state.audioObjectURL = URL.createObjectURL(file);
 
         // Update UI
-        fileName.textContent = file.name;
-        fileStatus.classList.remove("hidden");
+        if (fileName) fileName.textContent = file.name;
+        if (fileStatus) fileStatus.classList.remove("hidden");
         
         // Set audio source
         if (hostAudio) {
@@ -515,7 +551,7 @@ function attemptAddPhone() {
         }
 
         // Hide autoplay error when new file is selected
-        autoplayError.classList.add("hidden");
+        if (autoplayError) autoplayError.classList.add("hidden");
 
         toast(`Selected: ${file.name}`);
       }
@@ -540,8 +576,11 @@ function attemptAddPhone() {
     const source = el("source").value;
     if (source === "local" && !state.selectedFile) {
       toast("Please choose a music file first");
-      autoplayError.textContent = "⚠️ Please select a music file to continue";
-      autoplayError.classList.remove("hidden");
+      const autoplayError = el("autoplayError");
+      if (autoplayError) {
+        autoplayError.textContent = "⚠️ Please select a music file to continue";
+        autoplayError.classList.remove("hidden");
+      }
       return;
     }
 
@@ -551,8 +590,10 @@ function attemptAddPhone() {
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     
     // Attempt to play audio if file is selected
+    const hostAudio = el("hostAudio");
+    const autoplayError = el("autoplayError");
     if (source === "local" && state.selectedFile && hostAudio) {
-      autoplayError.classList.add("hidden");
+      if (autoplayError) autoplayError.classList.add("hidden");
       
       hostAudio.play().then(() => {
         console.log("[Audio] Playback started successfully");
@@ -561,8 +602,10 @@ function attemptAddPhone() {
       }).catch((err) => {
         console.error("[Audio] Playback failed:", err);
         // Show error message but still allow party creation
-        autoplayError.textContent = "⚠️ Tap play to allow audio (browser blocked autoplay)";
-        autoplayError.classList.remove("hidden");
+        if (autoplayError) {
+          autoplayError.textContent = "⚠️ Tap play to allow audio (browser blocked autoplay)";
+          autoplayError.classList.remove("hidden");
+        }
         // Continue with party creation anyway
         send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
       });
