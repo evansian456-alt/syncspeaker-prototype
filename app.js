@@ -1,4 +1,5 @@
 const FREE_LIMIT = 2;
+const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 
 // Music player state
 const musicState = {
@@ -21,8 +22,7 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null,
-  createButtonTimeout: null
+  partyPassTimerInterval: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -112,10 +112,6 @@ function handleServer(msg) {
     toast(msg.message || "Error");
     
     // Reset button state if party creation failed
-    if (state.createButtonTimeout) {
-      clearTimeout(state.createButtonTimeout);
-      state.createButtonTimeout = null;
-    }
     const btn = el("btnCreate");
     if (btn) {
       btn.disabled = false;
@@ -142,12 +138,6 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
-  // Clear create button timeout when navigating to home
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
-  
   setPlanPill();
 }
 
@@ -167,12 +157,6 @@ function showLanding() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
-  // Clear create button timeout when navigating to landing
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
-  
   setPlanPill();
 }
 
@@ -181,12 +165,6 @@ function showParty() {
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
-  
-  // Clear create button timeout if transitioning from home view
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -790,26 +768,18 @@ function attemptAddPhone() {
       state.isPro = el("togglePro").checked;
       console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
       
-      // Create AbortController for 5 second timeout
+      // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      const endpoint = "/api/create-party";
-      updateDebug(`Endpoint: POST ${endpoint}`);
+      const endpoint = "/api/ping";
+      updateDebug(`Endpoint: GET ${endpoint}`);
       updateStatus("Calling server…");
       
       let response;
       try {
         response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            name: state.name,
-            isPro: state.isPro,
-            source: state.source
-          }),
+          method: "GET",
           signal: controller.signal
         });
         
@@ -826,24 +796,11 @@ function attemptAddPhone() {
       updateStatus("Server responded…");
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        throw new Error(`Server error: ${response.status}`);
       }
       
-      const data = await response.json();
-      console.log("[API] Party created:", data);
-      
-      if (!data.partyCode) {
-        throw new Error("Invalid response from server");
-      }
-      
-      updateStatus(`Party created: ${data.partyCode}`);
-      
-      // Now connect via WebSocket and join the party
-      state.code = data.partyCode;
-      state.isHost = true;
-      
-      // Send CREATE via WebSocket to join the party room
+      // Server is responsive, now create party via WebSocket
+      updateStatus("Creating party…");
       send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
       
       // The WebSocket handler will call showParty() when CREATED message is received
@@ -910,9 +867,9 @@ function attemptAddPhone() {
       state.isPro = el("togglePro").checked;
       console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
       
-      // Create AbortController for 5 second timeout
+      // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
       const endpoint = "/api/join-party";
       updateDebug(`Endpoint: POST ${endpoint}`);
