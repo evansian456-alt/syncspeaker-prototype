@@ -1589,3 +1589,160 @@ h2,h3{margin:0}
   }
 }
 
+/* ===== UPGRADE MODALS ===== */
+.upgrade-modal {
+  text-align: center;
+  max-width: 480px;
+}
+
+.upgrade-modal .upgrade-icon {
+  font-size: 56px;
+  margin-bottom: 12px;
+  animation: bounce 1s ease-in-out;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.upgrade-modal h3 {
+  font-size: 26px;
+  font-weight: 900;
+  margin-bottom: 16px;
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.upgrade-price {
+  font-size: 32px;
+  font-weight: 900;
+  color: var(--brand);
+  margin: 16px 0;
+}
+
+.upgrade-description {
+  font-size: 15px;
+  color: var(--muted);
+  margin: 16px 0;
+  line-height: 1.6;
+}
+
+.upgrade-features {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.upgrade-features li {
+  padding: 10px 0;
+  font-size: 15px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.upgrade-features li:last-child {
+  border-bottom: none;
+}
+
+.btn-secondary-modal {
+  width: 100%;
+  padding: 12px 20px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.btn-secondary-modal:hover {
+  color: var(--text);
+}
+
+/* Auth Buttons */
+.auth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.btn-auth {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: all var(--transition-base);
+}
+
+.btn-auth-apple {
+  background: #000;
+  color: #fff;
+}
+
+.btn-auth-apple:hover {
+  background: #1a1a1a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.btn-auth-google {
+  background: #fff;
+  color: #333;
+}
+
+.btn-auth-google:hover {
+  background: #f5f5f5;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-auth-email {
+  background: rgba(90, 169, 255, 0.1);
+  color: var(--brand);
+  border-color: var(--brand);
+}
+
+.btn-auth-email:hover {
+  background: rgba(90, 169, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(90, 169, 255, 0.3);
+}
+
+.auth-icon {
+  font-size: 18px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 640px) {
+  .upgrade-modal {
+    max-width: 100%;
+  }
+  
+  .upgrade-modal h3 {
+    font-size: 22px;
+  }
+  
+  .upgrade-price {
+    font-size: 28px;
+  }
+  
+  .upgrade-modal .upgrade-icon {
+    font-size: 48px;
+  }
+}
+

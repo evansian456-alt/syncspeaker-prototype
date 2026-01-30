@@ -408,6 +408,123 @@
     </div>
   </div>
 
+  <!-- Party Pass Unlock Modal -->
+  <div class="modal hidden" id="modalPartyPassUnlock">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">🎉</div>
+      <h3>Unlock this party 🎉</h3>
+      <div class="upgrade-price">£2.99 · 2 hours</div>
+      <p class="upgrade-description">
+        One-time purchase. Ends automatically.<br/>
+        No account required.
+      </p>
+      <ul class="upgrade-features">
+        <li>✓ No ads during playback</li>
+        <li>✓ Higher phone/speaker limit</li>
+        <li>✓ Pro DJ visuals &amp; effects</li>
+        <li>✓ Priority sync stability</li>
+      </ul>
+      <button class="btn-party-pass" id="btnConfirmPartyPass">Activate Party Pass</button>
+      <button class="btn-secondary-modal" id="btnCancelPartyPass">Not now</button>
+    </div>
+  </div>
+
+  <!-- Party Pass 10-Min Warning Modal -->
+  <div class="modal hidden" id="modalPartyPassWarning">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">🎶</div>
+      <h3>Party's almost over 🎶</h3>
+      <p class="upgrade-description">
+        Only 10 minutes of Party Pass remaining!
+      </p>
+      <div class="row gap">
+        <button class="btn-party-pass" id="btnExtendPartyPass">Extend Party Pass<br/><span style="font-size: 13px; font-weight: 400;">£2.99 · 2 hours</span></button>
+        <button class="btn primary" id="btnGoProFromWarning">Go Pro Monthly</button>
+      </div>
+      <button class="btn-secondary-modal" id="btnDismissWarning">Continue with time left</button>
+    </div>
+  </div>
+
+  <!-- Party Pass Expired Modal -->
+  <div class="modal hidden" id="modalPartyPassExpired">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">⏰</div>
+      <h3>Party ended</h3>
+      <p class="upgrade-description">
+        Your 2-hour Party Pass has expired.
+      </p>
+      <div class="row gap">
+        <button class="btn-party-pass" id="btnRestartPartyPass">Start New Party Pass<br/><span style="font-size: 13px; font-weight: 400;">£2.99 · 2 hours</span></button>
+        <button class="btn primary" id="btnGoProFromExpired">Go Pro Monthly</button>
+      </div>
+      <button class="btn-secondary-modal" id="btnDismissExpired">Continue with Free</button>
+    </div>
+  </div>
+
+  <!-- Pro Monthly Account Required Modal -->
+  <div class="modal hidden" id="modalProAccountRequired">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">👤</div>
+      <h3>Create an account to manage your subscription</h3>
+      <p class="upgrade-description">
+        Pro Monthly requires an account to manage billing and cancellation.
+      </p>
+      <div class="auth-buttons">
+        <button class="btn-auth btn-auth-apple" id="btnAuthApple">
+          <span class="auth-icon">🍎</span>
+          Continue with Apple
+        </button>
+        <button class="btn-auth btn-auth-google" id="btnAuthGoogle">
+          <span class="auth-icon">G</span>
+          Continue with Google
+        </button>
+        <button class="btn-auth btn-auth-email" id="btnAuthEmail">
+          <span class="auth-icon">✉️</span>
+          Continue with Email
+        </button>
+      </div>
+      <button class="btn-secondary-modal" id="btnCancelProAccount">Not now</button>
+    </div>
+  </div>
+
+  <!-- Pro Monthly Subscription Modal -->
+  <div class="modal hidden" id="modalProSubscription">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">💎</div>
+      <h3>Go Pro Monthly</h3>
+      <div class="upgrade-price">£9.99 / month</div>
+      <p class="upgrade-description">
+        Cancel anytime.<br/>
+        No long-term commitment.
+      </p>
+      <ul class="upgrade-features">
+        <li>✓ Unlimited parties</li>
+        <li>✓ No ads ever</li>
+        <li>✓ Up to 10 phones</li>
+        <li>✓ Pro DJ visuals &amp; effects</li>
+        <li>✓ Priority support</li>
+      </ul>
+      <button class="btn primary" id="btnConfirmProSubscription">Subscribe to Pro</button>
+      <button class="btn-secondary-modal" id="btnCancelProSubscription">Not now</button>
+    </div>
+  </div>
+
+  <!-- Ad Interrupt Upgrade Modal -->
+  <div class="modal hidden" id="modalAdInterrupt">
+    <div class="modalCard upgrade-modal">
+      <div class="upgrade-icon">🎵</div>
+      <h3>Remove ads from your party</h3>
+      <p class="upgrade-description">
+        Upgrade to enjoy uninterrupted playback!
+      </p>
+      <div class="row gap">
+        <button class="btn-party-pass" id="btnPartyPassFromAd">Party Pass<br/><span style="font-size: 13px; font-weight: 400;">£2.99 · 2 hours</span></button>
+        <button class="btn primary" id="btnProMonthlyFromAd">Pro Monthly<br/><span style="font-size: 13px; font-weight: 400;">£9.99/month</span></button>
+      </div>
+      <button class="btn-secondary-modal" id="btnDismissAdInterrupt">Continue with ads</button>
+    </div>
+  </div>
+
   <div class="toast hidden" id="toast"></div>
 
   <script src="app.js"></script>
