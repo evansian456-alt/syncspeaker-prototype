@@ -42,7 +42,29 @@ const state = {
   lastHostEvent: null, // PLAY, PAUSE, TRACK_SELECTED, NEXT_TRACK_QUEUED, TRACK_CHANGED
   visualMode: "idle", // playing, paused, idle
   connected: false,
-  guestVolume: 80
+  guestVolume: 80,
+  // Crowd Energy state
+  crowdEnergy: 0, // 0-100
+  crowdEnergyPeak: 0,
+  crowdEnergyDecayInterval: null,
+  // DJ Moments state
+  currentMoment: null,
+  momentTimeout: null,
+  // Session stats for recap
+  sessionStats: {
+    startTime: null,
+    tracksPlayed: 0,
+    totalReactions: 0,
+    totalShoutouts: 0,
+    totalMessages: 0,
+    emojiCounts: {},
+    peakEnergy: 0
+  },
+  // Party theme
+  partyTheme: "neon", // neon, dark-rave, festival, minimal
+  // Guest counter for anonymous names
+  nextGuestNumber: 1,
+  guestNickname: null
 };
 
 // Client-side party code generator for offline fallback
@@ -399,6 +421,26 @@ function showParty() {
   renderRoom();
   updatePlaybackUI();
   updateQualityUI();
+  
+  // Initialize session stats when party starts
+  if (!state.sessionStats.startTime) {
+    initSessionStats();
+  }
+  
+  // Show host-only features
+  if (state.isHost) {
+    const crowdEnergyCard = el("crowdEnergyCard");
+    const djMomentsCard = el("djMomentsCard");
+    const hostGiftSection = el("hostGiftSection");
+    
+    if (crowdEnergyCard) crowdEnergyCard.classList.remove("hidden");
+    if (djMomentsCard) djMomentsCard.classList.remove("hidden");
+    
+    // Show gift section only if not already Pro
+    if (hostGiftSection && !state.partyPassActive && !state.partyPro) {
+      hostGiftSection.classList.remove("hidden");
+    }
+  }
 }
 
 function showGuest() {
@@ -645,6 +687,22 @@ function updateBackToDjButton() {
 
 function handleGuestMessageReceived(message, guestName, guestId, isEmoji) {
   console.log(`[DJ] Received message from ${guestName}: ${message}, isEmoji: ${isEmoji}`);
+  
+  // Track reaction/message for session stats (Feature 3)
+  if (isEmoji) {
+    trackReaction(message);
+  } else {
+    trackMessage(true); // Track as shoutout
+  }
+  
+  // Increase crowd energy (Feature 1)
+  increaseCrowdEnergy(isEmoji ? 5 : 8);
+  
+  // Trigger beat pulse (Feature 8)
+  triggerBeatPulse();
+  
+  // Check for smart upsell opportunities (Feature 4)
+  checkSmartUpsell();
   
   // Handle emoji reactions with special visual effects
   if (isEmoji) {
@@ -1555,8 +1613,10 @@ function attemptAddPhone() {
     btn.disabled = true;
     btn.textContent = "Creating party...";
     
+    // Apply guest anonymity (Feature 7)
+    applyGuestAnonymity();
+    
     // Get user configuration
-    state.name = el("hostName").value.trim() || "Host";
     state.source = "local"; // Always use local source for music from phone
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
@@ -1631,7 +1691,9 @@ function attemptAddPhone() {
       btn.textContent = "Joining...";
       updateStatus("Joining party…");
       
-      state.name = el("guestName").value.trim() || "Guest";
+      // Apply guest anonymity (Feature 7)
+      applyGuestAnonymity();
+      
       state.isPro = el("togglePro").checked;
       console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
       
@@ -1725,11 +1787,18 @@ function attemptAddPhone() {
   };
 
   el("btnLeave").onclick = () => { 
+    // Show party recap before leaving
+    if (state.isHost) {
+      showPartyRecap();
+    }
+    
     if (state.ws) {
       state.ws.close(); 
     } else {
       // In prototype mode (no WebSocket), navigate back to landing manually
-      showLanding();
+      if (!state.isHost) {
+        showLanding();
+      }
     }
   };
 
@@ -1765,6 +1834,14 @@ function attemptAddPhone() {
           state.playing = true;
           updateMusicStatus("Playing…");
           console.log("[Music] Playback started");
+          
+          // Track play for session stats (Feature 3)
+          if (!state.sessionStats.tracksPlayed) {
+            state.sessionStats.tracksPlayed = 1;
+          }
+          
+          // Start beat-aware UI (Feature 8)
+          startBeatPulse();
           
           // Show DJ screen for host
           if (state.isHost) {
@@ -1802,6 +1879,14 @@ function attemptAddPhone() {
       updateMusicStatus("Play (simulated - no music file loaded)");
       toast("Play (simulated)");
       
+      // Track play for session stats (Feature 3)
+      if (!state.sessionStats.tracksPlayed) {
+        state.sessionStats.tracksPlayed = 1;
+      }
+      
+      // Start beat-aware UI (Feature 8)
+      startBeatPulse();
+      
       // Show DJ screen for host even in simulated mode
       if (state.isHost) {
         showDjScreen();
@@ -1830,6 +1915,9 @@ function attemptAddPhone() {
       updateMusicStatus("Pause (simulated)");
       toast("Pause (simulated)");
     }
+    
+    // Stop beat-aware UI (Feature 8)
+    stopBeatPulse();
     
     // Broadcast PAUSE to guests
     if (state.isHost && state.ws) {
@@ -1992,6 +2080,469 @@ function attemptAddPhone() {
     };
   }
 })();
+
+
+// ========================================
+// FEATURE 1: CROWD ENERGY METER
+// ========================================
+
+function initCrowdEnergyMeter() {
+  // Start decay interval
+  if (state.crowdEnergyDecayInterval) {
+    clearInterval(state.crowdEnergyDecayInterval);
+  }
+  
+  state.crowdEnergyDecayInterval = setInterval(() => {
+    if (state.crowdEnergy > 0) {
+      state.crowdEnergy = Math.max(0, state.crowdEnergy - 1);
+      updateCrowdEnergyDisplay();
+    }
+  }, 2000); // Decay by 1 every 2 seconds
+}
+
+function increaseCrowdEnergy(amount = 5) {
+  state.crowdEnergy = Math.min(100, state.crowdEnergy + amount);
+  if (state.crowdEnergy > state.crowdEnergyPeak) {
+    state.crowdEnergyPeak = state.crowdEnergy;
+    if (state.crowdEnergyPeak > state.sessionStats.peakEnergy) {
+      state.sessionStats.peakEnergy = state.crowdEnergyPeak;
+    }
+  }
+  updateCrowdEnergyDisplay();
+}
+
+function updateCrowdEnergyDisplay() {
+  const valueEl = el("crowdEnergyValue");
+  const fillEl = el("crowdEnergyFill");
+  const peakEl = el("crowdEnergyPeakIndicator");
+  const peakValueEl = el("crowdEnergyPeakValue");
+  
+  if (valueEl) valueEl.textContent = Math.round(state.crowdEnergy);
+  if (fillEl) fillEl.style.width = `${state.crowdEnergy}%`;
+  if (peakEl) peakEl.style.left = `${state.crowdEnergyPeak}%`;
+  if (peakValueEl) peakValueEl.textContent = Math.round(state.crowdEnergyPeak);
+  
+  // Apply energy-based glow effects
+  const card = el("crowdEnergyCard");
+  if (card) {
+    card.classList.remove("energy-glow-low", "energy-glow-medium", "energy-glow-high");
+    if (state.crowdEnergy > 70) {
+      card.classList.add("energy-glow-high");
+    } else if (state.crowdEnergy > 40) {
+      card.classList.add("energy-glow-medium");
+    } else if (state.crowdEnergy > 10) {
+      card.classList.add("energy-glow-low");
+    }
+  }
+}
+
+// ========================================
+// FEATURE 2: DJ MOMENT BUTTONS
+// ========================================
+
+function initDJMoments() {
+  const momentButtons = document.querySelectorAll(".btn-dj-moment");
+  momentButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const moment = btn.dataset.moment;
+      triggerDJMoment(moment);
+    });
+  });
+}
+
+function triggerDJMoment(moment) {
+  // Clear previous moment
+  if (state.momentTimeout) {
+    clearTimeout(state.momentTimeout);
+  }
+  
+  // Set current moment
+  state.currentMoment = moment;
+  
+  // Update UI
+  const currentMomentDisplay = el("currentMomentDisplay");
+  const currentMomentValue = el("currentMomentValue");
+  
+  if (currentMomentDisplay) {
+    currentMomentDisplay.classList.remove("hidden");
+  }
+  if (currentMomentValue) {
+    currentMomentValue.textContent = moment.replace("_", " ");
+  }
+  
+  // Update button states
+  document.querySelectorAll(".btn-dj-moment").forEach(btn => {
+    if (btn.dataset.moment === moment) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+  
+  // Apply visual effects
+  applyMomentEffect(moment);
+  
+  // Auto-clear after 8 seconds
+  state.momentTimeout = setTimeout(() => {
+    state.currentMoment = null;
+    if (currentMomentDisplay) {
+      currentMomentDisplay.classList.add("hidden");
+    }
+    document.querySelectorAll(".btn-dj-moment").forEach(btn => {
+      btn.classList.remove("active");
+    });
+  }, 8000);
+  
+  toast(`DJ Moment: ${moment.replace("_", " ")}`);
+}
+
+function applyMomentEffect(moment) {
+  const partyView = el("viewParty");
+  if (!partyView) return;
+  
+  // Remove all effect classes
+  partyView.classList.remove(
+    "moment-effect-drop",
+    "moment-effect-build", 
+    "moment-effect-break",
+    "moment-effect-hands-up"
+  );
+  
+  // Add appropriate effect class
+  const effectClass = `moment-effect-${moment.toLowerCase().replace("_", "-")}`;
+  partyView.classList.add(effectClass);
+  
+  // Remove class after animation
+  setTimeout(() => {
+    partyView.classList.remove(effectClass);
+  }, 1000);
+}
+
+// ========================================
+// FEATURE 3: PARTY END RECAP
+// ========================================
+
+function initSessionStats() {
+  state.sessionStats = {
+    startTime: Date.now(),
+    tracksPlayed: 0,
+    totalReactions: 0,
+    totalShoutouts: 0,
+    totalMessages: 0,
+    emojiCounts: {},
+    peakEnergy: 0
+  };
+}
+
+function trackReaction(emoji) {
+  state.sessionStats.totalReactions++;
+  if (emoji) {
+    state.sessionStats.emojiCounts[emoji] = (state.sessionStats.emojiCounts[emoji] || 0) + 1;
+  }
+}
+
+function trackMessage(isShoutout = false) {
+  state.sessionStats.totalMessages++;
+  if (isShoutout) {
+    state.sessionStats.totalShoutouts++;
+  }
+}
+
+function showPartyRecap() {
+  const modal = el("modalPartyRecap");
+  if (!modal) return;
+  
+  // Calculate duration
+  const durationMs = Date.now() - (state.sessionStats.startTime || Date.now());
+  const durationMin = Math.floor(durationMs / 60000);
+  
+  // Update recap values
+  const recapDuration = el("recapDuration");
+  const recapTracks = el("recapTracks");
+  const recapPeakEnergy = el("recapPeakEnergy");
+  const recapReactions = el("recapReactions");
+  
+  if (recapDuration) recapDuration.textContent = `${durationMin} min`;
+  if (recapTracks) recapTracks.textContent = state.sessionStats.tracksPlayed;
+  if (recapPeakEnergy) recapPeakEnergy.textContent = state.sessionStats.peakEnergy;
+  if (recapReactions) recapReactions.textContent = state.sessionStats.totalReactions;
+  
+  // Show top emojis
+  const topEmojisList = el("topEmojisList");
+  if (topEmojisList) {
+    const sortedEmojis = Object.entries(state.sessionStats.emojiCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    if (sortedEmojis.length > 0) {
+      topEmojisList.innerHTML = sortedEmojis.map(([emoji, count]) => `
+        <div class="top-emoji-item">
+          <span class="top-emoji-icon">${emoji}</span>
+          <span class="top-emoji-count">${count}</span>
+        </div>
+      `).join('');
+    } else {
+      topEmojisList.innerHTML = '<span class="muted tiny">No reactions yet</span>';
+    }
+  }
+  
+  modal.classList.remove("hidden");
+}
+
+function initPartyRecap() {
+  const btnCloseRecap = el("btnCloseRecap");
+  if (btnCloseRecap) {
+    btnCloseRecap.onclick = () => {
+      const modal = el("modalPartyRecap");
+      if (modal) modal.classList.add("hidden");
+      showLanding();
+    };
+  }
+}
+
+// ========================================
+// FEATURE 4: SMART UPSELL TIMING
+// ========================================
+
+function checkSmartUpsell() {
+  // Only show upsells at specific moments:
+  // 1. When adding 3rd phone (already handled in existing code)
+  // 2. After 3 tracks played and high energy
+  // 3. After 10 minutes of party time
+  
+  if (state.partyPassActive || state.partyPro) {
+    return; // Already upgraded
+  }
+  
+  const partyDuration = Date.now() - (state.sessionStats.startTime || Date.now());
+  const partyMinutes = partyDuration / 60000;
+  
+  // Show upsell after 10 minutes
+  if (partyMinutes > 10 && state.sessionStats.tracksPlayed >= 2) {
+    showSmartUpsell("You've been partying for 10+ minutes! Upgrade for the full experience.");
+    return;
+  }
+  
+  // Show upsell after 3 tracks with high energy
+  if (state.sessionStats.tracksPlayed >= 3 && state.crowdEnergy > 60) {
+    showSmartUpsell("The party's heating up! Unlock Pro features now.");
+    return;
+  }
+}
+
+function showSmartUpsell(message) {
+  const banner = el("partyPassBanner");
+  const upgrade = el("partyPassUpgrade");
+  
+  if (banner && upgrade) {
+    banner.classList.remove("hidden");
+    upgrade.classList.remove("hidden");
+    
+    // Update message if needed
+    const tagline = upgrade.querySelector(".party-pass-upgrade-tagline");
+    if (tagline && message) {
+      tagline.textContent = message;
+    }
+  }
+}
+
+// ========================================
+// FEATURE 5: HOST-GIFTED PARTY PASS
+// ========================================
+
+function initHostGiftPartyPass() {
+  const btnGiftPartyPass = el("btnGiftPartyPass");
+  if (btnGiftPartyPass) {
+    btnGiftPartyPass.onclick = () => {
+      // Simulate payment flow
+      if (confirm("Purchase Party Pass for £2.99 to unlock Pro features for everyone in this party?")) {
+        activateGiftedPartyPass();
+      }
+    };
+  }
+}
+
+function activateGiftedPartyPass() {
+  state.partyPassActive = true;
+  state.partyPro = true;
+  state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours
+  
+  // Start timer
+  startPartyPassTimer();
+  
+  // Update UI
+  updatePartyPassUI();
+  setPlanPill();
+  
+  // Hide gift section
+  const giftSection = el("hostGiftSection");
+  if (giftSection) giftSection.classList.add("hidden");
+  
+  toast("🎉 Party Pass activated! Everyone now has Pro features!");
+  
+  // In a real app, would broadcast this to all guests
+}
+
+// ========================================
+// FEATURE 6: PARENT-FRIENDLY INFO TOGGLE
+// ========================================
+
+function initParentInfo() {
+  const btnParentInfo = el("btnParentInfo");
+  const modalParentInfo = el("modalParentInfo");
+  const btnCloseParentInfo = el("btnCloseParentInfo");
+  
+  if (btnParentInfo && modalParentInfo) {
+    btnParentInfo.onclick = () => {
+      modalParentInfo.classList.remove("hidden");
+    };
+  }
+  
+  if (btnCloseParentInfo && modalParentInfo) {
+    btnCloseParentInfo.onclick = () => {
+      modalParentInfo.classList.add("hidden");
+    };
+  }
+}
+
+// ========================================
+// FEATURE 7: GUEST ANONYMITY BY DEFAULT
+// ========================================
+
+function getAnonymousGuestName() {
+  const guestNum = state.nextGuestNumber++;
+  return `Guest ${guestNum}`;
+}
+
+function applyGuestAnonymity() {
+  // When creating or joining party, use anonymous name if no nickname provided
+  const hostNameInput = el("hostName");
+  const guestNameInput = el("guestName");
+  
+  if (hostNameInput && !hostNameInput.value.trim()) {
+    const anonName = getAnonymousGuestName();
+    state.name = anonName;
+    state.guestNickname = null;
+  } else if (hostNameInput) {
+    state.name = hostNameInput.value.trim();
+    state.guestNickname = state.name;
+  }
+  
+  if (guestNameInput && !guestNameInput.value.trim()) {
+    const anonName = getAnonymousGuestName();
+    state.name = anonName;
+    state.guestNickname = null;
+  } else if (guestNameInput) {
+    state.name = guestNameInput.value.trim();
+    state.guestNickname = state.name;
+  }
+}
+
+// ========================================
+// FEATURE 8: BEAT-AWARE UI
+// ========================================
+
+function initBeatAwareUI() {
+  // Start subtle pulse on playing state
+  if (state.playing) {
+    startBeatPulse();
+  }
+}
+
+function startBeatPulse() {
+  const partyView = el("viewParty");
+  const crowdEnergyCard = el("crowdEnergyCard");
+  
+  // Add subtle pulse class based on energy level
+  if (state.crowdEnergy > 50) {
+    if (partyView) partyView.classList.add("beat-pulse-subtle");
+    if (crowdEnergyCard) crowdEnergyCard.classList.add("beat-pulse-subtle");
+  }
+}
+
+function stopBeatPulse() {
+  const partyView = el("viewParty");
+  const crowdEnergyCard = el("crowdEnergyCard");
+  
+  if (partyView) partyView.classList.remove("beat-pulse-subtle");
+  if (crowdEnergyCard) crowdEnergyCard.classList.remove("beat-pulse-subtle");
+}
+
+function triggerBeatPulse() {
+  // Trigger single pulse on reactions/moments
+  const partyView = el("viewParty");
+  if (partyView) {
+    partyView.classList.add("beat-pulse");
+    setTimeout(() => {
+      partyView.classList.remove("beat-pulse");
+    }, 600);
+  }
+}
+
+// ========================================
+// FEATURE 9: PARTY THEMES
+// ========================================
+
+function initThemeSelector() {
+  const btnThemeToggle = el("btnThemeToggle");
+  if (btnThemeToggle) {
+    btnThemeToggle.onclick = cycleTheme;
+  }
+  
+  // Load saved theme
+  const savedTheme = localStorage.getItem("partyTheme") || "neon";
+  applyTheme(savedTheme);
+}
+
+function cycleTheme() {
+  const themes = ["neon", "dark-rave", "festival", "minimal"];
+  const currentIndex = themes.indexOf(state.partyTheme);
+  const nextIndex = (currentIndex + 1) % themes.length;
+  const nextTheme = themes[nextIndex];
+  
+  applyTheme(nextTheme);
+  toast(`Theme: ${nextTheme.replace("-", " ").toUpperCase()}`);
+}
+
+function applyTheme(theme) {
+  const body = document.body;
+  
+  // Remove all theme classes
+  body.classList.remove("theme-neon", "theme-dark-rave", "theme-festival", "theme-minimal");
+  
+  // Add new theme class
+  body.classList.add(`theme-${theme}`);
+  
+  // Update state
+  state.partyTheme = theme;
+  
+  // Save to localStorage
+  localStorage.setItem("partyTheme", theme);
+}
+
+// ========================================
+// INITIALIZE ALL FEATURES
+// ========================================
+
+function initializeAllFeatures() {
+  initCrowdEnergyMeter();
+  initDJMoments();
+  initPartyRecap();
+  initHostGiftPartyPass();
+  initParentInfo();
+  initThemeSelector();
+  initBeatAwareUI();
+  initSessionStats();
+  
+  console.log("[Features] All 9 features initialized");
+}
+
+// Call initialization when DOM is ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeAllFeatures);
+} else {
+  initializeAllFeatures();
+}
 
 
 // ---- Promo Code Logic (Prototype) ----

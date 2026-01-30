@@ -15,7 +15,11 @@
         <div class="subtitle">Browser prototype (friend test)</div>
       </div>
     </div>
-    <div class="pill" id="planPill">Free · 2 phones</div>
+    <div class="header-right">
+      <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
+      <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
+      <div class="pill" id="planPill">Free · 2 phones</div>
+    </div>
   </header>
 
   <main class="wrap">
@@ -186,8 +190,8 @@
       <div class="grid2">
         <div class="box">
           <h3>Start a party (Host)</h3>
-          <label class="lbl">Your name</label>
-          <input id="hostName" class="input" value="Host" />
+          <label class="lbl">Your nickname (optional)</label>
+          <input id="hostName" class="input" placeholder="Optional - Leave blank for 'Guest 1'" />
           
           <!-- Music from Phone Section -->
           <div class="music-section">
@@ -224,8 +228,8 @@
           <h3>Join a party (Friend)</h3>
           <label class="lbl">Party code</label>
           <input id="joinCode" class="input" placeholder="ABC123" />
-          <label class="lbl">Your name</label>
-          <input id="guestName" class="input" value="Guest" />
+          <label class="lbl">Your nickname (optional)</label>
+          <input id="guestName" class="input" placeholder="Optional - Leave blank for 'Guest 2'" />
           <button class="btn" id="btnJoin">Join party</button>
           <div class="party-status hidden" id="joinStatus">
             <div class="status-message" id="joinStatusMessage">Waiting...</div>
@@ -283,6 +287,49 @@
         </div>
       </div>
 
+      <!-- Crowd Energy Meter (Host Only) -->
+      <div class="crowd-energy-card hidden" id="crowdEnergyCard">
+        <div class="crowd-energy-header">
+          <h3>🔥 Crowd Energy</h3>
+          <div class="crowd-energy-value" id="crowdEnergyValue">0</div>
+        </div>
+        <div class="crowd-energy-meter">
+          <div class="crowd-energy-fill" id="crowdEnergyFill"></div>
+          <div class="crowd-energy-peak" id="crowdEnergyPeakIndicator"></div>
+        </div>
+        <div class="crowd-energy-labels">
+          <span class="tiny muted">Reactions boost energy</span>
+          <span class="tiny muted">Peak: <span id="crowdEnergyPeakValue">0</span></span>
+        </div>
+      </div>
+
+      <!-- DJ Moment Buttons (Host Only) -->
+      <div class="dj-moments-card hidden" id="djMomentsCard">
+        <h3>⚡ DJ Moments</h3>
+        <div class="dj-moments-grid">
+          <button class="btn-dj-moment" id="btnMomentDrop" data-moment="DROP">
+            <span class="moment-icon">💥</span>
+            <span class="moment-label">DROP</span>
+          </button>
+          <button class="btn-dj-moment" id="btnMomentBuild" data-moment="BUILD">
+            <span class="moment-icon">📈</span>
+            <span class="moment-label">BUILD</span>
+          </button>
+          <button class="btn-dj-moment" id="btnMomentBreak" data-moment="BREAK">
+            <span class="moment-icon">⏸️</span>
+            <span class="moment-label">BREAK</span>
+          </button>
+          <button class="btn-dj-moment" id="btnMomentHandsUp" data-moment="HANDS_UP">
+            <span class="moment-icon">🙌</span>
+            <span class="moment-label">HANDS UP</span>
+          </button>
+        </div>
+        <div class="current-moment hidden" id="currentMomentDisplay">
+          <span class="current-moment-label">Current:</span>
+          <span class="current-moment-value" id="currentMomentValue">DROP</span>
+        </div>
+      </div>
+
       <div class="grid3">
         <div class="box">
           <div class="row space">
@@ -337,6 +384,19 @@
       <!-- DJ Controls Card -->
       <div class="box" id="djControlsCard">
         <h3>DJ Controls</h3>
+        
+        <!-- Host Gift Party Pass (Host Only) -->
+        <div class="host-gift-section hidden" id="hostGiftSection">
+          <div class="host-gift-header">
+            <span class="gift-icon">🎁</span>
+            <span class="gift-label">Gift Party Pass to Everyone</span>
+          </div>
+          <button class="btn-gift-party-pass" id="btnGiftPartyPass">
+            🎉 Unlock Party for Everyone (£2.99)
+          </button>
+          <div class="tiny muted">One-time purchase unlocks Pro features for all guests in this party</div>
+        </div>
+
         <div class="lbl">Chat Mode</div>
         <div class="chat-mode-selector">
           <label class="chat-mode-option">
@@ -716,6 +776,94 @@
   </div>
 
   <div class="toast hidden" id="toast"></div>
+
+  <!-- Party End Recap Modal -->
+  <div class="modal hidden" id="modalPartyRecap">
+    <div class="modal-card party-recap-card">
+      <div class="recap-header">
+        <h2>🎉 Party Recap</h2>
+        <p class="muted">Thanks for using SyncSpeaker!</p>
+      </div>
+      <div class="recap-stats">
+        <div class="recap-stat">
+          <div class="recap-stat-icon">⏱️</div>
+          <div class="recap-stat-value" id="recapDuration">0 min</div>
+          <div class="recap-stat-label">Party Duration</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-icon">🎵</div>
+          <div class="recap-stat-value" id="recapTracks">0</div>
+          <div class="recap-stat-label">Tracks Played</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-icon">🔥</div>
+          <div class="recap-stat-value" id="recapPeakEnergy">0</div>
+          <div class="recap-stat-label">Peak Energy</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-icon">💬</div>
+          <div class="recap-stat-value" id="recapReactions">0</div>
+          <div class="recap-stat-label">Total Reactions</div>
+        </div>
+      </div>
+      <div class="recap-top-emojis" id="recapTopEmojis">
+        <h4>Top Reactions</h4>
+        <div class="top-emojis-list" id="topEmojisList">
+          <span class="muted tiny">No reactions yet</span>
+        </div>
+      </div>
+      <button class="btn primary" id="btnCloseRecap">Close</button>
+    </div>
+  </div>
+
+  <!-- Parent Info Panel -->
+  <div class="modal hidden" id="modalParentInfo">
+    <div class="modal-card parent-info-card">
+      <h2>👪 For Parents</h2>
+      <div class="parent-info-content">
+        <div class="info-section">
+          <h3>What is SyncSpeaker?</h3>
+          <p>SyncSpeaker is a music synchronization app that allows multiple phones to play music together in perfect sync. It's designed for parties and social gatherings.</p>
+        </div>
+        <div class="info-section">
+          <h3>🔒 Safety Features</h3>
+          <ul>
+            <li><strong>No Music Included:</strong> Users provide their own music files</li>
+            <li><strong>Local Network:</strong> Works best on home Wi-Fi or hotspots</li>
+            <li><strong>Host Controls:</strong> Party host controls playback and can moderate chat</li>
+            <li><strong>Anonymous by Default:</strong> Guests appear as "Guest 1", "Guest 2" etc.</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h3>💡 How It Works</h3>
+          <ol>
+            <li>One person starts a party and gets a code</li>
+            <li>Friends join using the code on their phones</li>
+            <li>Music plays in sync across all devices</li>
+            <li>Host controls playback and permissions</li>
+          </ol>
+        </div>
+        <div class="info-section">
+          <h3>💰 Pricing</h3>
+          <ul>
+            <li><strong>Free Plan:</strong> Up to 2 phones, includes ads</li>
+            <li><strong>Party Pass (£2.99):</strong> One-time unlock for one party (2 hours)</li>
+            <li><strong>Pro Monthly (£9.99):</strong> Unlimited use, up to 10 phones</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h3>⚠️ Important Notes</h3>
+          <ul>
+            <li>This is a browser prototype for testing purposes</li>
+            <li>Users are responsible for their music source</li>
+            <li>Best experience with same Wi-Fi network</li>
+            <li>Host can control chat permissions (Open/Emoji Only/Locked)</li>
+          </ul>
+        </div>
+      </div>
+      <button class="btn primary" id="btnCloseParentInfo">Close</button>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
