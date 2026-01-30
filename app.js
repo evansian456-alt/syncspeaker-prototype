@@ -1829,6 +1829,25 @@ function attemptAddPhone() {
       activatePartyPass();
     };
   }
+
+  // Free Plan button
+  const btnStartFreePlan = el("btnStartFreePlan");
+  if (btnStartFreePlan) {
+    btnStartFreePlan.onclick = () => {
+      console.log("[UI] Start Free Plan clicked");
+      showHome();
+    };
+  }
+
+  // Pro Monthly subscription button
+  const btnSubscribeMonthly = el("btnSubscribeMonthly");
+  if (btnSubscribeMonthly) {
+    btnSubscribeMonthly.onclick = () => {
+      console.log("[UI] Subscribe Monthly clicked");
+      toast("Pro Monthly subscription coming soon!");
+      // In a real app, this would navigate to a payment/subscription page
+    };
+  }
 })();
 
 
