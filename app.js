@@ -42,7 +42,18 @@ const state = {
   lastHostEvent: null, // PLAY, PAUSE, TRACK_SELECTED, NEXT_TRACK_QUEUED, TRACK_CHANGED
   visualMode: "idle", // playing, paused, idle
   connected: false,
-  guestVolume: 80
+  guestVolume: 80,
+  // Monetization expansion features
+  hostGiftedPass: false, // Host paid for everyone
+  extensionShown: false, // Track if extension modal was shown for this countdown
+  activeDJPack: null, // Current DJ pack: 'rave', 'festival', 'darkclub', 'bassdrop'
+  ownedDJPacks: [], // Packs owned by non-Pro users
+  activeMicroUnlocks: [], // [{type, endTime}] for temporary effects
+  guestBoosts: [], // [{from, type, approved}] gifts from guests
+  djLevel: 1, // DJ status level (1-10)
+  djXP: 0, // XP points for leveling up
+  partyHighlights: [], // Captured highlights
+  limitedOffers: [] // [{type, endTime, price}] time-limited offers
 };
 
 // Client-side party code generator for offline fallback
@@ -159,6 +170,7 @@ function handleServer(msg) {
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
+    trackDJAction('start_party'); // Add XP for starting party
     return;
   }
   if (msg.t === "JOINED") {
@@ -298,6 +310,36 @@ function handleServer(msg) {
     state.chatMode = msg.mode;
     updateChatModeUI();
     updateDebugState();
+    return;
+  }
+  
+  // Guest boost message
+  if (msg.t === "GUEST_BOOST") {
+    if (state.isHost) {
+      const BOOSTS = {
+        better_visuals: { name: 'Better Visuals', price: '£0.99' },
+        extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
+        unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
+      };
+      
+      const boost = BOOSTS[msg.boostType];
+      if (boost) {
+        state.guestBoosts.push({
+          type: msg.boostType,
+          name: boost.name,
+          from: msg.guestName || 'Guest',
+          approved: false
+        });
+        updateGuestBoostsUI();
+        toast(`${msg.guestName} wants to gift ${boost.name}`);
+        
+        // Show the guest boosts card
+        const card = el("guestBoostsCard");
+        if (card && state.guestBoosts.length > 0) {
+          card.classList.remove("hidden");
+        }
+      }
+    }
     return;
   }
 }
@@ -1348,6 +1390,9 @@ function updatePartyPassTimer() {
     return;
   }
   
+  // Check if we should show extension modal (at 10 minutes remaining)
+  showExtensionModal();
+  
   // Calculate hours and minutes
   const hours = Math.floor(remaining / (60 * 60 * 1000));
   const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
@@ -1356,6 +1401,9 @@ function updatePartyPassTimer() {
   if (timerEl) {
     timerEl.textContent = `${hours}h ${minutes}m remaining`;
   }
+  
+  // Update micro-unlocks timers
+  updateMicroUnlocksUI();
 }
 
 function expirePartyPass() {
@@ -1456,6 +1504,535 @@ function checkPartyPassStatus() {
   }
 }
 
+// ========================================
+// MONETIZATION EXPANSION FEATURES
+// ========================================
+
+// 1. HOST-GIFTED PARTY PASS
+function activateHostGiftedPass() {
+  if (!state.code || !state.isHost) {
+    toast("Only hosts can gift Party Pass");
+    return;
+  }
+  
+  if (state.partyPassActive || state.hostGiftedPass) {
+    toast("Party Pass already active!");
+    return;
+  }
+  
+  // Simulate payment and activate
+  state.hostGiftedPass = true;
+  state.partyPassActive = true;
+  const twoHours = 2 * 60 * 60 * 1000;
+  state.partyPassEndTime = Date.now() + twoHours;
+  state.partyPro = true;
+  state.isPro = true;
+  
+  send({ t: "SET_PRO", isPro: true });
+  
+  if (state.code) {
+    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+      endTime: state.partyPassEndTime,
+      active: true,
+      hostGifted: true
+    }));
+  }
+  
+  updatePartyPassTimer();
+  if (state.partyPassTimerInterval) clearInterval(state.partyPassTimerInterval);
+  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000);
+  
+  setPlanPill();
+  updatePartyPassUI();
+  updatePlaybackUI();
+  
+  toast("🎉 Party unlocked for everyone! 2 hours of premium features!");
+  hide("modalHostGiftedPass");
+}
+
+// 2. PARTY EXTENSIONS (TIME UPSELL)
+function showExtensionModal() {
+  if (!state.isHost || !state.partyPassActive || state.extensionShown) return;
+  
+  const now = Date.now();
+  const remaining = state.partyPassEndTime - now;
+  const tenMinutes = 10 * 60 * 1000;
+  
+  if (remaining > 0 && remaining <= tenMinutes && !state.extensionShown) {
+    state.extensionShown = true;
+    show("modalExtendParty");
+  }
+}
+
+function extendParty() {
+  if (!state.isHost || !state.partyPassActive) return;
+  
+  // Add 1 hour
+  const oneHour = 60 * 60 * 1000;
+  state.partyPassEndTime += oneHour;
+  
+  if (state.code) {
+    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+      endTime: state.partyPassEndTime,
+      active: true,
+      hostGifted: state.hostGiftedPass
+    }));
+  }
+  
+  updatePartyPassTimer();
+  toast("⏰ Party extended by 1 hour!");
+  hide("modalExtendParty");
+  
+  // Reset extension flag so it can show again in 50 minutes
+  setTimeout(() => { state.extensionShown = false; }, 50 * 60 * 1000);
+}
+
+// 3. DJ PACKS (COSMETIC SALES)
+const DJ_PACKS = [
+  { id: 'rave', name: 'Rave Pack', price: '£2.99', colors: ['#FF1493', '#00FF00', '#00FFFF'] },
+  { id: 'festival', name: 'Festival Pack', price: '£2.99', colors: ['#FFD700', '#FF6B35', '#FF1493'] },
+  { id: 'darkclub', name: 'Dark Club Pack', price: '£1.99', colors: ['#1a0033', '#4B0082', '#8B00FF'] },
+  { id: 'bassdrop', name: 'Bass Drop Pack', price: '£0.99', colors: ['#FF0000', '#000000', '#FF4500'] }
+];
+
+function selectDJPack(packId) {
+  const pack = DJ_PACKS.find(p => p.id === packId);
+  if (!pack) return;
+  
+  // Pro users get all packs
+  if (!state.isPro && !state.partyPro) {
+    // Non-Pro must own the pack
+    if (!state.ownedDJPacks.includes(packId)) {
+      showBuyPackModal(packId);
+      return;
+    }
+  }
+  
+  state.activeDJPack = packId;
+  applyDJPackVisuals(pack);
+  toast(`${pack.name} activated!`);
+  updateDJPacksUI();
+}
+
+function buyDJPack(packId) {
+  if (state.isPro || state.partyPro) {
+    toast("Pro users get all packs!");
+    return;
+  }
+  
+  const pack = DJ_PACKS.find(p => p.id === packId);
+  if (!pack) return;
+  
+  // Simulate purchase
+  if (!state.ownedDJPacks.includes(packId)) {
+    state.ownedDJPacks.push(packId);
+    localStorage.setItem('ownedDJPacks', JSON.stringify(state.ownedDJPacks));
+  }
+  
+  state.activeDJPack = packId;
+  applyDJPackVisuals(pack);
+  toast(`${pack.name} purchased!`);
+  hide("modalBuyPack");
+  updateDJPacksUI();
+}
+
+function applyDJPackVisuals(pack) {
+  const djScreen = el("djScreenOverlay");
+  if (!djScreen) return;
+  
+  // Apply pack color scheme to DJ screen
+  djScreen.style.setProperty('--pack-color-1', pack.colors[0]);
+  djScreen.style.setProperty('--pack-color-2', pack.colors[1]);
+  djScreen.style.setProperty('--pack-color-3', pack.colors[2]);
+  djScreen.classList.add('pack-active');
+}
+
+function updateDJPacksUI() {
+  const packsContainer = el("djPacksContainer");
+  if (!packsContainer) return;
+  
+  packsContainer.innerHTML = '';
+  DJ_PACKS.forEach(pack => {
+    const packEl = document.createElement('div');
+    packEl.className = `dj-pack ${state.activeDJPack === pack.id ? 'active' : ''}`;
+    
+    const isOwned = state.isPro || state.partyPro || state.ownedDJPacks.includes(pack.id);
+    const btnText = isOwned ? 'Select' : `Buy ${pack.price}`;
+    
+    packEl.innerHTML = `
+      <div class="pack-name">${pack.name}</div>
+      <div class="pack-preview" style="background: linear-gradient(135deg, ${pack.colors[0]}, ${pack.colors[1]}, ${pack.colors[2]})"></div>
+      <button class="btn pack-btn ${isOwned ? 'primary' : 'secondary'}" onclick="selectDJPack('${pack.id}')">${btnText}</button>
+    `;
+    packsContainer.appendChild(packEl);
+  });
+}
+
+// 4. PEAK MOMENT MICRO-UNLOCKS
+const MICRO_UNLOCKS = [
+  { id: 'ultra_drop', name: 'Ultra Drop Mode', price: '£0.99', duration: 5 * 60 * 1000 },
+  { id: 'festival_lights', name: 'Festival Lights', price: '£0.99', duration: 0 },
+  { id: 'crowd_takeover', name: 'Crowd Takeover', price: '£0.99', duration: 0 }
+];
+
+function activateMicroUnlock(unlockId) {
+  if (!state.isHost) {
+    toast("Only hosts can activate peak moments");
+    return;
+  }
+  
+  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
+  if (!unlock) return;
+  
+  // Simulate purchase and activate
+  const now = Date.now();
+  const endTime = unlock.duration > 0 ? now + unlock.duration : null;
+  
+  state.activeMicroUnlocks.push({
+    type: unlockId,
+    name: unlock.name,
+    endTime: endTime,
+    activatedAt: now
+  });
+  
+  applyMicroUnlockEffect(unlockId);
+  toast(`${unlock.name} activated!`);
+  hide("modalMicroUnlock");
+  updateMicroUnlocksUI();
+  
+  // Show the active micro-unlocks card
+  const card = el("activeMicroUnlocksCard");
+  if (card && state.activeMicroUnlocks.length > 0) {
+    card.classList.remove("hidden");
+  }
+  
+  // Auto-expire if it has a duration
+  if (endTime) {
+    setTimeout(() => expireMicroUnlock(unlockId), unlock.duration);
+  }
+}
+
+function expireMicroUnlock(unlockId) {
+  state.activeMicroUnlocks = state.activeMicroUnlocks.filter(u => u.type !== unlockId);
+  updateMicroUnlocksUI();
+  toast(`${unlockId.replace('_', ' ')} expired`);
+  
+  // Hide the card if no more active unlocks
+  const card = el("activeMicroUnlocksCard");
+  if (card && state.activeMicroUnlocks.length === 0) {
+    card.classList.add("hidden");
+  }
+}
+
+function applyMicroUnlockEffect(unlockId) {
+  const djScreen = el("djScreenOverlay");
+  if (!djScreen) return;
+  
+  djScreen.classList.add(`effect-${unlockId}`);
+}
+
+function showMicroUnlockModal(unlockId) {
+  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
+  if (!unlock) return;
+  
+  const titleEl = el("microUnlockTitle");
+  const descEl = el("microUnlockDesc");
+  const btnEl = el("btnMicroUnlock");
+  
+  if (titleEl) titleEl.textContent = unlock.name;
+  if (descEl) {
+    const durationText = unlock.duration > 0 ? ` (${unlock.duration / 60000} minutes)` : '';
+    descEl.textContent = `Activate ${unlock.name}${durationText} for an epic peak moment!`;
+  }
+  if (btnEl) {
+    btnEl.onclick = () => activateMicroUnlock(unlockId);
+  }
+  
+  show("modalMicroUnlock");
+}
+
+function updateMicroUnlocksUI() {
+  const container = el("activeMicroUnlocks");
+  if (!container) return;
+  
+  container.innerHTML = '';
+  state.activeMicroUnlocks.forEach(unlock => {
+    const div = document.createElement('div');
+    div.className = 'micro-unlock-badge';
+    
+    if (unlock.endTime) {
+      const remaining = Math.max(0, unlock.endTime - Date.now());
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      div.innerHTML = `${unlock.name} <span class="timer">${mins}:${secs.toString().padStart(2, '0')}</span>`;
+    } else {
+      div.innerHTML = unlock.name;
+    }
+    
+    container.appendChild(div);
+  });
+}
+
+// 5. GUEST-GIFTED BOOSTS
+function sendGuestBoost(boostType) {
+  if (state.isHost) {
+    toast("You're the host!");
+    return;
+  }
+  
+  const BOOSTS = {
+    better_visuals: { name: 'Better Visuals', price: '£0.99' },
+    extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
+    unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
+  };
+  
+  const boost = BOOSTS[boostType];
+  if (!boost) return;
+  
+  // Simulate sending to host
+  send({ 
+    t: "GUEST_BOOST", 
+    boostType: boostType,
+    guestName: state.name
+  });
+  
+  toast(`Gift sent to host! Waiting for approval...`);
+  hide("modalGuestBoost");
+}
+
+function approveGuestBoost(boostIndex) {
+  if (!state.isHost) return;
+  
+  const boost = state.guestBoosts[boostIndex];
+  if (!boost || boost.approved) return;
+  
+  boost.approved = true;
+  applyGuestBoost(boost);
+  toast(`Boost from ${boost.from} activated!`);
+  updateGuestBoostsUI();
+}
+
+function applyGuestBoost(boost) {
+  switch(boost.type) {
+    case 'better_visuals':
+      // Enhance visuals temporarily
+      const djScreen = el("djScreenOverlay");
+      if (djScreen) djScreen.classList.add('boost-visuals');
+      break;
+    case 'extend_30min':
+      if (state.partyPassActive) {
+        state.partyPassEndTime += 30 * 60 * 1000;
+        updatePartyPassTimer();
+      }
+      break;
+    case 'unlock_shoutouts':
+      // Temporarily unlock shoutouts
+      toast("Shoutouts unlocked!");
+      break;
+  }
+}
+
+function updateGuestBoostsUI() {
+  const container = el("guestBoostsContainer");
+  if (!container) return;
+  
+  container.innerHTML = '';
+  state.guestBoosts.filter(b => !b.approved).forEach((boost, idx) => {
+    const div = document.createElement('div');
+    div.className = 'guest-boost-card';
+    div.innerHTML = `
+      <div class="boost-info">
+        <div class="boost-name">${boost.name}</div>
+        <div class="boost-from">Gifted by ${boost.from}</div>
+      </div>
+      <button class="btn primary" onclick="approveGuestBoost(${idx})">Accept</button>
+    `;
+    container.appendChild(div);
+  });
+}
+
+// 6. PARTY MEMORIES / HIGHLIGHTS
+function captureHighlight() {
+  if (!state.isHost) {
+    toast("Only hosts can capture highlights");
+    return;
+  }
+  
+  const now = Date.now();
+  const highlight = {
+    timestamp: now,
+    filename: state.nowPlayingFilename || 'Unknown Track',
+    members: state.snapshot?.members?.length || 0
+  };
+  
+  state.partyHighlights.push(highlight);
+  localStorage.setItem(`highlights_${state.code}`, JSON.stringify(state.partyHighlights));
+  
+  toast("📸 Highlight captured!");
+  updateHighlightsUI();
+}
+
+function unlockPartyMemories() {
+  // Simulate purchase
+  toast("🎉 Party Memories unlocked! Download available after party.");
+  hide("modalPartyMemories");
+}
+
+function updateHighlightsUI() {
+  const container = el("highlightsContainer");
+  if (!container) return;
+  
+  const count = state.partyHighlights.length;
+  container.textContent = count > 0 ? `${count} highlight${count > 1 ? 's' : ''} captured` : 'No highlights yet';
+}
+
+// 7. DJ STATUS LEVELS
+function addDJXP(amount) {
+  state.djXP += amount;
+  
+  // Level up thresholds: 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500
+  const levels = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
+  let newLevel = 1;
+  
+  for (let i = 0; i < levels.length; i++) {
+    if (state.djXP >= levels[i]) {
+      newLevel = i + 1;
+    } else {
+      break;
+    }
+  }
+  
+  if (newLevel > state.djLevel) {
+    state.djLevel = newLevel;
+    toast(`🎉 Level Up! You're now DJ Level ${newLevel}!`);
+    showLevelUpReward(newLevel);
+  }
+  
+  localStorage.setItem('djLevel', state.djLevel.toString());
+  localStorage.setItem('djXP', state.djXP.toString());
+  updateDJLevelUI();
+}
+
+function showLevelUpReward(level) {
+  const rewards = {
+    2: "Unlocked: Custom DJ Name Colors",
+    3: "Unlocked: Priority Guest Messages",
+    5: "Unlocked: Exclusive DJ Pack",
+    7: "Unlocked: Advanced Analytics",
+    10: "Unlocked: Legend Status Badge"
+  };
+  
+  if (rewards[level]) {
+    setTimeout(() => toast(`🎁 ${rewards[level]}`), 1500);
+  }
+}
+
+function updateDJLevelUI() {
+  const levelEl = el("djLevel");
+  const xpEl = el("djXP");
+  
+  if (levelEl) levelEl.textContent = `Level ${state.djLevel}`;
+  if (xpEl) {
+    const levels = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
+    const currentThreshold = levels[state.djLevel - 1] || 0;
+    const nextThreshold = levels[state.djLevel] || 5500;
+    const progress = state.djXP - currentThreshold;
+    const needed = nextThreshold - currentThreshold;
+    xpEl.textContent = `${progress}/${needed} XP`;
+  }
+}
+
+// 8. LIMITED-TIME OFFERS
+function showLimitedOffer(offerType) {
+  const now = Date.now();
+  
+  // Check if offer already active
+  if (state.limitedOffers.find(o => o.type === offerType && o.endTime > now)) {
+    return;
+  }
+  
+  const offers = {
+    'first_party_50off': { 
+      name: 'First Party 50% Off', 
+      discount: 0.5,
+      endTime: now + 15 * 60 * 1000, // 15 minutes
+      originalPrice: '£9.99',
+      salePrice: '£4.99'
+    },
+    'flash_pack_bundle': {
+      name: 'Flash: All DJ Packs',
+      discount: 0.7,
+      endTime: now + 10 * 60 * 1000, // 10 minutes
+      originalPrice: '£7.96',
+      salePrice: '£2.99'
+    }
+  };
+  
+  const offer = offers[offerType];
+  if (!offer) return;
+  
+  state.limitedOffers.push({
+    type: offerType,
+    ...offer
+  });
+  
+  show("modalLimitedOffer");
+  updateLimitedOfferUI(offer);
+  
+  // Auto-hide after expiration
+  setTimeout(() => {
+    state.limitedOffers = state.limitedOffers.filter(o => o.type !== offerType);
+    hide("modalLimitedOffer");
+  }, offer.endTime - now);
+}
+
+function updateLimitedOfferUI(offer) {
+  const nameEl = el("offerName");
+  const priceEl = el("offerPrice");
+  const timerEl = el("offerTimer");
+  
+  if (nameEl) nameEl.textContent = offer.name;
+  if (priceEl) priceEl.innerHTML = `<span class="strikethrough">${offer.originalPrice}</span> ${offer.salePrice}`;
+  
+  if (timerEl) {
+    const updateTimer = () => {
+      const remaining = Math.max(0, offer.endTime - Date.now());
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+      
+      if (remaining > 0) {
+        setTimeout(updateTimer, 1000);
+      }
+    };
+    updateTimer();
+  }
+}
+
+function acceptLimitedOffer() {
+  toast("🎉 Offer claimed!");
+  hide("modalLimitedOffer");
+}
+
+// Add XP for various actions
+function trackDJAction(action) {
+  if (!state.isHost) return;
+  
+  const xpRewards = {
+    'start_party': 10,
+    'play_track': 5,
+    'queue_track': 3,
+    'guest_reaction': 2,
+    'party_hour': 50,
+    'guest_message': 1
+  };
+  
+  const xp = xpRewards[action] || 0;
+  if (xp > 0) {
+    addDJXP(xp);
+  }
+}
+
 function renderRoom() {
   const wrap = el("members");
   wrap.innerHTML = "";
@@ -1520,6 +2097,56 @@ function attemptAddPhone() {
   toast("Open this link on another phone and tap Join");
 }
 
+// Additional monetization helper functions
+function upgradeToPro() {
+  // Simulate Pro upgrade
+  state.isPro = true;
+  state.partyPro = true;
+  send({ t: "SET_PRO", isPro: true });
+  
+  toast("🎉 Upgraded to Pro! Enjoy all features!");
+  hide("modalProUpgrade");
+  setPlanPill();
+  updateDJLevelUI();
+  updateDJPacksUI();
+}
+
+function showBuyPackModal(packId) {
+  const pack = DJ_PACKS.find(p => p.id === packId);
+  if (!pack) return;
+  
+  const descEl = el("buyPackDesc");
+  if (descEl) {
+    descEl.textContent = `${pack.name} - ${pack.price}`;
+  }
+  
+  const btnBuyPack = el("btnBuyPack");
+  if (btnBuyPack) {
+    btnBuyPack.onclick = () => buyDJPack(packId);
+  }
+  
+  show("modalBuyPack");
+}
+
+// Initialize DJ level and XP from localStorage
+function initializeDJStatus() {
+  const savedLevel = localStorage.getItem('djLevel');
+  const savedXP = localStorage.getItem('djXP');
+  const savedOwnedPacks = localStorage.getItem('ownedDJPacks');
+  
+  if (savedLevel) state.djLevel = parseInt(savedLevel, 10) || 1;
+  if (savedXP) state.djXP = parseInt(savedXP, 10) || 0;
+  if (savedOwnedPacks) {
+    try {
+      state.ownedDJPacks = JSON.parse(savedOwnedPacks);
+    } catch (e) {
+      state.ownedDJPacks = [];
+    }
+  }
+  
+  updateDJLevelUI();
+}
+
 (async function init(){
   // TODO: Enable real-time sync later in native app
   // For browser prototype, we skip WebSocket connection for Start Party to work instantly
@@ -1528,6 +2155,9 @@ function attemptAddPhone() {
   
   // Initialize music player
   initializeMusicPlayer();
+  
+  // Initialize DJ status and monetization features
+  initializeDJStatus();
 
   // Landing page navigation
   el("btnLandingStart").onclick = () => {

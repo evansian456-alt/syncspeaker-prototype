@@ -395,6 +395,57 @@
 
       <div class="line"></div>
 
+      <!-- DJ Status & Monetization Section -->
+      <div class="box" id="djStatusCard">
+        <div class="row space">
+          <div>
+            <h3>DJ Status</h3>
+            <div class="dj-level-info">
+              <span class="dj-level-badge" id="djLevel">Level 1</span>
+              <span class="dj-xp" id="djXP">0/100 XP</span>
+            </div>
+          </div>
+          <button class="btn secondary" onclick="show('modalProUpgrade')">Upgrade to Pro</button>
+        </div>
+        <div class="tiny muted">Earn XP by hosting parties and engaging guests</div>
+      </div>
+
+      <div class="line"></div>
+
+      <!-- Monetization Quick Actions -->
+      <div class="box" id="monetizationActionsCard">
+        <h3>Party Enhancements</h3>
+        <div class="monetization-actions">
+          <button class="btn secondary" onclick="show('modalHostGiftedPass')" id="btnHostGiftedPass">
+            🎉 Unlock for Everyone
+          </button>
+          <button class="btn secondary" onclick="show('modalDJPacks'); updateDJPacksUI()">
+            🎨 DJ Packs
+          </button>
+          <button class="btn secondary" onclick="captureHighlight()">
+            📸 Capture Highlight
+          </button>
+          <button class="btn secondary" onclick="show('modalPartyMemories')">
+            💾 Party Memories
+          </button>
+        </div>
+        <div class="tiny muted">Enhance your party experience</div>
+      </div>
+
+      <!-- Active Micro-Unlocks Display -->
+      <div class="box hidden" id="activeMicroUnlocksCard">
+        <h3>Active Effects</h3>
+        <div id="activeMicroUnlocks" class="micro-unlocks-container"></div>
+      </div>
+
+      <!-- Guest Boosts (Host View) -->
+      <div class="box hidden" id="guestBoostsCard">
+        <h3>🎁 Guest Gifts</h3>
+        <div id="guestBoostsContainer" class="guest-boosts-list"></div>
+      </div>
+
+      <div class="line"></div>
+
       <div class="row space">
         <h3>Friends connected</h3>
         <div class="row gap">
@@ -482,6 +533,22 @@
           <span class="dj-queue-icon">📁</span>
           <span>QUEUE NEXT TRACK</span>
         </button>
+      </div>
+
+      <!-- Peak Moment Buttons -->
+      <div class="dj-peak-moments">
+        <div class="dj-peak-label">PEAK MOMENTS</div>
+        <div class="dj-peak-buttons">
+          <button class="btn-peak-moment" onclick="showMicroUnlockModal('ultra_drop')">
+            ⚡ Ultra Drop
+          </button>
+          <button class="btn-peak-moment" onclick="showMicroUnlockModal('festival_lights')">
+            💡 Festival Lights
+          </button>
+          <button class="btn-peak-moment" onclick="showMicroUnlockModal('crowd_takeover')">
+            🙌 Crowd Takeover
+          </button>
+        </div>
       </div>
 
       <!-- Party Info -->
@@ -636,6 +703,16 @@
         <div class="tiny muted">Send reactions to the host's DJ screen</div>
       </div>
 
+      <!-- Guest Boost Button -->
+      <div class="glass-card guest-boost-section">
+        <button class="btn secondary" onclick="show('modalGuestBoost')" style="width: 100%;">
+          🎁 Gift a Boost to Host
+        </button>
+        <div class="tiny muted" style="text-align: center; margin-top: 8px;">
+          Send premium features to enhance the party
+        </div>
+      </div>
+
       <div class="tiny muted" style="margin-top:20px; text-align: center;">
         Playback controlled by host · Browser prototype
       </div>
@@ -741,6 +818,162 @@
         <button class="btn primary" id="btnSpeakerOk">Got it</button>
       </div>
       <div class="tiny muted">Speaker support is for supporters.</div>
+    </div>
+  </div>
+
+  <!-- Host-Gifted Party Pass Modal -->
+  <div class="modal hidden" id="modalHostGiftedPass">
+    <div class="modalCard">
+      <h3>🎉 Unlock this party for everyone</h3>
+      <p class="muted">One payment. Everyone unlocked.</p>
+      <ul class="list">
+        <li>Ad-free party for all guests</li>
+        <li>Preset shoutouts</li>
+        <li>Full emoji reactions</li>
+        <li>Hype visuals</li>
+        <li>Extended phone limit</li>
+      </ul>
+      <p class="highlight">Party Pass lasts 2 hours</p>
+      <div class="row gap">
+        <button class="btn primary" onclick="activateHostGiftedPass()">Unlock £4.99</button>
+        <button class="btn" onclick="hide('modalHostGiftedPass')">Not now</button>
+      </div>
+      <div class="tiny muted">No account required (simulated)</div>
+    </div>
+  </div>
+
+  <!-- Party Extension Modal -->
+  <div class="modal hidden" id="modalExtendParty">
+    <div class="modalCard">
+      <h3>⏰ Party ending soon</h3>
+      <p class="muted">Your Party Pass expires in less than 10 minutes.</p>
+      <p class="highlight">Extend 1 hour for £1.99</p>
+      <div class="row gap">
+        <button class="btn primary" onclick="extendParty()">Extend Party</button>
+        <button class="btn" onclick="hide('modalExtendParty')">Let it end</button>
+      </div>
+      <div class="tiny muted">Keep the party going without interruption</div>
+    </div>
+  </div>
+
+  <!-- DJ Packs Selection Modal -->
+  <div class="modal hidden" id="modalDJPacks">
+    <div class="modalCard">
+      <h3>🎨 DJ Packs</h3>
+      <p class="muted">Customize your party visuals with exclusive DJ packs</p>
+      <div id="djPacksContainer" class="dj-packs-grid"></div>
+      <button class="btn link" onclick="hide('modalDJPacks')">Close</button>
+      <div class="tiny muted">Pro users get all packs included</div>
+    </div>
+  </div>
+
+  <!-- Buy DJ Pack Modal -->
+  <div class="modal hidden" id="modalBuyPack">
+    <div class="modalCard">
+      <h3>Purchase DJ Pack</h3>
+      <p class="muted" id="buyPackDesc"></p>
+      <div class="row gap">
+        <button class="btn primary" id="btnBuyPack">Buy Now</button>
+        <button class="btn" onclick="hide('modalBuyPack')">Cancel</button>
+      </div>
+      <div class="tiny muted">One-time purchase. Yours forever.</div>
+    </div>
+  </div>
+
+  <!-- Micro-Unlock Modal -->
+  <div class="modal hidden" id="modalMicroUnlock">
+    <div class="modalCard">
+      <h3 id="microUnlockTitle">Peak Moment</h3>
+      <p class="muted" id="microUnlockDesc"></p>
+      <div class="row gap">
+        <button class="btn primary" id="btnMicroUnlock">Activate £0.99</button>
+        <button class="btn" onclick="hide('modalMicroUnlock')">Not now</button>
+      </div>
+      <div class="tiny muted">Temporary boost. Auto-expires.</div>
+    </div>
+  </div>
+
+  <!-- Guest Boost Modal -->
+  <div class="modal hidden" id="modalGuestBoost">
+    <div class="modalCard">
+      <h3>🎁 Gift to Host</h3>
+      <p class="muted">Send a boost to enhance the party</p>
+      <div class="boost-options">
+        <button class="btn boost-option" onclick="sendGuestBoost('better_visuals')">
+          <div class="boost-name">Better Visuals</div>
+          <div class="boost-price">£0.99</div>
+        </button>
+        <button class="btn boost-option" onclick="sendGuestBoost('extend_30min')">
+          <div class="boost-name">Extend 30 mins</div>
+          <div class="boost-price">£0.99</div>
+        </button>
+        <button class="btn boost-option" onclick="sendGuestBoost('unlock_shoutouts')">
+          <div class="boost-name">Unlock Shoutouts</div>
+          <div class="boost-price">£1.49</div>
+        </button>
+      </div>
+      <button class="btn link" onclick="hide('modalGuestBoost')">Cancel</button>
+      <div class="tiny muted">Host must approve your gift</div>
+    </div>
+  </div>
+
+  <!-- Party Memories Modal -->
+  <div class="modal hidden" id="modalPartyMemories">
+    <div class="modalCard">
+      <h3>📸 Party Memories</h3>
+      <p class="muted">Unlock downloadable party highlights and stats</p>
+      <div id="highlightsContainer" class="muted tiny">No highlights yet</div>
+      <ul class="list">
+        <li>All captured highlights</li>
+        <li>Guest list and timestamps</li>
+        <li>Track history</li>
+        <li>Downloadable recap video</li>
+      </ul>
+      <div class="row gap">
+        <button class="btn primary" onclick="unlockPartyMemories()">Unlock £2.99</button>
+        <button class="btn" onclick="hide('modalPartyMemories')">Not now</button>
+      </div>
+      <div class="tiny muted">Available immediately after party ends</div>
+    </div>
+  </div>
+
+  <!-- Limited-Time Offer Modal -->
+  <div class="modal hidden" id="modalLimitedOffer">
+    <div class="modalCard">
+      <h3>⚡ Limited-Time Offer</h3>
+      <p class="muted" id="offerName">Special Deal</p>
+      <div class="offer-price" id="offerPrice">£9.99</div>
+      <div class="offer-timer" id="offerTimer">10:00</div>
+      <div class="row gap">
+        <button class="btn primary" onclick="acceptLimitedOffer()">Claim Offer</button>
+        <button class="btn" onclick="hide('modalLimitedOffer')">Pass</button>
+      </div>
+      <div class="tiny muted">This offer won't come back</div>
+    </div>
+  </div>
+
+  <!-- Pro Features Upgrade Modal -->
+  <div class="modal hidden" id="modalProUpgrade">
+    <div class="modalCard">
+      <h3>💎 Unlock Pro DJ Mode</h3>
+      <p class="highlight">£9.99/month</p>
+      <ul class="list">
+        <li>✨ Unlimited parties</li>
+        <li>🎯 DJ Moment buttons</li>
+        <li>💬 Chat modes (Open / Emoji / Locked)</li>
+        <li>⚡ Crowd Energy meter</li>
+        <li>📊 Party recap stats</li>
+        <li>🎨 Beat-aware visuals</li>
+        <li>🌈 Theme selection</li>
+        <li>📝 Typed guest messages (approval)</li>
+        <li>🎁 All DJ Packs included</li>
+        <li>⭐ Priority visuals</li>
+      </ul>
+      <div class="row gap">
+        <button class="btn primary" onclick="upgradeToPro()">Subscribe £9.99/mo</button>
+        <button class="btn" onclick="hide('modalProUpgrade')">Maybe later</button>
+      </div>
+      <div class="tiny muted">Cancel anytime. No commitment.</div>
     </div>
   </div>
 
