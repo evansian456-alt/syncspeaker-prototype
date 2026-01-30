@@ -554,23 +554,31 @@ The following require product owner decision:
 
 ### If PR #26 Causes Issues:
 ```bash
-git revert <merge-commit-sha>
+# Preferred: Revert the merge commit
+git revert -m 1 <merge-commit-sha>
 git push origin main
+
+# This creates a new commit that undoes the merge
+# Safer than force push and preserves history
 ```
 
 ### If PR #40 Causes Issues:
 ```bash
+# Preferred: Revert the merge commit
 git checkout main
-git revert <merge-commit-sha>
+git revert -m 1 <merge-commit-sha>
 git push origin main
+
 # Restore from pr40-backup branch if needed
 git checkout pr40-backup
 git branch -f copilot/add-monetization-upgrades
+git push origin copilot/add-monetization-upgrades --force-with-lease
 ```
 
 ### If PR #41 Causes Issues:
 ```bash
-git revert <merge-commit-sha>
+# Preferred: Revert the merge commit
+git revert -m 1 <merge-commit-sha>
 git push origin main
 ```
 

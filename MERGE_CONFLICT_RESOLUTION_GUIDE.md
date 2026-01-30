@@ -351,8 +351,8 @@ git log --oneline
 # Revert to that commit
 git reset --hard <commit-hash>
 
-# Force push (CAUTION)
-git push origin main --force
+# Force push (CAUTION - only for emergency rollback)
+git push origin main --force-with-lease
 ```
 
 ---
