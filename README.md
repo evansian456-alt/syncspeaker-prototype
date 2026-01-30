@@ -1,5 +1,37 @@
-# syncspeaker-prototype
-Browser prototype for SyncSpeaker
+# SyncSpeaker
+
+**Turn your phones into one massive speaker**
+
+Browser prototype for SyncSpeaker — Connect multiple phones together and play music in perfect sync. Create an epic sound experience for parties, gatherings, or just hanging out with friends!
+
+## 🎵 What is SyncSpeaker?
+
+SyncSpeaker lets you connect multiple phones together to play music in perfect synchronization. Take control with DJ mode, queue your tracks, and get real-time reactions from your guests. Everything you need to be the ultimate party host.
+
+## ✨ Key Features
+
+- **🎧 DJ Mode**: Full-screen DJ interface with visualizers and controls. Professional visual effects and real-time feedback.
+- **⏭️ Up Next Queue**: Queue your next track and see what's coming up. Seamless transitions keep the party flowing.
+- **💬 Guest Reactions**: Friends can send reactions directly to the DJ's screen with real-time crowd feedback.
+- **📱 Browser-Ready**: Test instantly in your browser or run with full multi-device sync. No app store required.
+- **🎶 Multi-Device Sync**: Music plays in perfect sync across all connected devices.
+- **👥 Party Management**: Host controls, guest management, and party codes for easy joining.
+
+## 💎 Pricing
+
+| Plan | Price | Features |
+|------|-------|----------|
+| **Free Plan** | Free | • Up to 2 phones<br>• Basic features<br>• Includes ads |
+| **Party Pass** 🎉 | £2.99 | • 2-hour session (single-use)<br>• Up to 10 phones<br>• No ads during playback<br>• Pro DJ mode with visualizers<br>• Guest reactions & messaging<br>• Up Next queue system<br>• Priority sync stability<br>• Party-wide unlock |
+| **Pro Monthly** | £9.99/month | • Up to 10 phones<br>• No ads<br>• Quality override warnings<br>• Speaker support<br>• Cancel anytime |
+
+**Note**: Party Pass is a single-use purchase that unlocks Pro features for all guests in one party for 2 hours.
+
+## 📶 Important Information
+
+- **Connection**: Hotspot or Wi-Fi recommended for best connection quality
+- **Music Source**: You provide the music — this app syncs playback. Music files come from your device (local files, Spotify, YouTube, etc.)
+- **Browser Compatibility**: Works in modern browsers with Web Audio API support
 
 ## 🔧 PR Conflict Resolution
 
