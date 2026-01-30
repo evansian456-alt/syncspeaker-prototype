@@ -1874,6 +1874,10 @@ function attemptAddPhone() {
           updateMusicStatus(errorMsg, true);
           toast(errorMsg);
         });
+    } else if (musicState.queuedFile && musicState.queuedObjectURL) {
+      // If no current track but there's a queued track, play it
+      console.log("[Music] No current track, playing queued track");
+      playQueuedTrack();
     } else {
       state.playing = true;
       updateMusicStatus("Play (simulated - no music file loaded)");
