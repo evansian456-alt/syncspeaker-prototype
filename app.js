@@ -168,7 +168,7 @@ function handleServer(msg) {
 function showHome() {
   hide("viewLanding"); show("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
-  state.snapshot = null; state.partyPro = false;
+  state.snapshot = null; state.partyPro = false; state.offlineMode = false;
   
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
@@ -187,7 +187,7 @@ function showHome() {
 function showLanding() {
   show("viewLanding"); hide("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
-  state.snapshot = null; state.partyPro = false;
+  state.snapshot = null; state.partyPro = false; state.offlineMode = false;
   
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
@@ -893,8 +893,9 @@ function attemptAddPhone() {
         // Add warning message to party view
         setTimeout(() => {
           const partyMeta = el("partyMeta");
-          if (partyMeta) {
-            partyMeta.innerHTML = `<span style="color: var(--warning, #ffaa00);">⚠️ Offline mode: some features may not sync</span>`;
+          if (partyMeta && state.offlineMode) {
+            partyMeta.textContent = "⚠️ Offline mode: some features may not sync";
+            partyMeta.style.color = "var(--warning, #ffaa00)";
           }
         }, 100);
       } else {
@@ -957,13 +958,14 @@ function attemptAddPhone() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      const endpoint = "/api/join-party";
-      updateDebug(`Endpoint: POST ${endpoint}`);
+      const endpoint = "POST /api/join-party";
+      updateDebug(`Endpoint: ${endpoint}`);
+      updateDebugPanel(endpoint, null);
       updateStatus("Calling server…");
       
       let response;
       try {
-        response = await fetch(endpoint, {
+        response = await fetch("/api/join-party", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -978,21 +980,26 @@ function attemptAddPhone() {
       } catch (fetchError) {
         clearTimeout(timeoutId);
         
-        if (fetchError.name === "AbortError") {
-          throw new Error("Server not responding. Try again.");
-        }
-        throw fetchError;
+        const errorMsg = fetchError.name === "AbortError" 
+          ? "Server not responding. Try again." 
+          : fetchError.message;
+        
+        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "error"})`);
+        throw new Error(errorMsg);
       }
       
       updateStatus("Server responded…");
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        const errorMsg = errorData.error || `Server error: ${response.status}`;
+        updateDebugPanel(endpoint, errorMsg);
+        throw new Error(errorMsg);
       }
       
       const data = await response.json();
       console.log("[API] Join response:", data);
+      updateDebugPanel(endpoint, null); // Clear error on success
       
       updateStatus(`Joining party ${code}…`);
       
@@ -1003,20 +1010,18 @@ function attemptAddPhone() {
       // Clear status after a short delay
       setTimeout(() => {
         if (statusEl) statusEl.classList.add("hidden");
-        btn.disabled = false;
-        btn.textContent = "Join party";
       }, 2000);
       
     } catch (error) {
       console.error("[Party] Error joining party:", error);
       updateStatus(error.message || "Error joining party. Try again.", true);
       
-      // Re-enable button on error
-      btn.disabled = false;
-      btn.textContent = "Join party";
-      
       // Show toast with error
       toast(error.message || "Error joining party");
+    } finally {
+      // ALWAYS re-enable button and reset text
+      btn.disabled = false;
+      btn.textContent = "Join party";
     }
   };
 
