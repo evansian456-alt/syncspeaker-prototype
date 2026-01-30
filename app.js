@@ -1293,15 +1293,28 @@ function attemptAddPhone() {
       } catch (fetchError) {
         clearTimeout(timeoutId);
         
-        const errorMsg = fetchError.name === "AbortError" 
-          ? "Server not responding. Try again." 
-          : fetchError.message;
+        // Provide browser-only mode friendly error messages
+        let errorMsg;
+        if (fetchError.name === "AbortError") {
+          errorMsg = "Server not responding. Try again.";
+        } else if (fetchError.message.includes("Failed to fetch")) {
+          errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
+        } else {
+          errorMsg = fetchError.message;
+        }
         
-        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "error"})`);
+        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "network error"})`);
         throw new Error(errorMsg);
       }
       
       updateStatus("Server responded…");
+      
+      // Check for 501 (Unsupported method) which happens with simple HTTP servers
+      if (response.status === 501) {
+        const errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
+        updateDebugPanel(endpoint, "Server doesn't support POST (browser-only mode)");
+        throw new Error(errorMsg);
+      }
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
