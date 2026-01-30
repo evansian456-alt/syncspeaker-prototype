@@ -213,9 +213,21 @@ function showParty() {
   if (state.offlineMode && state.isHost) {
     el("partyMeta").textContent = "Party created locally (prototype mode)";
     el("partyMeta").style.color = "var(--accent, #5AA9FF)";
+    
+    // Show offline warning banner
+    const warningEl = el("offlineWarning");
+    if (warningEl) {
+      warningEl.style.display = "flex";
+    }
   } else {
     el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
     el("partyMeta").style.color = "";
+    
+    // Hide offline warning banner
+    const warningEl = el("offlineWarning");
+    if (warningEl) {
+      warningEl.style.display = "none";
+    }
   }
   
   el("partyCode").textContent = state.code || "------";
@@ -995,6 +1007,10 @@ function attemptAddPhone() {
   };
 
   el("btnCopy").onclick = async () => {
+    if (state.offlineMode) {
+      toast("⚠️ Prototype mode - code won't work for joining from other devices");
+      return;
+    }
     try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
     catch { toast("Copy failed (permission)"); }
   };

@@ -1534,6 +1534,60 @@ h2,h3{margin:0}
 }
 
 
+/* Offline Mode Warning Banner */
+.offline-warning {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 152, 0, 0.15) 100%);
+  border: 2px solid rgba(255, 193, 7, 0.5);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: start;
+}
+
+.warning-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.warning-content {
+  flex: 1;
+}
+
+.warning-content strong {
+  color: #FFC107;
+  font-size: 14px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.warning-content p {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .offline-warning {
+    padding: 12px;
+    gap: 10px;
+  }
+  
+  .warning-icon {
+    font-size: 20px;
+  }
+  
+  .warning-content strong {
+    font-size: 13px;
+  }
+  
+  .warning-content p {
+    font-size: 12px;
+  }
+}
+
 /* Debug Panel (Prototype Only) */
 .debug-panel {
   position: fixed;
