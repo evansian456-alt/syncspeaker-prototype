@@ -1110,13 +1110,29 @@ function playQueuedTrack() {
         updateMusicStatus(`Playing: ${musicState.selectedFile.name}`);
         console.log("[DJ Queue] Auto-playing queued track");
         
+        // Track play for session stats (Feature 3)
+        if (!state.sessionStats.tracksPlayed) {
+          state.sessionStats.tracksPlayed = 1;
+        }
+        
+        // Start beat-aware UI (Feature 8)
+        startBeatPulse();
+        
         // Update DJ screen
         updateDjScreen();
+        
+        // Show DJ screen for host
+        if (state.isHost) {
+          showDjScreen();
+        }
         
         // Broadcast to guests
         if (state.isHost && state.ws) {
           send({ t: "HOST_PLAY" });
         }
+        
+        // Update back to DJ button visibility
+        updateBackToDjButton();
       })
       .catch((error) => {
         console.error("[DJ Queue] Auto-play failed:", error);
@@ -1127,7 +1143,24 @@ function playQueuedTrack() {
     console.log("[DJ Queue] Playing in simulated mode");
     state.playing = true;
     updateMusicStatus(`Playing: ${musicState.selectedFile.name} (simulated)`);
+    
+    // Track play for session stats (Feature 3)
+    if (!state.sessionStats.tracksPlayed) {
+      state.sessionStats.tracksPlayed = 1;
+    }
+    
+    // Start beat-aware UI (Feature 8)
+    startBeatPulse();
+    
     updateDjScreen();
+    
+    // Show DJ screen for host even in simulated mode
+    if (state.isHost) {
+      showDjScreen();
+    }
+    
+    // Update back to DJ button visibility
+    updateBackToDjButton();
   }
 
   toast(`♫ Now playing: ${musicState.selectedFile.name}`);
@@ -1874,6 +1907,10 @@ function attemptAddPhone() {
           updateMusicStatus(errorMsg, true);
           toast(errorMsg);
         });
+    } else if (musicState.queuedFile && musicState.queuedObjectURL) {
+      // If no current track but there's a queued track, play it
+      console.log("[Music] No current track, playing queued track");
+      playQueuedTrack();
     } else {
       state.playing = true;
       updateMusicStatus("Play (simulated - no music file loaded)");
