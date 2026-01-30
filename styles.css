@@ -1490,6 +1490,27 @@ h2,h3{margin:0}
   color: var(--text);
 }
 
+/* Party Status Area */
+.party-status {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: rgba(18, 24, 35, 0.6);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.party-status .status-message {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.party-status .debug-info {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
 /* Audio Player Styling */
 #hostAudioPlayer {
   width: 100%;
