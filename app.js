@@ -5,7 +5,9 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const musicState = {
   selectedFile: null,
   currentObjectURL: null,
-  audioElement: null
+  audioElement: null,
+  audioInitialized: false, // Track if audio element event listeners have been set up
+  fileInputInitialized: false // Track if file input handler has been set up
 };
 
 // Debug state for tracking API calls and errors
@@ -217,6 +219,10 @@ function showParty() {
   }
   
   el("partyCode").textContent = state.code || "------";
+  
+  // Initialize music player now that viewParty is visible
+  // This ensures the audio element reference is properly set
+  initializeMusicPlayer();
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -442,74 +448,100 @@ function handleMusicFileSelection(file) {
 }
 
 function initializeMusicPlayer() {
+  console.log("[Music] initializeMusicPlayer() called");
+  
+  // Initialize audio element and its event listeners
   const audioEl = el("hostAudioPlayer");
+  console.log("[Music] Audio element found:", !!audioEl);
+  
   if (audioEl) {
+    // Always update the element reference
     musicState.audioElement = audioEl;
+    console.log("[Music] Audio element reference updated");
     
-    // Audio event listeners
-    audioEl.addEventListener("play", () => {
-      state.playing = true;
-      updateMusicStatus("Playing…");
-    });
+    // Restore the audio src if a file was previously selected
+    if (musicState.currentObjectURL) {
+      audioEl.src = musicState.currentObjectURL;
+      console.log("[Music] Restored audio src to audio element");
+    }
     
-    audioEl.addEventListener("pause", () => {
-      state.playing = false;
-      updateMusicStatus("Paused");
-    });
-    
-    audioEl.addEventListener("ended", () => {
-      state.playing = false;
-      updateMusicStatus("Ended");
-    });
-    
-    audioEl.addEventListener("error", (e) => {
-      // Only show error if a file was actually selected
-      if (!musicState.selectedFile) {
-        return;
-      }
+    // Only add event listeners once
+    if (!musicState.audioInitialized) {
+      console.log("[Music] Setting up audio element event listeners");
+      musicState.audioInitialized = true;
       
-      console.error("[Music] Audio error:", e);
-      let errorMsg = "Error: Unable to play this file";
+      // Audio event listeners
+      audioEl.addEventListener("play", () => {
+        state.playing = true;
+        updateMusicStatus("Playing…");
+      });
       
-      if (audioEl.error) {
-        // Use numeric values instead of MediaError constants for better compatibility
-        switch (audioEl.error.code) {
-          case 1: // MEDIA_ERR_ABORTED
-            errorMsg = "Error: Playback aborted";
-            break;
-          case 2: // MEDIA_ERR_NETWORK
-            errorMsg = "Error: Network error";
-            break;
-          case 3: // MEDIA_ERR_DECODE
-            errorMsg = "Error: File format not supported or corrupted";
-            break;
-          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
-            errorMsg = "Error: File type not supported on this device";
-            break;
+      audioEl.addEventListener("pause", () => {
+        state.playing = false;
+        updateMusicStatus("Paused");
+      });
+      
+      audioEl.addEventListener("ended", () => {
+        state.playing = false;
+        updateMusicStatus("Ended");
+      });
+      
+      audioEl.addEventListener("error", (e) => {
+        // Only show error if a file was actually selected
+        if (!musicState.selectedFile) {
+          return;
         }
-      }
+        
+        console.error("[Music] Audio error:", e);
+        let errorMsg = "Error: Unable to play this file";
+        
+        if (audioEl.error) {
+          // Use numeric values instead of MediaError constants for better compatibility
+          switch (audioEl.error.code) {
+            case 1: // MEDIA_ERR_ABORTED
+              errorMsg = "Error: Playback aborted";
+              break;
+            case 2: // MEDIA_ERR_NETWORK
+              errorMsg = "Error: Network error";
+              break;
+            case 3: // MEDIA_ERR_DECODE
+              errorMsg = "Error: File format not supported or corrupted";
+              break;
+            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+              errorMsg = "Error: File type not supported on this device";
+              break;
+          }
+        }
+        
+        updateMusicStatus(errorMsg, true);
+        showMusicWarning(errorMsg + ". Try a different file format (MP3, M4A).", true);
+      });
       
-      updateMusicStatus(errorMsg, true);
-      showMusicWarning(errorMsg + ". Try a different file format (MP3, M4A).", true);
-    });
-    
-    audioEl.addEventListener("loadedmetadata", () => {
-      console.log("[Music] Audio loaded, duration:", audioEl.duration);
-    });
+      audioEl.addEventListener("loadedmetadata", () => {
+        console.log("[Music] Audio loaded, duration:", audioEl.duration);
+      });
+    }
+  } else {
+    console.warn("[Music] Audio element not found - viewParty may not be visible yet");
   }
   
-  // File input handler
-  const fileInputEl = el("musicFileInput");
-  if (fileInputEl) {
-    fileInputEl.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        handleMusicFileSelection(file);
-      }
-    });
+  // File input handler - only set up once
+  if (!musicState.fileInputInitialized) {
+    const fileInputEl = el("musicFileInput");
+    if (fileInputEl) {
+      console.log("[Music] Setting up file input handler");
+      musicState.fileInputInitialized = true;
+      
+      fileInputEl.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          handleMusicFileSelection(file);
+        }
+      });
+    }
   }
   
-  // Choose music button
+  // Choose music button - set up onclick handlers
   const chooseBtnEl = el("btnChooseMusic");
   if (chooseBtnEl) {
     chooseBtnEl.onclick = () => {
