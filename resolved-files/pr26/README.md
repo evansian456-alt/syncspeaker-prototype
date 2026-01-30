@@ -1,14 +1,6 @@
 # syncspeaker-prototype
 Browser prototype for SyncSpeaker
 
-## 🔧 PR Conflict Resolution
-
-**If you're here to resolve PR conflicts**, see **[QUICK_START.md](QUICK_START.md)** for simple instructions.
-
-PR #28 and PR #26 had merge conflicts that have been resolved. The resolved files and instructions are in this repository.
-
----
-
 ## Getting Started
 
 ### Quick Start (Browser-Only Mode)
