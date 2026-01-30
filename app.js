@@ -227,9 +227,9 @@ function activatePartyPass() {
     return;
   }
   
-  // Set 6 hours from now
-  const sixHours = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
-  state.partyPassEndTime = Date.now() + sixHours;
+  // Set 2 hours from now
+  const twoHours = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+  state.partyPassEndTime = Date.now() + twoHours;
   state.partyPassActive = true;
   state.partyPro = true; // Party Pass gives Pro benefits
   state.isPro = true; // Mark this client as Pro
@@ -257,7 +257,7 @@ function activatePartyPass() {
   updatePartyPassUI();
   updatePlaybackUI();
   
-  toast("🎉 Party Pass activated! Enjoy 6 hours of Pro features!");
+  toast("🎉 Party Pass activated! Enjoy 2 hours of Pro features!");
 }
 
 function updatePartyPassTimer() {
@@ -352,10 +352,10 @@ function checkPartyPassStatus() {
   
   try {
     const data = JSON.parse(stored);
-    if (data.active && data.endTime) {
+    if (data.active && data.endTime && state.isHost) {
       const now = Date.now();
       if (data.endTime > now) {
-        // Party Pass is still valid
+        // Party Pass is still valid - restore it from localStorage (only hosts can restore)
         state.partyPassActive = true;
         state.partyPassEndTime = data.endTime;
         state.partyPro = true;
@@ -412,6 +412,7 @@ function renderRoom() {
 
   updateQualityUI();
   updatePlaybackUI();
+  updatePartyPassUI();
 }
 
 function openPaywall() { show("modalPaywall"); }
