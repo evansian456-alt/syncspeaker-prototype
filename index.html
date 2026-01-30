@@ -346,6 +346,81 @@
       </div>
     </section>
 
+    <!-- DJ Screen Overlay (Host Only - Shows when playing) -->
+    <div class="dj-screen-overlay hidden" id="djScreenOverlay">
+      <div class="dj-screen-header">
+        <div class="dj-screen-title">
+          <span class="dj-icon-small">🎧</span>
+          <span>DJ MODE</span>
+        </div>
+        <button class="btn-close-dj" id="btnCloseDj">✕ Close DJ View</button>
+      </div>
+
+      <!-- DJ Main Visual Area -->
+      <div class="dj-main-visual">
+        <div class="dj-equalizer-large" id="djEqualizerLarge">
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+          <div class="dj-eq-bar"></div>
+        </div>
+        
+        <!-- Now Playing Display -->
+        <div class="dj-now-playing">
+          <div class="dj-now-playing-label">NOW PLAYING</div>
+          <div class="dj-now-playing-track" id="djNowPlayingTrack">No Track</div>
+        </div>
+      </div>
+
+      <!-- Guest Messages Area -->
+      <div class="dj-messages-area">
+        <div class="dj-messages-header">
+          <span class="dj-messages-icon">💬</span>
+          <span>GUEST REACTIONS</span>
+        </div>
+        <div class="dj-messages-container" id="djMessagesContainer">
+          <div class="dj-no-messages" id="djNoMessages">
+            Waiting for guest reactions...
+          </div>
+        </div>
+      </div>
+
+      <!-- DJ Controls -->
+      <div class="dj-controls">
+        <button class="btn-dj-control" id="btnDjPlay">
+          <span class="dj-control-icon">▶️</span>
+          <span>PLAY</span>
+        </button>
+        <button class="btn-dj-control" id="btnDjPause">
+          <span class="dj-control-icon">⏸️</span>
+          <span>PAUSE</span>
+        </button>
+        <button class="btn-dj-control secondary" id="btnDjNext">
+          <span class="dj-control-icon">⏭️</span>
+          <span>NEXT</span>
+        </button>
+      </div>
+
+      <!-- Party Info -->
+      <div class="dj-party-info">
+        <div class="dj-party-code">
+          <span class="dj-info-label">PARTY CODE:</span>
+          <span class="dj-info-value" id="djPartyCode">------</span>
+        </div>
+        <div class="dj-party-guests">
+          <span class="dj-info-label">GUESTS:</span>
+          <span class="dj-info-value" id="djGuestCount">0</span>
+        </div>
+      </div>
+
+      <!-- Flash Overlay for Messages -->
+      <div class="dj-flash-overlay" id="djFlashOverlay"></div>
+    </div>
+
     <!-- Guest Party View -->
     <section class="card hidden" id="viewGuest">
       <div class="row space">
@@ -427,6 +502,23 @@
           <span class="volume-value" id="guestVolumeValue">80%</span>
         </div>
         <div class="tiny muted">Adjust volume on your device only</div>
+      </div>
+
+      <!-- Guest Messages to Host -->
+      <div class="glass-card guest-messages">
+        <h4 class="section-title-small">💬 Send Message to DJ</h4>
+        <div class="guest-message-buttons">
+          <button class="btn-guest-message" id="btnMessageTune" data-message="TUUUUNE!!!">
+            🔥 TUUUUNE!!!
+          </button>
+          <button class="btn-guest-message" id="btnMessageTuneUp" data-message="Tune it up!!">
+            🎚️ Tune it up!!
+          </button>
+          <button class="btn-guest-message" id="btnMessageNext" data-message="Next!">
+            ⏭️ Next!
+          </button>
+        </div>
+        <div class="tiny muted">Send reactions to the host's DJ screen</div>
       </div>
 
       <div class="tiny muted" style="margin-top:20px; text-align: center;">

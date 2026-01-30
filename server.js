@@ -174,6 +174,9 @@ function handleMessage(ws, msg) {
     case "HOST_TRACK_CHANGED":
       handleHostTrackChanged(ws, msg);
       break;
+    case "GUEST_MESSAGE":
+      handleGuestMessage(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -497,6 +500,38 @@ function handleHostTrackChanged(ws, msg) {
       m.ws.send(message);
     }
   });
+}
+
+function handleGuestMessage(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only guests can send messages (not host)
+  const member = party.members.find(m => m.ws === ws);
+  if (!member || member.isHost) {
+    ws.send(JSON.stringify({ t: "ERROR", message: "Only guests can send messages" }));
+    return;
+  }
+  
+  const messageText = (msg.message || "").trim().substring(0, 100);
+  const guestName = member.name || "Guest";
+  
+  console.log(`[Party] Guest "${guestName}" sent message "${messageText}" in party ${client.party}`);
+  
+  // Send to host only
+  const message = JSON.stringify({ 
+    t: "GUEST_MESSAGE", 
+    message: messageText,
+    guestName: guestName,
+    guestId: member.id
+  });
+  
+  if (party.host && party.host.readyState === WebSocket.OPEN) {
+    party.host.send(message);
+  }
 }
 
 // Start server if run directly (not imported as module)
