@@ -761,7 +761,7 @@ function attemptAddPhone() {
       // Provide visual feedback by disabling button immediately
       btn.disabled = true;
       btn.textContent = "Creating party...";
-      updateStatus("Creating party…");
+      updateStatus("Start clicked");
       
       state.name = el("hostName").value.trim() || "Host";
       state.source = "local"; // Always use local source for music from phone
@@ -772,14 +772,17 @@ function attemptAddPhone() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      const endpoint = "/api/ping";
-      updateDebug(`Endpoint: GET ${endpoint}`);
+      const endpoint = "/api/create-party";
+      updateDebug(`Endpoint: POST ${endpoint}`);
       updateStatus("Calling server…");
       
       let response;
       try {
         response = await fetch(endpoint, {
-          method: "GET",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
           signal: controller.signal
         });
         
@@ -793,17 +796,23 @@ function attemptAddPhone() {
         throw fetchError;
       }
       
-      updateStatus("Server responded…");
+      updateStatus("Server responded");
       
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        const errorText = await response.text().catch(() => "Unknown error");
+        throw new Error(`Server error: ${response.status} - ${errorText}`);
       }
       
-      // Server is responsive, now create party via WebSocket
-      updateStatus("Creating party…");
+      const data = await response.json();
+      updateStatus(`Server ready`);
+      updateDebug(`Server validated: ${data.partyCode}`);
+      
+      // Server is responsive, now create party via WebSocket (actual party creation)
+      updateStatus("Creating party via WebSocket…");
       send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
       
       // The WebSocket handler will call showParty() when CREATED message is received
+      // and will set state.code and state.isHost
       // Clear status after a short delay
       setTimeout(() => {
         if (statusEl) statusEl.classList.add("hidden");
