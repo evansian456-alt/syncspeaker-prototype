@@ -170,7 +170,7 @@ function handleServer(msg) {
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
-    trackDJAction('start_party'); // Add XP for starting party
+    rewardDJAction('start_party'); // Add XP for starting party
     return;
   }
   if (msg.t === "JOINED") {
@@ -316,12 +316,6 @@ function handleServer(msg) {
   // Guest boost message
   if (msg.t === "GUEST_BOOST") {
     if (state.isHost) {
-      const BOOSTS = {
-        better_visuals: { name: 'Better Visuals', price: '£0.99' },
-        extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
-        unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
-      };
-      
       const boost = BOOSTS[msg.boostType];
       if (boost) {
         state.guestBoosts.push({
@@ -1508,6 +1502,15 @@ function checkPartyPassStatus() {
 // MONETIZATION EXPANSION FEATURES
 // ========================================
 
+// Shared constants
+const BOOSTS = {
+  better_visuals: { name: 'Better Visuals', price: '£0.99' },
+  extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
+  unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
+};
+
+const DJ_LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
+
 // 1. HOST-GIFTED PARTY PASS
 function activateHostGiftedPass() {
   if (!state.code || !state.isHost) {
@@ -1526,7 +1529,7 @@ function activateHostGiftedPass() {
   const twoHours = 2 * 60 * 60 * 1000;
   state.partyPassEndTime = Date.now() + twoHours;
   state.partyPro = true;
-  state.isPro = true;
+  // Note: Do NOT set state.isPro = true here, as that would give permanent Pro benefits beyond this party
   
   send({ t: "SET_PRO", isPro: true });
   
@@ -1583,8 +1586,15 @@ function extendParty() {
   toast("⏰ Party extended by 1 hour!");
   hide("modalExtendParty");
   
-  // Reset extension flag so it can show again in 50 minutes
-  setTimeout(() => { state.extensionShown = false; }, 50 * 60 * 1000);
+  // Reset extension flag when there will be 10 minutes remaining
+  // Calculate: current remaining + 1 hour added - 10 minutes = when to reset flag
+  const now = Date.now();
+  const currentRemaining = state.partyPassEndTime - oneHour - now; // Remaining before extension
+  const resetAfter = currentRemaining + oneHour - (10 * 60 * 1000);
+  
+  if (resetAfter > 0) {
+    setTimeout(() => { state.extensionShown = false; }, resetAfter);
+  }
 }
 
 // 3. DJ PACKS (COSMETIC SALES)
@@ -1608,10 +1618,34 @@ function selectDJPack(packId) {
     }
   }
   
+  // Allow deselecting if clicking the same pack
+  if (state.activeDJPack === packId) {
+    state.activeDJPack = null;
+    removeDJPackVisuals();
+    toast("Pack deactivated");
+    updateDJPacksUI();
+    return;
+  }
+  
+  // Remove previous pack visuals if any
+  if (state.activeDJPack) {
+    removeDJPackVisuals();
+  }
+  
   state.activeDJPack = packId;
   applyDJPackVisuals(pack);
   toast(`${pack.name} activated!`);
   updateDJPacksUI();
+}
+
+function removeDJPackVisuals() {
+  const djScreen = el("djScreenOverlay");
+  if (!djScreen) return;
+  
+  djScreen.classList.remove('pack-active');
+  djScreen.style.removeProperty('--pack-color-1');
+  djScreen.style.removeProperty('--pack-color-2');
+  djScreen.style.removeProperty('--pack-color-3');
 }
 
 function buyDJPack(packId) {
@@ -1684,6 +1718,12 @@ function activateMicroUnlock(unlockId) {
   const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
   if (!unlock) return;
   
+  // Check if already active
+  if (state.activeMicroUnlocks.find(u => u.type === unlockId)) {
+    toast(`${unlock.name} is already active!`);
+    return;
+  }
+  
   // Simulate purchase and activate
   const now = Date.now();
   const endTime = unlock.duration > 0 ? now + unlock.duration : null;
@@ -1713,9 +1753,19 @@ function activateMicroUnlock(unlockId) {
 }
 
 function expireMicroUnlock(unlockId) {
+  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
+  const unlockName = unlock ? unlock.name : unlockId.replace('_', ' ');
+  
   state.activeMicroUnlocks = state.activeMicroUnlocks.filter(u => u.type !== unlockId);
+  
+  // Remove the visual effect class
+  const djScreen = el("djScreenOverlay");
+  if (djScreen) {
+    djScreen.classList.remove(`effect-${unlockId}`);
+  }
+  
   updateMicroUnlocksUI();
-  toast(`${unlockId.replace('_', ' ')} expired`);
+  toast(`${unlockName} expired`);
   
   // Hide the card if no more active unlocks
   const card = el("activeMicroUnlocksCard");
@@ -1780,14 +1830,14 @@ function sendGuestBoost(boostType) {
     return;
   }
   
-  const BOOSTS = {
-    better_visuals: { name: 'Better Visuals', price: '£0.99' },
-    extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
-    unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
-  };
-  
   const boost = BOOSTS[boostType];
   if (!boost) return;
+  
+  // Validate guest name
+  if (!state.name || state.name.trim() === '') {
+    toast("Please set your name first!");
+    return;
+  }
   
   // Simulate sending to host
   send({ 
@@ -1837,7 +1887,12 @@ function updateGuestBoostsUI() {
   if (!container) return;
   
   container.innerHTML = '';
-  state.guestBoosts.filter(b => !b.approved).forEach((boost, idx) => {
+  const unapprovedBoosts = state.guestBoosts.filter(b => !b.approved);
+  
+  unapprovedBoosts.forEach((boost) => {
+    // Find the actual index in the original array
+    const actualIndex = state.guestBoosts.indexOf(boost);
+    
     const div = document.createElement('div');
     div.className = 'guest-boost-card';
     div.innerHTML = `
@@ -1845,7 +1900,7 @@ function updateGuestBoostsUI() {
         <div class="boost-name">${boost.name}</div>
         <div class="boost-from">Gifted by ${boost.from}</div>
       </div>
-      <button class="btn primary" onclick="approveGuestBoost(${idx})">Accept</button>
+      <button class="btn primary" onclick="approveGuestBoost(${actualIndex})">Accept</button>
     `;
     container.appendChild(div);
   });
@@ -1890,12 +1945,11 @@ function updateHighlightsUI() {
 function addDJXP(amount) {
   state.djXP += amount;
   
-  // Level up thresholds: 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500
-  const levels = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
+  // Level up thresholds
   let newLevel = 1;
   
-  for (let i = 0; i < levels.length; i++) {
-    if (state.djXP >= levels[i]) {
+  for (let i = 0; i < DJ_LEVEL_THRESHOLDS.length; i++) {
+    if (state.djXP >= DJ_LEVEL_THRESHOLDS[i]) {
       newLevel = i + 1;
     } else {
       break;
@@ -1933,9 +1987,8 @@ function updateDJLevelUI() {
   
   if (levelEl) levelEl.textContent = `Level ${state.djLevel}`;
   if (xpEl) {
-    const levels = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
-    const currentThreshold = levels[state.djLevel - 1] || 0;
-    const nextThreshold = levels[state.djLevel] || 5500;
+    const currentThreshold = DJ_LEVEL_THRESHOLDS[state.djLevel - 1] || 0;
+    const nextThreshold = DJ_LEVEL_THRESHOLDS[state.djLevel] || 5500;
     const progress = state.djXP - currentThreshold;
     const needed = nextThreshold - currentThreshold;
     xpEl.textContent = `${progress}/${needed} XP`;
@@ -2015,7 +2068,7 @@ function acceptLimitedOffer() {
 }
 
 // Add XP for various actions
-function trackDJAction(action) {
+function rewardDJAction(action) {
   if (!state.isHost) return;
   
   const xpRewards = {
