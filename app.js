@@ -448,11 +448,16 @@ function handleMusicFileSelection(file) {
 }
 
 function initializeMusicPlayer() {
+  console.log("[Music] initializeMusicPlayer() called");
+  
   // Initialize audio element and its event listeners
   const audioEl = el("hostAudioPlayer");
+  console.log("[Music] Audio element found:", !!audioEl);
+  
   if (audioEl) {
     // Always update the element reference
     musicState.audioElement = audioEl;
+    console.log("[Music] Audio element reference updated");
     
     // Restore the audio src if a file was previously selected
     if (musicState.currentObjectURL) {
