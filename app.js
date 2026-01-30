@@ -108,7 +108,22 @@ function handleServer(msg) {
   }
   if (msg.t === "ENDED") { toast("Party ended (host left)"); showLanding(); return; }
   if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
-  if (msg.t === "ERROR") { toast(msg.message || "Error"); return; }
+  if (msg.t === "ERROR") {
+    toast(msg.message || "Error");
+    
+    // Reset button state if party creation failed
+    if (state.createButtonTimeout) {
+      clearTimeout(state.createButtonTimeout);
+      state.createButtonTimeout = null;
+    }
+    const btn = el("btnCreate");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Start party";
+    }
+    
+    return;
+  }
 }
 
 function showHome() {
@@ -126,6 +141,12 @@ function showHome() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Clear create button timeout when navigating to home
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
   
   setPlanPill();
 }
@@ -145,6 +166,12 @@ function showLanding() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Clear create button timeout when navigating to landing
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
   
   setPlanPill();
 }
