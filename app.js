@@ -2424,7 +2424,7 @@ function activateGiftedPartyPass() {
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
   }
-  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000);
+  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000); // Update every minute
   
   // Update UI
   updatePartyPassUI();
