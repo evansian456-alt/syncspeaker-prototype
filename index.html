@@ -519,6 +519,49 @@
         </div>
       </div>
 
+      <!-- Crowd Energy in DJ View -->
+      <div class="dj-crowd-energy">
+        <div class="dj-crowd-energy-header">
+          <h3>🔥 CROWD ENERGY</h3>
+          <div class="dj-crowd-energy-value" id="djCrowdEnergyValue">0</div>
+        </div>
+        <div class="dj-crowd-energy-meter">
+          <div class="dj-crowd-energy-fill" id="djCrowdEnergyFill"></div>
+          <div class="dj-crowd-energy-peak" id="djCrowdEnergyPeakIndicator"></div>
+        </div>
+        <div class="dj-crowd-energy-labels">
+          <span class="tiny muted">Reactions boost energy</span>
+          <span class="tiny muted">Peak: <span id="djCrowdEnergyPeakValue">0</span></span>
+        </div>
+      </div>
+
+      <!-- DJ Moments in DJ View -->
+      <div class="dj-moments-section">
+        <h3>⚡ DJ MOMENTS</h3>
+        <div class="dj-moments-grid-view">
+          <button class="btn-dj-moment-view" id="btnDjMomentDrop" data-moment="DROP">
+            <span class="moment-icon">💥</span>
+            <span class="moment-label">DROP</span>
+          </button>
+          <button class="btn-dj-moment-view" id="btnDjMomentBuild" data-moment="BUILD">
+            <span class="moment-icon">📈</span>
+            <span class="moment-label">BUILD</span>
+          </button>
+          <button class="btn-dj-moment-view" id="btnDjMomentBreak" data-moment="BREAK">
+            <span class="moment-icon">⏸️</span>
+            <span class="moment-label">BREAK</span>
+          </button>
+          <button class="btn-dj-moment-view" id="btnDjMomentHandsUp" data-moment="HANDS_UP">
+            <span class="moment-icon">🙌</span>
+            <span class="moment-label">HANDS UP</span>
+          </button>
+        </div>
+        <div class="dj-current-moment hidden" id="djCurrentMomentDisplay">
+          <span class="current-moment-label">Current:</span>
+          <span class="current-moment-value" id="djCurrentMomentValue">DROP</span>
+        </div>
+      </div>
+
       <!-- DJ Controls -->
       <div class="dj-controls">
         <button class="btn-dj-control" id="btnDjPlay">

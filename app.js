@@ -2124,6 +2124,17 @@ function updateCrowdEnergyDisplay() {
       card.classList.add("energy-glow-low");
     }
   }
+  
+  // Update DJ screen crowd energy display
+  const djValueEl = el("djCrowdEnergyValue");
+  const djFillEl = el("djCrowdEnergyFill");
+  const djPeakEl = el("djCrowdEnergyPeakIndicator");
+  const djPeakValueEl = el("djCrowdEnergyPeakValue");
+  
+  if (djValueEl) djValueEl.textContent = Math.round(state.crowdEnergy);
+  if (djFillEl) djFillEl.style.width = `${state.crowdEnergy}%`;
+  if (djPeakEl) djPeakEl.style.left = `${state.crowdEnergyPeak}%`;
+  if (djPeakValueEl) djPeakValueEl.textContent = Math.round(state.crowdEnergyPeak);
 }
 
 // ========================================
@@ -2131,7 +2142,7 @@ function updateCrowdEnergyDisplay() {
 // ========================================
 
 function initDJMoments() {
-  const momentButtons = document.querySelectorAll(".btn-dj-moment");
+  const momentButtons = document.querySelectorAll(".btn-dj-moment, .btn-dj-moment-view");
   momentButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const moment = btn.dataset.moment;
@@ -2149,7 +2160,7 @@ function triggerDJMoment(moment) {
   // Set current moment
   state.currentMoment = moment;
   
-  // Update UI
+  // Update party view UI
   const currentMomentDisplay = el("currentMomentDisplay");
   const currentMomentValue = el("currentMomentValue");
   
@@ -2160,8 +2171,19 @@ function triggerDJMoment(moment) {
     currentMomentValue.textContent = moment.replace("_", " ");
   }
   
-  // Update button states
-  document.querySelectorAll(".btn-dj-moment").forEach(btn => {
+  // Update DJ screen UI
+  const djCurrentMomentDisplay = el("djCurrentMomentDisplay");
+  const djCurrentMomentValue = el("djCurrentMomentValue");
+  
+  if (djCurrentMomentDisplay) {
+    djCurrentMomentDisplay.classList.remove("hidden");
+  }
+  if (djCurrentMomentValue) {
+    djCurrentMomentValue.textContent = moment.replace("_", " ");
+  }
+  
+  // Update button states (both party view and DJ view)
+  document.querySelectorAll(".btn-dj-moment, .btn-dj-moment-view").forEach(btn => {
     if (btn.dataset.moment === moment) {
       btn.classList.add("active");
     } else {
@@ -2178,7 +2200,10 @@ function triggerDJMoment(moment) {
     if (currentMomentDisplay) {
       currentMomentDisplay.classList.add("hidden");
     }
-    document.querySelectorAll(".btn-dj-moment").forEach(btn => {
+    if (djCurrentMomentDisplay) {
+      djCurrentMomentDisplay.classList.add("hidden");
+    }
+    document.querySelectorAll(".btn-dj-moment, .btn-dj-moment-view").forEach(btn => {
       btn.classList.remove("active");
     });
   }, 8000);
