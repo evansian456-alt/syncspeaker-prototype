@@ -952,7 +952,14 @@ function attemptAddPhone() {
     send({ t: "SET_PRO", isPro: state.isPro });
   };
 
-  el("btnLeave").onclick = () => { if (state.ws) state.ws.close(); };
+  el("btnLeave").onclick = () => { 
+    if (state.ws) {
+      state.ws.close(); 
+    } else {
+      // In prototype mode (no WebSocket), navigate back to landing manually
+      showLanding();
+    }
+  };
 
   el("btnCopy").onclick = async () => {
     try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
