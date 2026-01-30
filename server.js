@@ -30,30 +30,36 @@ app.get("/api/ping", (req, res) => {
 // Generate party codes (6 chars, uppercase letters/numbers)
 const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
 
+// Party TTL configuration
+const PARTY_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 // In-memory party storage for HTTP API
 const httpParties = new Map(); // code -> { hostId, createdAt, members: [] }
 let nextHostId = 1;
 
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", (req, res) => {
-  console.log("[API] POST /api/create-party");
+  const timestamp = new Date().toISOString();
+  console.log(`[API] POST /api/create-party at ${timestamp}`);
   
   try {
-    // Generate unique party code
+    // Generate unique party code (check for collisions in both storage systems)
     let code;
     do {
       code = generateCode();
-    } while (httpParties.has(code));
+    } while (httpParties.has(code) || parties.has(code));
     
     const hostId = nextHostId++;
+    const createdAt = Date.now();
     
     httpParties.set(code, {
       hostId,
-      createdAt: Date.now(),
+      createdAt,
       members: []
     });
     
-    console.log(`[API] Party created: ${code}, hostId: ${hostId}`);
+    console.log(`[API] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, createdAt: ${createdAt}`);
     
     res.json({
       partyCode: code,
@@ -67,7 +73,8 @@ app.post("/api/create-party", (req, res) => {
 
 // POST /api/join-party - Join an existing party
 app.post("/api/join-party", (req, res) => {
-  console.log("[API] POST /api/join-party", req.body);
+  const timestamp = new Date().toISOString();
+  console.log(`[API] POST /api/join-party at ${timestamp}`, req.body);
   
   try {
     const { partyCode } = req.body;
@@ -77,13 +84,31 @@ app.post("/api/join-party", (req, res) => {
     }
     
     const code = partyCode.toUpperCase().trim();
-    const party = httpParties.get(code);
+    
+    // Check httpParties first
+    let party = httpParties.get(code);
+    
+    // If not found in httpParties, check WebSocket parties and sync
+    if (!party) {
+      const wsParty = parties.get(code);
+      if (wsParty) {
+        // Sync WebSocket party to HTTP storage, preserving original createdAt
+        party = {
+          hostId: wsParty.members.find(m => m.isHost)?.id || 0,
+          createdAt: wsParty.createdAt || Date.now(), // Use original createdAt if available
+          members: []
+        };
+        httpParties.set(code, party);
+        console.log(`[API] Synced WebSocket party ${code} to HTTP storage`);
+      }
+    }
     
     if (!party) {
+      console.log(`[API] Party not found: ${code}, timestamp: ${timestamp}, available parties: ${Array.from(httpParties.keys()).join(', ') || 'none'}`);
       return res.status(404).json({ error: "Party not found" });
     }
     
-    console.log(`[API] Party joined: ${code}`);
+    console.log(`[API] Party joined: ${code}, timestamp: ${timestamp}, party age: ${Date.now() - party.createdAt}ms`);
     
     res.json({ ok: true });
   } catch (error) {
@@ -92,8 +117,41 @@ app.post("/api/join-party", (req, res) => {
   }
 });
 
+// Cleanup expired parties
+function cleanupExpiredParties() {
+  const now = Date.now();
+  const expiredCodes = [];
+  
+  // Clean up HTTP parties
+  for (const [code, party] of httpParties.entries()) {
+    if (now - party.createdAt > PARTY_TTL_MS) {
+      expiredCodes.push(code);
+    }
+  }
+  
+  // Clean up WebSocket-only parties (not in HTTP storage)
+  for (const [code, party] of parties.entries()) {
+    if (party.createdAt && now - party.createdAt > PARTY_TTL_MS) {
+      if (!expiredCodes.includes(code)) {
+        expiredCodes.push(code);
+      }
+    }
+  }
+  
+  if (expiredCodes.length > 0) {
+    console.log(`[Cleanup] Removing ${expiredCodes.length} expired parties: ${expiredCodes.join(', ')}`);
+    expiredCodes.forEach(code => {
+      httpParties.delete(code);
+      parties.delete(code);
+    });
+  }
+}
+
+// Start cleanup interval
+let cleanupInterval;
+
 // Party state management
-const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN" }
+const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN", createdAt }
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 
@@ -105,6 +163,10 @@ function startServer() {
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
+  
+  // Start cleanup interval
+  cleanupInterval = setInterval(cleanupExpiredParties, CLEANUP_INTERVAL_MS);
+  console.log(`[Server] Party cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${PARTY_TTL_MS / 1000}s)`);
   
   // WebSocket server setup
   wss = new WebSocket.Server({ server });
@@ -194,11 +256,11 @@ function handleCreate(ws, msg) {
     handleDisconnect(ws);
   }
   
-  // Generate unique party code (check for collisions)
+  // Generate unique party code (check for collisions in both storage systems)
   let code;
   do {
     code = generateCode();
-  } while (parties.has(code));
+  } while (parties.has(code) || httpParties.has(code));
   
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
@@ -212,15 +274,26 @@ function handleCreate(ws, msg) {
     source: msg.source === "external" || msg.source === "mic" ? msg.source : "local"
   };
   
+  const createdAt = Date.now();
+  const timestamp = new Date().toISOString();
+  
   parties.set(code, {
     host: ws,
     members: [member],
-    chatMode: "OPEN" // Default chat mode
+    chatMode: "OPEN", // Default chat mode
+    createdAt
+  });
+  
+  // Sync to HTTP party storage for cross-protocol access
+  httpParties.set(code, {
+    hostId: client.id,
+    createdAt,
+    members: []
   });
   
   client.party = code;
   
-  console.log(`[Party] Created party ${code} by client ${client.id}`);
+  console.log(`[Party] Created party ${code} by client ${client.id}, timestamp: ${timestamp}, createdAt: ${createdAt}`);
   
   ws.send(JSON.stringify({ t: "CREATED", code }));
   broadcastRoomState(code);
@@ -231,9 +304,19 @@ function handleJoin(ws, msg) {
   if (!client) return;
   
   const code = msg.code?.toUpperCase();
-  const party = parties.get(code);
+  let party = parties.get(code);
   
+  // If not found in WebSocket parties, check HTTP parties and sync
   if (!party) {
+    const httpParty = httpParties.get(code);
+    if (httpParty) {
+      console.log(`[Party] HTTP party ${code} exists but not in WebSocket storage - party may have been created via HTTP API`);
+      // Party exists in HTTP but not WebSocket - this can happen if created via HTTP API
+      // Guest should wait for host to connect via WebSocket first
+    }
+    
+    const timestamp = new Date().toISOString();
+    console.log(`[Party] Join failed - party ${code} not found in WebSocket storage, timestamp: ${timestamp}`);
     ws.send(JSON.stringify({ t: "ERROR", message: "Party not found" }));
     return;
   }

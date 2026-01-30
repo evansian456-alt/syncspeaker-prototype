@@ -1,5 +1,7 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
+const PARTY_LOOKUP_RETRIES = 3; // Number of retries for party lookup
+const PARTY_LOOKUP_RETRY_DELAY_MS = 1500; // Delay between retries in milliseconds
 
 // Music player state
 const musicState = {
@@ -1730,43 +1732,68 @@ function attemptAddPhone() {
       state.isPro = el("togglePro").checked;
       console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
       
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      // Retry logic for party lookup
+      let lastError = null;
+      let response = null;
       
-      const endpoint = "POST /api/join-party";
-      updateDebug(`Endpoint: ${endpoint}`);
-      updateDebugPanel(endpoint, null);
-      updateStatus("Calling server…");
+      for (let attempt = 1; attempt <= PARTY_LOOKUP_RETRIES; attempt++) {
+        try {
+          // Update status with retry count
+          if (attempt > 1) {
+            updateStatus(`Looking for party… (attempt ${attempt}/${PARTY_LOOKUP_RETRIES})`);
+          } else {
+            updateStatus("Looking for party…");
+          }
+          
+          // Create AbortController for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+          
+          const endpoint = "POST /api/join-party";
+          updateDebug(`Endpoint: ${endpoint} (attempt ${attempt})`);
+          updateDebugPanel(endpoint, null);
+          
+          response = await fetch("/api/join-party", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              partyCode: code
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          // If we get a response, break out of retry loop
+          break;
+        } catch (fetchError) {
+          lastError = fetchError;
+          console.log(`[Party] Join attempt ${attempt} failed:`, fetchError.message);
+          
+          // If this is not the last attempt and it's a network/timeout error, retry
+          if (attempt < PARTY_LOOKUP_RETRIES) {
+            console.log(`[Party] Retrying in ${PARTY_LOOKUP_RETRY_DELAY_MS}ms...`);
+            await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
+          }
+        }
+      }
       
-      let response;
-      try {
-        response = await fetch("/api/join-party", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            partyCode: code
-          }),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
+      // If all retries failed, throw error
+      if (!response && lastError) {
         // Provide browser-only mode friendly error messages
         let errorMsg;
-        if (fetchError.name === "AbortError") {
+        if (lastError.name === "AbortError") {
           errorMsg = "Server not responding. Try again.";
-        } else if (fetchError.message.includes("Failed to fetch")) {
+        } else if (lastError.message.includes("Failed to fetch")) {
           errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
         } else {
-          errorMsg = fetchError.message;
+          errorMsg = lastError.message;
         }
         
-        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "network error"})`);
+        const endpoint = "POST /api/join-party";
+        updateDebugPanel(endpoint, `${endpoint} (${lastError.name === "AbortError" ? "timeout" : "network error"})`);
         throw new Error(errorMsg);
       }
       
@@ -1775,13 +1802,56 @@ function attemptAddPhone() {
       // Check for 501 (Unsupported method) which happens with simple HTTP servers
       if (response.status === 501) {
         const errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
+        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, "Server doesn't support POST (browser-only mode)");
         throw new Error(errorMsg);
+      }
+      
+      // Handle 404 (Party not found) with retry
+      if (response.status === 404) {
+        // Try one more time after a delay for 404 errors
+        let retryResponse = null;
+        for (let retryAttempt = 1; retryAttempt <= 2; retryAttempt++) {
+          updateStatus(`Party not found, retrying… (${retryAttempt}/2)`);
+          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/2`);
+          
+          await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
+          
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+            
+            retryResponse = await fetch("/api/join-party", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                partyCode: code
+              }),
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (retryResponse.ok) {
+              response = retryResponse;
+              break;
+            } else if (retryResponse.status !== 404) {
+              // Different error, use this response
+              response = retryResponse;
+              break;
+            }
+          } catch (retryError) {
+            console.log(`[Party] Retry attempt ${retryAttempt} failed:`, retryError.message);
+          }
+        }
       }
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorMsg = errorData.error || `Server error: ${response.status}`;
+        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, errorMsg);
         throw new Error(errorMsg);
       }

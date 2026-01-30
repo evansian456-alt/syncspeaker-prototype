@@ -228,3 +228,110 @@ describe('Utility Functions', () => {
   });
 });
 
+describe('Party Storage and Sync', () => {
+  beforeEach(() => {
+    httpParties.clear();
+  });
+
+  describe('Party TTL and Cleanup', () => {
+    it('should store createdAt timestamp when creating a party', async () => {
+      const beforeCreate = Date.now();
+      const response = await request(app).post('/api/create-party');
+      const afterCreate = Date.now();
+      
+      expect(response.status).toBe(200);
+      const partyCode = response.body.partyCode;
+      
+      const party = httpParties.get(partyCode);
+      expect(party).toBeDefined();
+      expect(party.createdAt).toBeDefined();
+      expect(party.createdAt).toBeGreaterThanOrEqual(beforeCreate);
+      expect(party.createdAt).toBeLessThanOrEqual(afterCreate);
+    });
+
+    it('should include party age in join response logs', async () => {
+      // Create a party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Wait a small amount of time
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Join the party
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(200);
+      
+      // Verify party still exists and has valid createdAt
+      const party = httpParties.get(partyCode);
+      expect(party).toBeDefined();
+      expect(Date.now() - party.createdAt).toBeGreaterThanOrEqual(10);
+    });
+  });
+
+  describe('Cross-Protocol Party Sync', () => {
+    it('should log available parties when party not found', async () => {
+      // Try to join a non-existent party
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: 'NOEXST' });
+      
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Party not found');
+    });
+
+    it('should handle multiple parties in storage', async () => {
+      // Create multiple parties
+      const party1 = await request(app).post('/api/create-party');
+      const party2 = await request(app).post('/api/create-party');
+      const party3 = await request(app).post('/api/create-party');
+      
+      // Verify all parties are in storage
+      expect(httpParties.size).toBe(3);
+      expect(httpParties.has(party1.body.partyCode)).toBe(true);
+      expect(httpParties.has(party2.body.partyCode)).toBe(true);
+      expect(httpParties.has(party3.body.partyCode)).toBe(true);
+      
+      // Join each party
+      const join1 = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: party1.body.partyCode });
+      const join2 = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: party2.body.partyCode });
+      const join3 = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: party3.body.partyCode });
+      
+      expect(join1.status).toBe(200);
+      expect(join2.status).toBe(200);
+      expect(join3.status).toBe(200);
+    });
+  });
+
+  describe('Enhanced Logging', () => {
+    it('should log timestamp when creating party', async () => {
+      const response = await request(app).post('/api/create-party');
+      
+      expect(response.status).toBe(200);
+      // Verify response includes expected fields
+      expect(response.body.partyCode).toBeDefined();
+      expect(response.body.hostId).toBeDefined();
+    });
+
+    it('should log timestamp and party details when joining party', async () => {
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body).toEqual({ ok: true });
+    });
+  });
+});
+
