@@ -21,7 +21,8 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null
+  partyPassTimerInterval: null,
+  createButtonTimeout: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -107,7 +108,22 @@ function handleServer(msg) {
   }
   if (msg.t === "ENDED") { toast("Party ended (host left)"); showLanding(); return; }
   if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
-  if (msg.t === "ERROR") { toast(msg.message || "Error"); return; }
+  if (msg.t === "ERROR") {
+    toast(msg.message || "Error");
+    
+    // Reset button state if party creation failed
+    if (state.createButtonTimeout) {
+      clearTimeout(state.createButtonTimeout);
+      state.createButtonTimeout = null;
+    }
+    const btn = el("btnCreate");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Start party";
+    }
+    
+    return;
+  }
 }
 
 function showHome() {
@@ -125,6 +141,12 @@ function showHome() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Clear create button timeout when navigating to home
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
   
   setPlanPill();
 }
@@ -145,6 +167,12 @@ function showLanding() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
+  // Clear create button timeout when navigating to landing
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
+  
   setPlanPill();
 }
 
@@ -153,6 +181,12 @@ function showParty() {
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
+  
+  // Clear create button timeout if transitioning from home view
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -717,11 +751,35 @@ function attemptAddPhone() {
 
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");
+    const btn = el("btnCreate");
+    
+    // Prevent multiple clicks - check if button is already disabled
+    if (btn.disabled) {
+      console.log("[UI] Button already processing, ignoring click");
+      return;
+    }
+    
+    // Provide visual feedback by disabling button immediately
+    btn.disabled = true;
+    btn.textContent = "Creating party...";
+    
     state.name = el("hostName").value.trim() || "Host";
     state.source = "local"; // Always use local source for music from phone
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    
+    // Re-enable button after a delay in case of error
+    // (button will be hidden anyway if party creation succeeds)
+    // Clear any existing timeout first
+    if (state.createButtonTimeout) {
+      clearTimeout(state.createButtonTimeout);
+    }
+    state.createButtonTimeout = setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Start party";
+      state.createButtonTimeout = null;
+    }, 3000);
   };
 
   el("btnJoin").onclick = () => {
