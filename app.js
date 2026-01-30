@@ -355,7 +355,7 @@ function checkPartyPassStatus() {
     if (data.active && data.endTime && state.isHost) {
       const now = Date.now();
       if (data.endTime > now) {
-        // Party Pass is still valid (only for host who activated it)
+        // Party Pass is still valid - restore it from localStorage (only hosts can restore)
         state.partyPassActive = true;
         state.partyPassEndTime = data.endTime;
         state.partyPro = true;
