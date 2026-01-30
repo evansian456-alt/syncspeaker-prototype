@@ -717,11 +717,24 @@ function attemptAddPhone() {
 
   el("btnCreate").onclick = () => {
     console.log("[UI] Start party button clicked");
+    const btn = el("btnCreate");
+    
+    // Provide visual feedback by disabling button temporarily
+    btn.disabled = true;
+    btn.textContent = "Creating party...";
+    
     state.name = el("hostName").value.trim() || "Host";
     state.source = "local"; // Always use local source for music from phone
     state.isPro = el("togglePro").checked;
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    
+    // Re-enable button after a short delay in case of error
+    // (button will be hidden anyway if party creation succeeds)
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Start party";
+    }, 3000);
   };
 
   el("btnJoin").onclick = () => {
