@@ -115,6 +115,9 @@ function showHome() {
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
   
+  // Cleanup audio and ObjectURL
+  cleanupMusicPlayer();
+  
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -130,6 +133,9 @@ function showLanding() {
   show("viewLanding"); hide("viewHome"); hide("viewParty");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false;
+  
+  // Cleanup audio and ObjectURL
+  cleanupMusicPlayer();
   
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
@@ -266,6 +272,27 @@ function hideMusicWarning() {
   }
 }
 
+function cleanupMusicPlayer() {
+  // Stop audio playback
+  const audioEl = musicState.audioElement;
+  if (audioEl) {
+    audioEl.pause();
+    audioEl.src = "";
+    audioEl.load(); // Reset the audio element
+  }
+  
+  // Revoke ObjectURL to prevent memory leak
+  if (musicState.currentObjectURL) {
+    URL.revokeObjectURL(musicState.currentObjectURL);
+    musicState.currentObjectURL = null;
+  }
+  
+  // Reset music state
+  musicState.selectedFile = null;
+  
+  console.log("[Music] Player cleaned up");
+}
+
 function checkFileTypeSupport(file) {
   const audio = musicState.audioElement || document.createElement("audio");
   
@@ -273,6 +300,13 @@ function checkFileTypeSupport(file) {
   if (file.type) {
     const canPlay = audio.canPlayType(file.type);
     if (canPlay === "" || canPlay === "no") {
+      return false;
+    }
+  } else {
+    // If file.type is empty, check file extension as fallback
+    const extension = file.name.split('.').pop().toLowerCase();
+    const commonFormats = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus'];
+    if (!commonFormats.includes(extension)) {
       return false;
     }
   }
@@ -313,14 +347,21 @@ function handleMusicFileSelection(file) {
   
   // Check file size (50MB = 52428800 bytes)
   const MAX_SIZE = 52428800;
+  const warnings = [];
+  
   if (file.size > MAX_SIZE) {
-    showMusicWarning("⚠️ Large file — may take longer to load or stream.", false);
+    warnings.push("⚠️ Large file — may take longer to load or stream.");
   }
   
   // Check if browser can play this file type
   const canPlay = checkFileTypeSupport(file);
   if (!canPlay) {
-    showMusicWarning("⚠️ This file type may not play on this device. Try MP3 or M4A.", true);
+    warnings.push("⚠️ This file type may not play on this device. Try MP3 or M4A.");
+  }
+  
+  // Display warnings
+  if (warnings.length > 0) {
+    showMusicWarning(warnings.join(" "), !canPlay);
   }
   
   // Create ObjectURL and set audio source
@@ -362,17 +403,18 @@ function initializeMusicPlayer() {
       let errorMsg = "Error: Unable to play this file";
       
       if (audioEl.error) {
+        // Use numeric values instead of MediaError constants for better compatibility
         switch (audioEl.error.code) {
-          case MediaError.MEDIA_ERR_ABORTED:
+          case 1: // MEDIA_ERR_ABORTED
             errorMsg = "Error: Playback aborted";
             break;
-          case MediaError.MEDIA_ERR_NETWORK:
+          case 2: // MEDIA_ERR_NETWORK
             errorMsg = "Error: Network error";
             break;
-          case MediaError.MEDIA_ERR_DECODE:
+          case 3: // MEDIA_ERR_DECODE
             errorMsg = "Error: File format not supported or corrupted";
             break;
-          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
             errorMsg = "Error: File type not supported on this device";
             break;
         }
