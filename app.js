@@ -435,6 +435,7 @@ function handleMusicFileSelection(file) {
   const audioEl = musicState.audioElement;
   if (audioEl) {
     audioEl.src = objectURL;
+    audioEl.load(); // Force buffering/loading, especially important for iOS Safari
     updateMusicStatus(`File selected: ${file.name}`);
   }
   
