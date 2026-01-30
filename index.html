@@ -325,6 +325,7 @@
             <button class="btn" id="btnPause">Pause</button>
             <button class="btn" id="btnAd">Show ad (Free)</button>
           </div>
+          <button class="btn secondary hidden" id="btnBackToDj">🎧 Back to DJ View</button>
           <div class="tiny muted" id="adLine">Ads can pause music for free users.</div>
         </div>
       </div>
@@ -374,6 +375,12 @@
           <div class="dj-now-playing-label">NOW PLAYING</div>
           <div class="dj-now-playing-track" id="djNowPlayingTrack">No Track</div>
         </div>
+        
+        <!-- Up Next Display -->
+        <div class="dj-up-next hidden" id="djUpNext">
+          <div class="dj-up-next-label">⏭ UP NEXT</div>
+          <div class="dj-up-next-track" id="djUpNextTrack">No track queued</div>
+        </div>
       </div>
 
       <!-- Guest Messages Area -->
@@ -402,6 +409,15 @@
         <button class="btn-dj-control secondary" id="btnDjNext">
           <span class="dj-control-icon">⏭️</span>
           <span>NEXT</span>
+        </button>
+      </div>
+
+      <!-- Queue Next Track -->
+      <div class="dj-queue-section">
+        <input type="file" id="djQueueFileInput" accept="audio/*" style="display: none;" />
+        <button class="btn-dj-queue" id="btnDjQueueTrack">
+          <span class="dj-queue-icon">📁</span>
+          <span>QUEUE NEXT TRACK</span>
         </button>
       </div>
 

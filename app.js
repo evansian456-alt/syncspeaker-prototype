@@ -7,7 +7,9 @@ const musicState = {
   currentObjectURL: null,
   audioElement: null,
   audioInitialized: false, // Track if audio element event listeners have been set up
-  fileInputInitialized: false // Track if file input handler has been set up
+  fileInputInitialized: false, // Track if file input handler has been set up
+  queuedFile: null, // Next track to play
+  queuedObjectURL: null // Object URL for queued track
 };
 
 // Debug state for tracking API calls and errors
@@ -564,6 +566,7 @@ function showDjScreen() {
   if (djOverlay) {
     djOverlay.classList.remove("hidden");
     updateDjScreen();
+    updateBackToDjButton();
   }
 }
 
@@ -571,6 +574,7 @@ function hideDjScreen() {
   const djOverlay = el("djScreenOverlay");
   if (djOverlay) {
     djOverlay.classList.add("hidden");
+    updateBackToDjButton();
   }
 }
 
@@ -594,6 +598,34 @@ function updateDjScreen() {
     djNowPlayingEl.textContent = musicState.selectedFile.name;
   } else if (djNowPlayingEl) {
     djNowPlayingEl.textContent = "No Track";
+  }
+  
+  // Update up next display
+  const djUpNextEl = el("djUpNext");
+  const djUpNextTrackEl = el("djUpNextTrack");
+  if (djUpNextEl && djUpNextTrackEl) {
+    if (musicState.queuedFile) {
+      djUpNextEl.classList.remove("hidden");
+      djUpNextTrackEl.textContent = musicState.queuedFile.name;
+    } else {
+      djUpNextEl.classList.add("hidden");
+      djUpNextTrackEl.textContent = "No track queued";
+    }
+  }
+}
+
+function updateBackToDjButton() {
+  const btnBackToDj = el("btnBackToDj");
+  const djOverlay = el("djScreenOverlay");
+  
+  if (btnBackToDj) {
+    // Show button if: host is playing, and DJ screen is hidden
+    const djScreenHidden = djOverlay && djOverlay.classList.contains("hidden");
+    if (state.isHost && state.playing && djScreenHidden) {
+      btnBackToDj.classList.remove("hidden");
+    } else {
+      btnBackToDj.classList.add("hidden");
+    }
   }
 }
 
@@ -848,6 +880,64 @@ function cleanupMusicPlayer() {
   console.log("[Music] Player cleaned up");
 }
 
+function playQueuedTrack() {
+  if (!musicState.queuedFile || !musicState.queuedObjectURL) {
+    console.log("[DJ Queue] No queued track available");
+    toast("No track queued");
+    return;
+  }
+
+  console.log(`[DJ Queue] Playing queued track: ${musicState.queuedFile.name}`);
+
+  // Clean up current track
+  if (musicState.currentObjectURL) {
+    URL.revokeObjectURL(musicState.currentObjectURL);
+  }
+
+  // Move queued track to current
+  musicState.selectedFile = musicState.queuedFile;
+  musicState.currentObjectURL = musicState.queuedObjectURL;
+
+  // Clear queue
+  musicState.queuedFile = null;
+  musicState.queuedObjectURL = null;
+
+  // Update audio element
+  const audioEl = musicState.audioElement;
+  if (audioEl && musicState.currentObjectURL) {
+    audioEl.src = musicState.currentObjectURL;
+    audioEl.load();
+    
+    // Auto-play the queued track
+    audioEl.play()
+      .then(() => {
+        state.playing = true;
+        updateMusicStatus(`Playing: ${musicState.selectedFile.name}`);
+        console.log("[DJ Queue] Auto-playing queued track");
+        
+        // Update DJ screen
+        updateDjScreen();
+        
+        // Broadcast to guests
+        if (state.isHost && state.ws) {
+          send({ t: "HOST_PLAY" });
+        }
+      })
+      .catch((error) => {
+        console.error("[DJ Queue] Auto-play failed:", error);
+        updateMusicStatus(`Ready: ${musicState.selectedFile.name}`);
+        toast("Track loaded. Press play to start.");
+      });
+  } else {
+    console.log("[DJ Queue] Playing in simulated mode");
+    state.playing = true;
+    updateMusicStatus(`Playing: ${musicState.selectedFile.name} (simulated)`);
+    updateDjScreen();
+  }
+
+  toast(`♫ Now playing: ${musicState.selectedFile.name}`);
+}
+
 function checkFileTypeSupport(file) {
   const audio = musicState.audioElement || document.createElement("audio");
   
@@ -976,6 +1066,14 @@ function initializeMusicPlayer() {
       audioEl.addEventListener("ended", () => {
         state.playing = false;
         updateMusicStatus("Ended");
+        
+        // Auto-play queued track if available
+        if (musicState.queuedFile && state.isHost) {
+          console.log("[DJ Queue] Current track ended, playing queued track");
+          setTimeout(() => {
+            playQueuedTrack();
+          }, 500); // Small delay to ensure smooth transition
+        }
       });
       
       audioEl.addEventListener("error", (e) => {
@@ -1540,6 +1638,9 @@ function attemptAddPhone() {
           if (state.isHost && state.ws) {
             send({ t: "HOST_PLAY" });
           }
+          
+          // Update back to DJ button visibility
+          updateBackToDjButton();
         })
         .catch((error) => {
           console.error("[Music] Play failed:", error);
@@ -1573,6 +1674,9 @@ function attemptAddPhone() {
       if (state.isHost && state.ws) {
         send({ t: "HOST_PLAY" });
       }
+      
+      // Update back to DJ button visibility
+      updateBackToDjButton();
     }
   };
   
@@ -1594,6 +1698,9 @@ function attemptAddPhone() {
     if (state.isHost && state.ws) {
       send({ t: "HOST_PAUSE" });
     }
+    
+    // Update back to DJ button visibility (should hide when paused)
+    updateBackToDjButton();
   };
 
   el("btnAd").onclick = () => {
@@ -1630,8 +1737,59 @@ function attemptAddPhone() {
   const btnDjNext = el("btnDjNext");
   if (btnDjNext) {
     btnDjNext.onclick = () => {
-      toast("Next track feature (coming soon)");
-      // In a real implementation, this would skip to the next track
+      // Play queued track if available
+      if (musicState.queuedFile) {
+        playQueuedTrack();
+      } else {
+        toast("No track queued");
+      }
+    };
+  }
+
+  // Back to DJ View button
+  const btnBackToDj = el("btnBackToDj");
+  if (btnBackToDj) {
+    btnBackToDj.onclick = () => {
+      showDjScreen();
+    };
+  }
+
+  // DJ Queue Track button
+  const btnDjQueueTrack = el("btnDjQueueTrack");
+  const djQueueFileInput = el("djQueueFileInput");
+  if (btnDjQueueTrack && djQueueFileInput) {
+    btnDjQueueTrack.onclick = () => {
+      djQueueFileInput.click();
+    };
+
+    djQueueFileInput.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Validate file type
+      const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-m4a', 'audio/mp4', 'audio/ogg', 'audio/webm', 'audio/aac'];
+      if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|ogg|webm|aac)$/i)) {
+        toast("⚠️ Invalid file type. Please select an audio file.");
+        return;
+      }
+
+      // Clean up old queued file URL
+      if (musicState.queuedObjectURL) {
+        URL.revokeObjectURL(musicState.queuedObjectURL);
+      }
+
+      // Store queued file
+      musicState.queuedFile = file;
+      musicState.queuedObjectURL = URL.createObjectURL(file);
+
+      toast(`✓ Queued: ${file.name}`);
+      console.log(`[DJ Queue] Queued next track: ${file.name}`);
+      
+      // Update DJ screen to show queued track
+      updateDjScreen();
+
+      // Clear the file input so the same file can be selected again
+      djQueueFileInput.value = '';
     };
   }
 
