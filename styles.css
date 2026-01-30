@@ -497,6 +497,10 @@ h2,h3{margin:0}
   margin-top: 20px;
 }
 
+.pricing-grid-three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .pricing-option {
   background: rgba(11, 15, 20, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -508,6 +512,37 @@ h2,h3{margin:0}
 .pricing-option.featured {
   border-color: rgba(90, 169, 255, 0.5);
   box-shadow: 0 0 30px rgba(90, 169, 255, 0.2);
+}
+
+.pricing-option.party-pass-featured {
+  border: 2px solid rgba(139, 124, 255, 0.6);
+  box-shadow: 0 0 40px rgba(139, 124, 255, 0.35), 0 8px 32px rgba(0, 0, 0, 0.3);
+  position: relative;
+  animation: pulse-glow-party 3s ease-in-out infinite;
+}
+
+@keyframes pulse-glow-party {
+  0%, 100% { 
+    box-shadow: 0 0 40px rgba(139, 124, 255, 0.35), 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  50% { 
+    box-shadow: 0 0 50px rgba(139, 124, 255, 0.5), 0 12px 40px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.popular-badge {
+  position: absolute;
+  top: -12px;
+  right: 16px;
+  background: linear-gradient(135deg, #FF6B9D 0%, #C239B3 100%);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.4);
 }
 
 .pricing-badge {
@@ -530,10 +565,23 @@ h2,h3{margin:0}
   color: #fff;
 }
 
+.pricing-badge.party-pass {
+  background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(139, 124, 255, 0.3);
+}
+
 .pricing-option h3 {
   margin: 0 0 8px 0;
   font-size: 20px;
   color: var(--text);
+}
+
+.pricing-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: -4px 0 8px 0;
+  font-style: italic;
 }
 
 .pricing-price {
@@ -562,6 +610,34 @@ h2,h3{margin:0}
   font-size: 14px;
   color: var(--muted);
   margin-bottom: 8px;
+}
+
+.pricing-fine-print {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 12px 0 0 0;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.btn-party-pass {
+  width: 100%;
+  padding: 12px 20px;
+  margin-top: 16px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(139, 124, 255, 0.4);
+  transition: all var(--transition-base);
+}
+
+.btn-party-pass:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(139, 124, 255, 0.6);
 }
 
 .promo-hint {
@@ -692,6 +768,10 @@ h2,h3{margin:0}
     grid-template-columns: 1fr;
   }
   
+  .pricing-grid-three {
+    grid-template-columns: 1fr;
+  }
+  
   .btn-landing {
     font-size: 18px;
     padding: 16px 24px;
@@ -704,6 +784,127 @@ h2,h3{margin:0}
   .glass-card h2 {
     font-size: 20px;
   }
+}
+
+/* ===== PARTY PASS BANNER STYLES ===== */
+.party-pass-banner {
+  margin: 20px 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.party-pass-status {
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.25) 0%, rgba(194, 57, 179, 0.2) 100%);
+  border: 2px solid rgba(139, 124, 255, 0.5);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 0 30px rgba(139, 124, 255, 0.3);
+  animation: pulse-glow-party 3s ease-in-out infinite;
+}
+
+.party-pass-icon {
+  font-size: 40px;
+  line-height: 1;
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.party-pass-info {
+  flex: 1;
+}
+
+.party-pass-title {
+  font-size: 20px;
+  font-weight: 900;
+  color: #8B7CFF; /* Fallback color */
+  background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+
+.party-pass-timer {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.party-pass-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.party-pass-upgrade {
+  background: rgba(18, 24, 35, 0.7);
+  backdrop-filter: blur(12px);
+  border: 2px dashed rgba(139, 124, 255, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+}
+
+.party-pass-upgrade-content {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.party-pass-upgrade-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #8B7CFF; /* Fallback color */
+  background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.party-pass-upgrade-tagline {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 16px 0;
+}
+
+/* Party Pass Friend View */
+.party-pass-friend-status {
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.2) 0%, rgba(194, 57, 179, 0.15) 100%);
+  border: 2px solid rgba(139, 124, 255, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  text-align: center;
+  margin: 20px 0;
+  box-shadow: 0 0 25px rgba(139, 124, 255, 0.25);
+}
+
+.party-pass-friend-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+}
+
+.party-pass-friend-title {
+  font-size: 18px;
+  font-weight: 900;
+  color: #8B7CFF; /* Fallback color */
+  background: linear-gradient(135deg, #8B7CFF 0%, #C239B3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+
+.party-pass-friend-desc {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
 }
 
 /* ===== HOME PAGE (START/JOIN PARTY) ENHANCED STYLES ===== */
