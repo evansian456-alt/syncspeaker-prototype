@@ -21,7 +21,8 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null
+  partyPassTimerInterval: null,
+  createButtonTimeout: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -153,6 +154,12 @@ function showParty() {
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
+  
+  // Clear create button timeout if transitioning from home view
+  if (state.createButtonTimeout) {
+    clearTimeout(state.createButtonTimeout);
+    state.createButtonTimeout = null;
+  }
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -719,7 +726,13 @@ function attemptAddPhone() {
     console.log("[UI] Start party button clicked");
     const btn = el("btnCreate");
     
-    // Provide visual feedback by disabling button temporarily
+    // Prevent multiple clicks - check if button is already disabled
+    if (btn.disabled) {
+      console.log("[UI] Button already processing, ignoring click");
+      return;
+    }
+    
+    // Provide visual feedback by disabling button immediately
     btn.disabled = true;
     btn.textContent = "Creating party...";
     
@@ -729,11 +742,16 @@ function attemptAddPhone() {
     console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
     send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
     
-    // Re-enable button after a short delay in case of error
+    // Re-enable button after a delay in case of error
     // (button will be hidden anyway if party creation succeeds)
-    setTimeout(() => {
+    // Clear any existing timeout first
+    if (state.createButtonTimeout) {
+      clearTimeout(state.createButtonTimeout);
+    }
+    state.createButtonTimeout = setTimeout(() => {
       btn.disabled = false;
       btn.textContent = "Start party";
+      state.createButtonTimeout = null;
     }, 3000);
   };
 
