@@ -1519,6 +1519,74 @@ h2,h3{margin:0}
   background: rgba(11, 15, 20, 0.4);
 }
 
+/* Timer Display */
+.timer-display {
+  padding: 8px 12px;
+  background: rgba(90, 169, 255, 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(90, 169, 255, 0.2);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.timer-label {
+  font-weight: 600;
+  color: var(--brand);
+  margin-right: 8px;
+}
+
+.timer-value {
+  font-family: ui-monospace, monospace;
+  font-weight: 500;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* Up Next Section */
+#upNextSection {
+  margin-top: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(90, 169, 255, 0.12) 0%, rgba(139, 124, 255, 0.08) 100%);
+  border-radius: var(--radius);
+  border: 1px solid rgba(90, 169, 255, 0.25);
+  box-shadow: 0 4px 12px rgba(90, 169, 255, 0.1);
+}
+
+.up-next-header h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.up-next-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.up-next-track {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.up-next-countdown {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand);
+  padding: 6px 10px;
+  background: rgba(90, 169, 255, 0.1);
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  width: fit-content;
+}
+
+
 #hostAudioPlayer::-webkit-media-controls-panel {
   background: rgba(18, 24, 35, 0.9);
 }

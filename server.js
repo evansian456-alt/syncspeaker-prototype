@@ -6,6 +6,28 @@ const { customAlphabet } = require("nanoid");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Event name constants for consistent messaging
+const EVENT = {
+  // Party lifecycle
+  PARTY_CREATED: "PARTY_CREATED",
+  GUEST_JOINED: "GUEST_JOINED",
+  GUEST_LEFT: "GUEST_LEFT",
+  PARTY_ENDED: "PARTY_ENDED",
+  // Track management
+  TRACK_CURRENT_SELECTED: "TRACK_CURRENT_SELECTED",
+  TRACK_NEXT_QUEUED: "TRACK_NEXT_QUEUED",
+  TRACK_NEXT_CLEARED: "TRACK_NEXT_CLEARED",
+  TRACK_SWITCHED: "TRACK_SWITCHED",
+  TRACK_ENDED: "TRACK_ENDED",
+  // Playback control
+  PLAYBACK_PLAY: "PLAYBACK_PLAY",
+  PLAYBACK_PAUSE: "PLAYBACK_PAUSE",
+  PLAYBACK_TICK: "PLAYBACK_TICK",
+  // Visuals
+  VISUALS_MODE: "VISUALS_MODE",
+  VISUALS_FLASH: "VISUALS_FLASH"
+};
+
 // Parse JSON bodies
 app.use(express.json());
 
@@ -93,7 +115,7 @@ app.post("/api/join-party", (req, res) => {
 });
 
 // Party state management
-const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }] }
+const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }], currentTrack, nextTrack, playbackState, tickInterval }
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 
@@ -159,6 +181,27 @@ function handleMessage(ws, msg) {
     case "SET_PRO":
       handleSetPro(ws, msg);
       break;
+    case "TRACK_CURRENT_SELECTED":
+      handleTrackCurrentSelected(ws, msg);
+      break;
+    case "TRACK_NEXT_QUEUED":
+      handleTrackNextQueued(ws, msg);
+      break;
+    case "TRACK_NEXT_CLEARED":
+      handleTrackNextCleared(ws, msg);
+      break;
+    case "PLAYBACK_PLAY":
+      handlePlaybackPlay(ws, msg);
+      break;
+    case "PLAYBACK_PAUSE":
+      handlePlaybackPause(ws, msg);
+      break;
+    case "VISUALS_MODE":
+      handleVisualsMode(ws, msg);
+      break;
+    case "VISUALS_FLASH":
+      handleVisualsFlash(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -193,14 +236,22 @@ function handleCreate(ws, msg) {
   
   parties.set(code, {
     host: ws,
-    members: [member]
+    members: [member],
+    currentTrack: null,
+    nextTrack: null,
+    playbackState: {
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0
+    },
+    tickInterval: null
   });
   
   client.party = code;
   
   console.log(`[Party] Created party ${code} by client ${client.id}`);
   
-  ws.send(JSON.stringify({ t: "CREATED", code }));
+  ws.send(JSON.stringify({ t: EVENT.PARTY_CREATED, code }));
   broadcastRoomState(code);
 }
 
@@ -243,7 +294,7 @@ function handleJoin(ws, msg) {
   
   console.log(`[Party] Client ${client.id} joined party ${code}`);
   
-  ws.send(JSON.stringify({ t: "JOINED", code }));
+  ws.send(JSON.stringify({ t: EVENT.GUEST_JOINED, code }));
   broadcastRoomState(code);
 }
 
@@ -320,9 +371,16 @@ function handleDisconnect(ws) {
   if (member?.isHost) {
     // Host left, end the party
     console.log(`[Party] Host left, ending party ${client.party}`);
+    
+    // Clear tick interval if exists
+    if (party.tickInterval) {
+      clearInterval(party.tickInterval);
+      party.tickInterval = null;
+    }
+    
     party.members.forEach(m => {
       if (m.ws !== ws && m.ws.readyState === WebSocket.OPEN) {
-        m.ws.send(JSON.stringify({ t: "ENDED" }));
+        m.ws.send(JSON.stringify({ t: EVENT.PARTY_ENDED }));
       }
       const c = clients.get(m.ws);
       if (c) c.party = null;
@@ -332,6 +390,12 @@ function handleDisconnect(ws) {
     // Regular member left
     party.members = party.members.filter(m => m.ws !== ws);
     console.log(`[Party] Client ${client.id} left party ${client.party}`);
+    
+    // Broadcast GUEST_LEFT event
+    broadcastToParty(client.party, { 
+      t: EVENT.GUEST_LEFT, 
+      guestId: client.id 
+    });
     broadcastRoomState(client.party);
   }
   
@@ -348,7 +412,10 @@ function broadcastRoomState(code) {
       name: m.name,
       isPro: m.isPro,
       isHost: m.isHost
-    }))
+    })),
+    currentTrack: party.currentTrack,
+    nextTrack: party.nextTrack,
+    playbackState: party.playbackState
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
@@ -357,6 +424,185 @@ function broadcastRoomState(code) {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
     }
+  });
+}
+
+function broadcastToParty(code, message) {
+  const party = parties.get(code);
+  if (!party) return;
+  
+  const msgStr = JSON.stringify(message);
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(msgStr);
+    }
+  });
+}
+
+// Track management handlers
+function handleTrackCurrentSelected(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host can select tracks
+  
+  party.currentTrack = msg.track;
+  party.playbackState.currentTime = 0;
+  party.playbackState.duration = msg.track?.duration || 0;
+  
+  console.log(`[Party] Track selected for party ${client.party}`);
+  
+  broadcastToParty(client.party, {
+    t: EVENT.TRACK_CURRENT_SELECTED,
+    track: party.currentTrack,
+    playbackState: party.playbackState
+  });
+}
+
+function handleTrackNextQueued(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host can queue tracks
+  
+  party.nextTrack = msg.track;
+  
+  console.log(`[Party] Next track queued for party ${client.party}`);
+  
+  broadcastToParty(client.party, {
+    t: EVENT.TRACK_NEXT_QUEUED,
+    track: party.nextTrack
+  });
+}
+
+function handleTrackNextCleared(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host can clear next track
+  
+  party.nextTrack = null;
+  
+  console.log(`[Party] Next track cleared for party ${client.party}`);
+  
+  broadcastToParty(client.party, {
+    t: EVENT.TRACK_NEXT_CLEARED
+  });
+}
+
+// Playback control handlers
+function handlePlaybackPlay(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host controls playback
+  
+  party.playbackState.isPlaying = true;
+  party.playbackState.currentTime = msg.currentTime || party.playbackState.currentTime;
+  party.playbackState.duration = msg.duration || party.playbackState.duration;
+  
+  console.log(`[Party] Playback started for party ${client.party}`);
+  
+  // Start tick interval if not already running
+  if (!party.tickInterval) {
+    party.tickInterval = setInterval(() => {
+      const p = parties.get(client.party);
+      if (!p || !p.playbackState.isPlaying) return;
+      
+      // Update current time
+      p.playbackState.currentTime += 0.25; // 250ms increment
+      
+      // Check if track ended
+      if (p.playbackState.duration > 0 && p.playbackState.currentTime >= p.playbackState.duration) {
+        p.playbackState.isPlaying = false;
+        p.playbackState.currentTime = p.playbackState.duration;
+        
+        // Broadcast track ended
+        broadcastToParty(client.party, {
+          t: EVENT.TRACK_ENDED
+        });
+        
+        // Clear interval
+        if (p.tickInterval) {
+          clearInterval(p.tickInterval);
+          p.tickInterval = null;
+        }
+        return;
+      }
+      
+      // Broadcast tick update
+      broadcastToParty(client.party, {
+        t: EVENT.PLAYBACK_TICK,
+        currentTime: p.playbackState.currentTime,
+        duration: p.playbackState.duration,
+        isPlaying: p.playbackState.isPlaying
+      });
+    }, 250); // 250ms interval
+  }
+  
+  broadcastToParty(client.party, {
+    t: EVENT.PLAYBACK_PLAY,
+    currentTime: party.playbackState.currentTime,
+    duration: party.playbackState.duration
+  });
+}
+
+function handlePlaybackPause(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host controls playback
+  
+  party.playbackState.isPlaying = false;
+  party.playbackState.currentTime = msg.currentTime || party.playbackState.currentTime;
+  
+  console.log(`[Party] Playback paused for party ${client.party}`);
+  
+  // Clear tick interval
+  if (party.tickInterval) {
+    clearInterval(party.tickInterval);
+    party.tickInterval = null;
+  }
+  
+  broadcastToParty(client.party, {
+    t: EVENT.PLAYBACK_PAUSE,
+    currentTime: party.playbackState.currentTime,
+    duration: party.playbackState.duration
+  });
+}
+
+// Visuals handlers
+function handleVisualsMode(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host controls visuals
+  
+  console.log(`[Party] Visuals mode changed for party ${client.party}`);
+  
+  broadcastToParty(client.party, {
+    t: EVENT.VISUALS_MODE,
+    mode: msg.mode
+  });
+}
+
+function handleVisualsFlash(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party || party.host !== ws) return; // Only host controls visuals
+  
+  console.log(`[Party] Visuals flash for party ${client.party}`);
+  
+  broadcastToParty(client.party, {
+    t: EVENT.VISUALS_FLASH
   });
 }
 

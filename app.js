@@ -1,6 +1,28 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 
+// Event name constants matching server
+const EVENT = {
+  // Party lifecycle
+  PARTY_CREATED: "PARTY_CREATED",
+  GUEST_JOINED: "GUEST_JOINED",
+  GUEST_LEFT: "GUEST_LEFT",
+  PARTY_ENDED: "PARTY_ENDED",
+  // Track management
+  TRACK_CURRENT_SELECTED: "TRACK_CURRENT_SELECTED",
+  TRACK_NEXT_QUEUED: "TRACK_NEXT_QUEUED",
+  TRACK_NEXT_CLEARED: "TRACK_NEXT_CLEARED",
+  TRACK_SWITCHED: "TRACK_SWITCHED",
+  TRACK_ENDED: "TRACK_ENDED",
+  // Playback control
+  PLAYBACK_PLAY: "PLAYBACK_PLAY",
+  PLAYBACK_PAUSE: "PLAYBACK_PAUSE",
+  PLAYBACK_TICK: "PLAYBACK_TICK",
+  // Visuals
+  VISUALS_MODE: "VISUALS_MODE",
+  VISUALS_FLASH: "VISUALS_FLASH"
+};
+
 // Music player state
 const musicState = {
   selectedFile: null,
@@ -31,7 +53,14 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
-  offlineMode: false // Track if party was created in offline fallback mode
+  offlineMode: false, // Track if party was created in offline fallback mode
+  currentTrack: null,
+  nextTrack: null,
+  playbackState: {
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0
+  }
 };
 
 // Client-side party code generator for offline fallback
@@ -136,23 +165,93 @@ function send(obj) {
 
 function handleServer(msg) {
   if (msg.t === "WELCOME") { state.clientId = msg.clientId; return; }
-  if (msg.t === "CREATED") {
+  
+  // Party lifecycle events
+  if (msg.t === EVENT.PARTY_CREATED || msg.t === "CREATED") {
     state.code = msg.code; state.isHost = true; showParty(); toast(`Party created: ${msg.code}`); return;
   }
-  if (msg.t === "JOINED") {
+  if (msg.t === EVENT.GUEST_JOINED || msg.t === "JOINED") {
     state.code = msg.code; state.isHost = false; showParty(); toast(`Joined party ${msg.code}`); return;
   }
+  if (msg.t === EVENT.PARTY_ENDED || msg.t === "ENDED") { 
+    toast("Party ended (host left)"); showLanding(); return; 
+  }
+  if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
+  
+  // Room state update
   if (msg.t === "ROOM") {
     state.snapshot = msg.snapshot;
+    // Update track and playback state from snapshot
+    if (msg.snapshot) {
+      state.currentTrack = msg.snapshot.currentTrack || state.currentTrack;
+      state.nextTrack = msg.snapshot.nextTrack || state.nextTrack;
+      state.playbackState = msg.snapshot.playbackState || state.playbackState;
+    }
     // Preserve Party Pass Pro status or detect from members
     const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
     state.partyPro = state.partyPassActive || membersPro;
     setPlanPill();
     renderRoom();
+    updateTimersDisplay();
     return;
   }
-  if (msg.t === "ENDED") { toast("Party ended (host left)"); showLanding(); return; }
-  if (msg.t === "KICKED") { toast("Removed by host"); showLanding(); return; }
+  
+  // Track management events
+  if (msg.t === EVENT.TRACK_CURRENT_SELECTED) {
+    state.currentTrack = msg.track;
+    state.playbackState = msg.playbackState || state.playbackState;
+    updateTimersDisplay();
+    return;
+  }
+  if (msg.t === EVENT.TRACK_NEXT_QUEUED) {
+    state.nextTrack = msg.track;
+    updateTimersDisplay();
+    return;
+  }
+  if (msg.t === EVENT.TRACK_NEXT_CLEARED) {
+    state.nextTrack = null;
+    updateTimersDisplay();
+    return;
+  }
+  if (msg.t === EVENT.TRACK_ENDED) {
+    // Track ended, switch to next if available
+    if (state.nextTrack) {
+      state.currentTrack = state.nextTrack;
+      state.nextTrack = null;
+      state.playbackState.currentTime = 0;
+      state.playbackState.duration = state.currentTrack.duration || 0;
+    } else {
+      state.playbackState.isPlaying = false;
+    }
+    updateTimersDisplay();
+    return;
+  }
+  
+  // Playback control events
+  if (msg.t === EVENT.PLAYBACK_PLAY) {
+    state.playbackState.isPlaying = true;
+    state.playbackState.currentTime = msg.currentTime || state.playbackState.currentTime;
+    state.playbackState.duration = msg.duration || state.playbackState.duration;
+    state.playing = true;
+    updateTimersDisplay();
+    return;
+  }
+  if (msg.t === EVENT.PLAYBACK_PAUSE) {
+    state.playbackState.isPlaying = false;
+    state.playbackState.currentTime = msg.currentTime || state.playbackState.currentTime;
+    state.playing = false;
+    updateTimersDisplay();
+    return;
+  }
+  if (msg.t === EVENT.PLAYBACK_TICK) {
+    state.playbackState.currentTime = msg.currentTime;
+    state.playbackState.duration = msg.duration;
+    state.playbackState.isPlaying = msg.isPlaying;
+    updateTimersDisplay();
+    return;
+  }
+  
+  // Error handling
   if (msg.t === "ERROR") {
     toast(msg.message || "Error");
     
@@ -291,6 +390,52 @@ function updatePlaybackUI() {
   el("btnAd").disabled = isProOrPartyPass || state.source === "mic";
   el("adLine").textContent = isProOrPartyPass ? "No ads (Pro)"
     : (state.source === "mic" ? "No ads in mic mode" : "Ads interrupt playback for free users.");
+}
+
+function updateTimersDisplay() {
+  // Update Now Playing timer (elapsed / duration)
+  const nowPlayingEl = el("nowPlayingTimer");
+  if (nowPlayingEl) {
+    if (state.currentTrack && state.playbackState.duration > 0) {
+      const elapsed = formatTime(state.playbackState.currentTime);
+      const duration = formatTime(state.playbackState.duration);
+      nowPlayingEl.textContent = `${elapsed} / ${duration}`;
+    } else {
+      nowPlayingEl.textContent = "—";
+    }
+  }
+  
+  // Update Up Next countdown (Starts in: mm:ss)
+  const upNextCountdownEl = el("upNextCountdown");
+  if (upNextCountdownEl) {
+    if (state.nextTrack && state.playbackState.isPlaying && state.playbackState.duration > 0) {
+      const startsIn = Math.max(0, state.playbackState.duration - state.playbackState.currentTime);
+      upNextCountdownEl.textContent = `Starts in: ${formatTime(startsIn)}`;
+    } else {
+      upNextCountdownEl.textContent = "—";
+    }
+  }
+  
+  // Update Up Next visibility
+  const upNextEl = el("upNextSection");
+  if (upNextEl) {
+    if (state.nextTrack) {
+      upNextEl.classList.remove("hidden");
+      const upNextTrackEl = el("upNextTrack");
+      if (upNextTrackEl) {
+        upNextTrackEl.textContent = state.nextTrack.name || "Next track";
+      }
+    } else {
+      upNextEl.classList.add("hidden");
+    }
+  }
+}
+
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return "0:00";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function escapeHtml(s) {
@@ -1008,8 +1153,38 @@ function attemptAddPhone() {
       audioEl.play()
         .then(() => {
           state.playing = true;
+          state.playbackState.isPlaying = true;
+          state.playbackState.currentTime = audioEl.currentTime;
+          state.playbackState.duration = audioEl.duration || 0;
+          
+          // Set current track if not already set
+          if (!state.currentTrack && musicState.selectedFile) {
+            state.currentTrack = {
+              name: musicState.selectedFile.name,
+              duration: audioEl.duration || 0
+            };
+            // Notify server if connected and host
+            if (state.ws && state.isHost) {
+              send({ 
+                t: EVENT.TRACK_CURRENT_SELECTED, 
+                track: state.currentTrack 
+              });
+            }
+          }
+          
           updateMusicStatus("Playing…");
           console.log("[Music] Playback started");
+          
+          // Notify server if connected and host
+          if (state.ws && state.isHost) {
+            send({ 
+              t: EVENT.PLAYBACK_PLAY, 
+              currentTime: audioEl.currentTime,
+              duration: audioEl.duration || 0
+            });
+          }
+          
+          updateTimersDisplay();
         })
         .catch((error) => {
           console.error("[Music] Play failed:", error);
@@ -1031,8 +1206,10 @@ function attemptAddPhone() {
         });
     } else {
       state.playing = true;
+      state.playbackState.isPlaying = true;
       updateMusicStatus("Play (simulated - no music file loaded)");
       toast("Play (simulated)");
+      updateTimersDisplay();
     }
   };
   
@@ -1043,11 +1220,25 @@ function attemptAddPhone() {
     if (audioEl && audioEl.src && musicState.selectedFile) {
       audioEl.pause();
       state.playing = false;
+      state.playbackState.isPlaying = false;
+      state.playbackState.currentTime = audioEl.currentTime;
       updateMusicStatus("Paused");
+      
+      // Notify server if connected and host
+      if (state.ws && state.isHost) {
+        send({ 
+          t: EVENT.PLAYBACK_PAUSE, 
+          currentTime: audioEl.currentTime
+        });
+      }
+      
+      updateTimersDisplay();
     } else {
       state.playing = false;
+      state.playbackState.isPlaying = false;
       updateMusicStatus("Pause (simulated)");
       toast("Pause (simulated)");
+      updateTimersDisplay();
     }
   };
 

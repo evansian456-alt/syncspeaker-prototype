@@ -311,12 +311,29 @@
             <span class="status-message" id="statusMessage">No music loaded</span>
           </div>
           
+          <!-- Now Playing Timer -->
+          <div class="timer-display">
+            <span class="timer-label">Now Playing:</span>
+            <span class="timer-value" id="nowPlayingTimer">—</span>
+          </div>
+          
           <div class="row gap">
             <button class="btn primary" id="btnPlay">Play</button>
             <button class="btn" id="btnPause">Pause</button>
             <button class="btn" id="btnAd">Show ad (Free)</button>
           </div>
           <div class="tiny muted" id="adLine">Ads can pause music for free users.</div>
+        </div>
+      </div>
+
+      <!-- Up Next Section -->
+      <div class="box hidden" id="upNextSection">
+        <div class="up-next-header">
+          <h3>🎵 Up Next</h3>
+        </div>
+        <div class="up-next-info">
+          <div class="up-next-track" id="upNextTrack">Next track</div>
+          <div class="up-next-countdown" id="upNextCountdown">—</div>
         </div>
       </div>
 
