@@ -209,6 +209,10 @@
           </div>
 
           <button type="button" class="btn primary" id="btnCreate">Start party</button>
+          <div class="party-status hidden" id="partyStatus">
+            <div class="status-message" id="createStatusMessage">Waiting...</div>
+            <div class="debug-info tiny muted" id="createDebugInfo"></div>
+          </div>
           <div class="tiny muted">
             Users are responsible for music source. This app does not provide music.
           </div>
@@ -221,6 +225,10 @@
           <label class="lbl">Your name</label>
           <input id="guestName" class="input" value="Guest" />
           <button class="btn" id="btnJoin">Join party</button>
+          <div class="party-status hidden" id="joinStatus">
+            <div class="status-message" id="joinStatusMessage">Waiting...</div>
+            <div class="debug-info tiny muted" id="joinDebugInfo"></div>
+          </div>
           <div class="tiny muted">Tip: open this on another phone on the same Wi‑Fi.</div>
         </div>
       </div>

@@ -6,6 +6,9 @@ const { customAlphabet } = require("nanoid");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Parse JSON bodies
+app.use(express.json());
+
 // Serve static files from the repo root
 app.use(express.static(__dirname));
 
@@ -24,6 +27,71 @@ app.get("/api/ping", (req, res) => {
   res.json({ message: "pong", timestamp: Date.now() });
 });
 
+// Generate party codes (6 chars, uppercase letters/numbers)
+const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
+
+// In-memory party storage for HTTP API
+const httpParties = new Map(); // code -> { hostId, createdAt, members: [] }
+let nextHostId = 1;
+
+// POST /api/create-party - Create a new party
+app.post("/api/create-party", (req, res) => {
+  console.log("[API] POST /api/create-party");
+  
+  try {
+    // Generate unique party code
+    let code;
+    do {
+      code = generateCode();
+    } while (httpParties.has(code));
+    
+    const hostId = nextHostId++;
+    
+    httpParties.set(code, {
+      hostId,
+      createdAt: Date.now(),
+      members: []
+    });
+    
+    console.log(`[API] Party created: ${code}, hostId: ${hostId}`);
+    
+    res.json({
+      partyCode: code,
+      hostId: hostId
+    });
+  } catch (error) {
+    console.error("[API] Error creating party:", error);
+    res.status(500).json({ error: "Failed to create party" });
+  }
+});
+
+// POST /api/join-party - Join an existing party
+app.post("/api/join-party", (req, res) => {
+  console.log("[API] POST /api/join-party", req.body);
+  
+  try {
+    const { partyCode } = req.body;
+    
+    if (!partyCode) {
+      return res.status(400).json({ error: "Party code is required" });
+    }
+    
+    const code = partyCode.toUpperCase().trim();
+    const party = httpParties.get(code);
+    
+    if (!party) {
+      return res.status(404).json({ error: "Party not found" });
+    }
+    
+    console.log(`[API] Party joined: ${code}`);
+    
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[API] Error joining party:", error);
+    res.status(500).json({ error: "Failed to join party" });
+  }
+});
+
 // Start the HTTP server
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
@@ -36,9 +104,6 @@ const wss = new WebSocket.Server({ server });
 const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }] }
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
-
-// Generate party codes (6 chars, uppercase letters/numbers)
-const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
 
 wss.on("connection", (ws) => {
   const clientId = nextClientId++;

@@ -1,4 +1,5 @@
 const FREE_LIMIT = 2;
+const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 
 // Music player state
 const musicState = {
@@ -21,8 +22,7 @@ const state = {
   snapshot: null,
   partyPassActive: false,
   partyPassEndTime: null,
-  partyPassTimerInterval: null,
-  createButtonTimeout: null
+  partyPassTimerInterval: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -112,10 +112,6 @@ function handleServer(msg) {
     toast(msg.message || "Error");
     
     // Reset button state if party creation failed
-    if (state.createButtonTimeout) {
-      clearTimeout(state.createButtonTimeout);
-      state.createButtonTimeout = null;
-    }
     const btn = el("btnCreate");
     if (btn) {
       btn.disabled = false;
@@ -142,12 +138,6 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
-  // Clear create button timeout when navigating to home
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
-  
   setPlanPill();
 }
 
@@ -167,12 +157,6 @@ function showLanding() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
-  // Clear create button timeout when navigating to landing
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
-  
   setPlanPill();
 }
 
@@ -181,12 +165,6 @@ function showParty() {
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   el("partyMeta").textContent = `Source: ${state.source} · You: ${state.name}${state.isHost ? " (Host)" : ""}`;
   el("partyCode").textContent = state.code || "------";
-  
-  // Clear create button timeout if transitioning from home view
-  if (state.createButtonTimeout) {
-    clearTimeout(state.createButtonTimeout);
-    state.createButtonTimeout = null;
-  }
   
   // Check if Party Pass is active for this party
   checkPartyPassStatus();
@@ -749,9 +727,12 @@ function attemptAddPhone() {
     showHome();
   };
 
-  el("btnCreate").onclick = () => {
+  el("btnCreate").onclick = async () => {
     console.log("[UI] Start party button clicked");
     const btn = el("btnCreate");
+    const statusEl = el("partyStatus");
+    const messageEl = el("createStatusMessage");
+    const debugEl = el("createDebugInfo");
     
     // Prevent multiple clicks - check if button is already disabled
     if (btn.disabled) {
@@ -759,35 +740,198 @@ function attemptAddPhone() {
       return;
     }
     
-    // Provide visual feedback by disabling button immediately
-    btn.disabled = true;
-    btn.textContent = "Creating party...";
+    // Helper function to update status
+    const updateStatus = (message, isError = false) => {
+      if (statusEl) statusEl.classList.remove("hidden");
+      if (messageEl) {
+        messageEl.textContent = message;
+        messageEl.style.color = isError ? "var(--danger, #ff5a6a)" : "var(--text, #fff)";
+      }
+      console.log(`[Party] ${message}`);
+    };
     
-    state.name = el("hostName").value.trim() || "Host";
-    state.source = "local"; // Always use local source for music from phone
-    state.isPro = el("togglePro").checked;
-    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
-    send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+    // Helper function to update debug info
+    const updateDebug = (message) => {
+      if (debugEl) {
+        debugEl.textContent = message;
+      }
+    };
     
-    // Re-enable button after a delay in case of error
-    // (button will be hidden anyway if party creation succeeds)
-    // Clear any existing timeout first
-    if (state.createButtonTimeout) {
-      clearTimeout(state.createButtonTimeout);
-    }
-    state.createButtonTimeout = setTimeout(() => {
+    try {
+      // Provide visual feedback by disabling button immediately
+      btn.disabled = true;
+      btn.textContent = "Creating party...";
+      updateStatus("Creating party…");
+      
+      state.name = el("hostName").value.trim() || "Host";
+      state.source = "local"; // Always use local source for music from phone
+      state.isPro = el("togglePro").checked;
+      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const endpoint = "/api/ping";
+      updateDebug(`Endpoint: GET ${endpoint}`);
+      updateStatus("Calling server…");
+      
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: "GET",
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        
+        if (fetchError.name === "AbortError") {
+          throw new Error("Server not responding. Try again.");
+        }
+        throw fetchError;
+      }
+      
+      updateStatus("Server responded…");
+      
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      // Server is responsive, now create party via WebSocket
+      updateStatus("Creating party…");
+      send({ t: "CREATE", name: state.name, isPro: state.isPro, source: state.source });
+      
+      // The WebSocket handler will call showParty() when CREATED message is received
+      // Clear status after a short delay
+      setTimeout(() => {
+        if (statusEl) statusEl.classList.add("hidden");
+      }, 2000);
+      
+    } catch (error) {
+      console.error("[Party] Error creating party:", error);
+      updateStatus(error.message || "Error creating party. Try again.", true);
+      
+      // Re-enable button on error
       btn.disabled = false;
       btn.textContent = "Start party";
-      state.createButtonTimeout = null;
-    }, 3000);
+      
+      // Show toast with error
+      toast(error.message || "Error creating party");
+    }
   };
 
-  el("btnJoin").onclick = () => {
+  el("btnJoin").onclick = async () => {
+    console.log("[UI] Join party button clicked");
+    const btn = el("btnJoin");
+    const statusEl = el("joinStatus");
+    const messageEl = el("joinStatusMessage");
+    const debugEl = el("joinDebugInfo");
     const code = el("joinCode").value.trim().toUpperCase();
-    if (!code) { toast("Enter a party code"); return; }
-    state.name = el("guestName").value.trim() || "Guest";
-    state.isPro = el("togglePro").checked;
-    send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
+    
+    if (!code) {
+      toast("Enter a party code");
+      return;
+    }
+    
+    // Prevent multiple clicks
+    if (btn.disabled) {
+      console.log("[UI] Button already processing, ignoring click");
+      return;
+    }
+    
+    // Helper function to update status
+    const updateStatus = (message, isError = false) => {
+      if (statusEl) statusEl.classList.remove("hidden");
+      if (messageEl) {
+        messageEl.textContent = message;
+        messageEl.style.color = isError ? "var(--danger, #ff5a6a)" : "var(--text, #fff)";
+      }
+      console.log(`[Party] ${message}`);
+    };
+    
+    // Helper function to update debug info
+    const updateDebug = (message) => {
+      if (debugEl) {
+        debugEl.textContent = message;
+      }
+    };
+    
+    try {
+      btn.disabled = true;
+      btn.textContent = "Joining...";
+      updateStatus("Joining party…");
+      
+      state.name = el("guestName").value.trim() || "Guest";
+      state.isPro = el("togglePro").checked;
+      console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const endpoint = "/api/join-party";
+      updateDebug(`Endpoint: POST ${endpoint}`);
+      updateStatus("Calling server…");
+      
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            partyCode: code
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        
+        if (fetchError.name === "AbortError") {
+          throw new Error("Server not responding. Try again.");
+        }
+        throw fetchError;
+      }
+      
+      updateStatus("Server responded…");
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("[API] Join response:", data);
+      
+      updateStatus(`Joining party ${code}…`);
+      
+      // Now connect via WebSocket and join the party
+      send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
+      
+      // The WebSocket handler will call showParty() when JOINED message is received
+      // Clear status after a short delay
+      setTimeout(() => {
+        if (statusEl) statusEl.classList.add("hidden");
+        btn.disabled = false;
+        btn.textContent = "Join party";
+      }, 2000);
+      
+    } catch (error) {
+      console.error("[Party] Error joining party:", error);
+      updateStatus(error.message || "Error joining party. Try again.", true);
+      
+      // Re-enable button on error
+      btn.disabled = false;
+      btn.textContent = "Join party";
+      
+      // Show toast with error
+      toast(error.message || "Error joining party");
+    }
   };
 
   el("togglePro").onchange = (e) => {
