@@ -77,7 +77,8 @@ After applying a patch:
    ```
 
 3. **Verify on GitHub:**
-   - Navigate to the PR on GitHub  
+   - Navigate to the respective PR on GitHub (PR #28 or PR #26 depending on which you updated)
+   - Wait a few moments for GitHub to update the PR status
    - Confirm "mergeable" status appears
    - Check that conflicts are resolved
 
@@ -86,4 +87,3 @@ After applying a patch:
 - Both patches use `--allow-unrelated-histories` due to grafted repository history
 - Each patch creates a merge commit combining changes from both branches
 - All functionality from both branches is preserved
-- No code is lost during the merge process

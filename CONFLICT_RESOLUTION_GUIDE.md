@@ -16,11 +16,13 @@ The fastest way to resolve these conflicts is to apply the pre-generated patches
 
 ```bash
 # For PR #28
+git fetch origin copilot/add-timers-and-event-names
 git checkout copilot/add-timers-and-event-names
 git am < patches/pr28-conflict-resolution.patch
 git push origin copilot/add-timers-and-event-names
 
-# For PR #26  
+# For PR #26
+git fetch origin copilot/implement-upgrade-ux-flows
 git checkout copilot/implement-upgrade-ux-flows
 git am < patches/pr26-conflict-resolution.patch
 git push origin copilot/implement-upgrade-ux-flows
@@ -115,8 +117,13 @@ The conflicts in PR#28 have been successfully resolved using automated tooling. 
 
 ## PR #26: Add upgrade flows: Party Pass + Pro Monthly
 
-### Status
-To be resolved using similar approach as PR #28.
+### Conflicts Found
+When merging `main` into `copilot/implement-upgrade-ux-flows`, conflicts occur in:
+- `app.js`
+- `server.js`
+- `index.html`
+- `styles.css`
+- `README.md`
 
 ### Resolution Steps
 
@@ -132,9 +139,14 @@ To be resolved using similar approach as PR #28.
    git merge main --allow-unrelated-histories
    ```
 
-3. **Resolve conflicts** (similar process to PR#28)
+3. **Resolve conflicts** (similar process to PR #28, intelligently merge upgrade flows with guest view features)
 
-4. **Stage, commit and push**
+4. **Stage, commit and push:**
+   ```bash
+   git add .
+   git commit -m "Merge main into PR #26 - resolve conflicts"
+   git push origin copilot/implement-upgrade-ux-flows
+   ```
 
 ---
 

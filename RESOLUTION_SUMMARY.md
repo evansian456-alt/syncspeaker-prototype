@@ -40,11 +40,13 @@ Apply the pre-generated patches:
 
 ```bash
 # Fix PR #28
+git fetch origin copilot/add-timers-and-event-names
 git checkout copilot/add-timers-and-event-names
-git am < patches/pr28-conflict-resolution.patch  
+git am < patches/pr28-conflict-resolution.patch
 git push origin copilot/add-timers-and-event-names
 
 # Fix PR #26
+git fetch origin copilot/implement-upgrade-ux-flows
 git checkout copilot/implement-upgrade-ux-flows
 git am < patches/pr26-conflict-resolution.patch
 git push origin copilot/implement-upgrade-ux-flows
@@ -97,7 +99,8 @@ After applying patches, verify:
    ```
 
 3. **GitHub PR status:**
-   - Navigate to the PR on GitHub
+   - Navigate to the respective PR on GitHub (PR #28 or PR #26)
+   - Wait a few moments for GitHub to update the PR status
    - Confirm "mergeable" status
    - Verify no conflict warnings
 
