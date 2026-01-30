@@ -44,11 +44,11 @@ app.post("/api/create-party", (req, res) => {
   console.log(`[API] POST /api/create-party at ${timestamp}`);
   
   try {
-    // Generate unique party code
+    // Generate unique party code (check for collisions in both storage systems)
     let code;
     do {
       code = generateCode();
-    } while (httpParties.has(code));
+    } while (httpParties.has(code) || parties.has(code));
     
     const hostId = nextHostId++;
     const createdAt = Date.now();
@@ -92,10 +92,10 @@ app.post("/api/join-party", (req, res) => {
     if (!party) {
       const wsParty = parties.get(code);
       if (wsParty) {
-        // Sync WebSocket party to HTTP storage
+        // Sync WebSocket party to HTTP storage, preserving original createdAt
         party = {
           hostId: wsParty.members.find(m => m.isHost)?.id || 0,
-          createdAt: Date.now(), // Approximate creation time
+          createdAt: wsParty.createdAt || Date.now(), // Use original createdAt if available
           members: []
         };
         httpParties.set(code, party);
@@ -129,11 +129,19 @@ function cleanupExpiredParties() {
     }
   }
   
+  // Clean up WebSocket-only parties (not in HTTP storage)
+  for (const [code, party] of parties.entries()) {
+    if (party.createdAt && now - party.createdAt > PARTY_TTL_MS) {
+      if (!expiredCodes.includes(code)) {
+        expiredCodes.push(code);
+      }
+    }
+  }
+  
   if (expiredCodes.length > 0) {
     console.log(`[Cleanup] Removing ${expiredCodes.length} expired parties: ${expiredCodes.join(', ')}`);
     expiredCodes.forEach(code => {
       httpParties.delete(code);
-      // Also remove from WebSocket parties if present
       parties.delete(code);
     });
   }
