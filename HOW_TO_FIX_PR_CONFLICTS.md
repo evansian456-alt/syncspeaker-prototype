@@ -83,9 +83,8 @@ git push origin copilot/implement-upgrade-ux-flows
    - "Add EVENT constants from PR #28 for event naming consistency"
 
 ### PR #26 Patch
-1. Merges `main` branch into `copilot/implement-upgrade-ux-flows` using `-X theirs` strategy  
-2. Creates one commit:
-   - "Merge main into PR#26 to resolve conflicts"
+Merges `main` branch into `copilot/implement-upgrade-ux-flows` using `-X theirs` strategy and creates one commit:
+- "Merge main into PR#26 to resolve conflicts"
 
 Both patches use the `-X theirs` strategy which means:
 - Main branch's comprehensive feature set is preserved
