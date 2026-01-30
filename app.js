@@ -399,6 +399,11 @@ function initializeMusicPlayer() {
     });
     
     audioEl.addEventListener("error", (e) => {
+      // Only show error if a file was actually selected
+      if (!musicState.selectedFile) {
+        return;
+      }
+      
       console.error("[Music] Audio error:", e);
       let errorMsg = "Error: Unable to play this file";
       
