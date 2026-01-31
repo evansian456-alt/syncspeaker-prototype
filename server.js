@@ -56,7 +56,7 @@ app.get("/", (req, res) => {
 
 // Health check endpoint
 app.get("/health", async (req, res) => {
-  const redisStatus = redis.status === "ready" ? "connected" : redis.status;
+  const redisStatus = redis && redis.status ? (redis.status === "ready" ? "connected" : redis.status) : "unknown";
   res.json({ 
     status: "ok", 
     instanceId: INSTANCE_ID,
