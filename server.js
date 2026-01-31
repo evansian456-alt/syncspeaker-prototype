@@ -11,31 +11,67 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
+// Redis configuration check - REDIS_URL is REQUIRED in production
+// This ensures we fail loudly if Redis is not properly configured
+let redisConfig;
+let redisConnectionError = null;
+
+if (process.env.REDIS_URL) {
+  // Railway/production: Use REDIS_URL
+  redisConfig = process.env.REDIS_URL;
+} else if (process.env.REDIS_HOST || process.env.NODE_ENV === 'test') {
+  // Development/test: Use individual Redis settings or test environment
+  redisConfig = {
+    host: process.env.REDIS_HOST || "localhost",
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
+    retryStrategy(times) {
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    },
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: false
+  };
+} else {
+  // No Redis configuration found - this is a critical error in production
+  console.error("❌ CRITICAL: Redis configuration missing!");
+  console.error("   Set REDIS_URL environment variable for production.");
+  console.error("   For development, set REDIS_HOST (defaults to localhost).");
+  redisConnectionError = "missing";
+}
+
 // Redis client setup
-const redis = new Redis({
-  host: process.env.REDIS_HOST || "localhost",
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-  retryStrategy(times) {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  },
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: false
-});
+const redis = redisConfig ? new Redis(redisConfig) : null;
 
-redis.on("connect", () => {
-  console.log(`[Redis] Connected to Redis server (instance: ${INSTANCE_ID})`);
-});
+// Track Redis connection state
+let redisReady = false;
 
-redis.on("error", (err) => {
-  console.error(`[Redis] Error (instance: ${INSTANCE_ID}):`, err.message);
-});
+if (redis) {
+  redis.on("connect", () => {
+    console.log(`[Redis] Connected to Redis server (instance: ${INSTANCE_ID})`);
+    redisConnectionError = null;
+  });
 
-redis.on("ready", () => {
-  console.log(`[Redis] Ready to accept commands (instance: ${INSTANCE_ID})`);
-});
+  redis.on("error", (err) => {
+    console.error(`[Redis] Error (instance: ${INSTANCE_ID}):`, err.message);
+    redisConnectionError = err.message;
+    redisReady = false;
+  });
+
+  redis.on("ready", () => {
+    console.log(`[Redis] Ready to accept commands (instance: ${INSTANCE_ID})`);
+    redisReady = true;
+    redisConnectionError = null;
+  });
+  
+  redis.on("close", () => {
+    console.warn(`⚠️  [Redis] Connection closed (instance: ${INSTANCE_ID})`);
+    redisReady = false;
+  });
+} else {
+  console.warn("⚠️  Redis NOT CONNECTED — party discovery will fail in production");
+}
 
 // Parse JSON bodies
 app.use(express.json());
@@ -54,15 +90,33 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// Health check endpoint
+// Health check endpoint with detailed Redis status
 app.get("/health", async (req, res) => {
-  const redisStatus = redis && redis.status ? (redis.status === "ready" ? "connected" : redis.status) : "unknown";
-  res.json({ 
+  let redisStatus;
+  
+  if (!redis) {
+    redisStatus = "missing";
+  } else if (redisConnectionError) {
+    redisStatus = "error";
+  } else if (redis.status === "ready" && redisReady) {
+    redisStatus = "connected";
+  } else {
+    redisStatus = redis.status || "unknown";
+  }
+  
+  const health = { 
     status: "ok", 
     instanceId: INSTANCE_ID,
     redis: redisStatus,
     version: APP_VERSION
-  });
+  };
+  
+  // Include error details if Redis has issues
+  if (redisConnectionError) {
+    health.redisError = redisConnectionError;
+  }
+  
+  res.json(health);
 });
 
 // Simple ping endpoint for testing client->server
@@ -91,34 +145,43 @@ let nextHostId = 1;
 
 // Redis party storage helpers
 async function getPartyFromRedis(code) {
+  if (!redis) {
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
+  }
   try {
     const data = await redis.get(`${PARTY_KEY_PREFIX}${code}`);
     if (!data) return null;
     return JSON.parse(data);
   } catch (err) {
     console.error(`[Redis] Error getting party ${code}:`, err.message);
-    return null;
+    throw err;
   }
 }
 
 async function setPartyInRedis(code, partyData) {
+  if (!redis) {
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
+  }
   try {
     const data = JSON.stringify(partyData);
     await redis.setex(`${PARTY_KEY_PREFIX}${code}`, PARTY_TTL_SECONDS, data);
     return true;
   } catch (err) {
     console.error(`[Redis] Error setting party ${code}:`, err.message);
-    return false;
+    throw err;
   }
 }
 
 async function deletePartyFromRedis(code) {
+  if (!redis) {
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
+  }
   try {
     await redis.del(`${PARTY_KEY_PREFIX}${code}`);
     return true;
   } catch (err) {
     console.error(`[Redis] Error deleting party ${code}:`, err.message);
-    return false;
+    throw err;
   }
 }
 
@@ -126,6 +189,15 @@ async function deletePartyFromRedis(code) {
 app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  
+  // Runtime guard: Check if Redis is available
+  if (!redis || !redisReady) {
+    console.error(`[HTTP] Party creation blocked - Redis not ready, instanceId: ${INSTANCE_ID}`);
+    return res.status(503).json({ 
+      error: "Server not ready. Please retry in a moment.",
+      details: "Redis connection required for party discovery"
+    });
+  }
   
   try {
     // Generate unique party code
@@ -156,12 +228,7 @@ app.post("/api/create-party", async (req, res) => {
     };
     
     // Write to Redis first - only return success if write succeeds
-    const storeWriteOk = await setPartyInRedis(code, partyData);
-    
-    if (!storeWriteOk) {
-      console.error(`[HTTP] Failed to write party to Redis: ${code}, hostId: ${hostId}, instanceId: ${INSTANCE_ID}, timestamp: ${timestamp}`);
-      return res.status(500).json({ error: "Failed to create party in shared store" });
-    }
+    await setPartyInRedis(code, partyData);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -173,7 +240,7 @@ app.post("/api/create-party", async (req, res) => {
     });
     
     const totalParties = parties.size;
-    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storeWriteOk: ${storeWriteOk}, totalParties: ${totalParties}`);
+    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, totalParties: ${totalParties}`);
     
     res.json({
       partyCode: code,
@@ -181,7 +248,10 @@ app.post("/api/create-party", async (req, res) => {
     });
   } catch (error) {
     console.error(`[HTTP] Error creating party, instanceId: ${INSTANCE_ID}:`, error);
-    res.status(500).json({ error: "Failed to create party" });
+    res.status(500).json({ 
+      error: "Failed to create party",
+      details: error.message 
+    });
   }
 });
 
@@ -294,7 +364,7 @@ function startServer() {
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Instance ID: ${INSTANCE_ID}`);
-    console.log(`Redis: ${redis.status}`);
+    console.log(`Redis: ${redis ? redis.status : 'NOT CONFIGURED'}`);
   });
   
   // Start cleanup interval
@@ -384,6 +454,16 @@ function handleCreate(ws, msg) {
   const client = clients.get(ws);
   if (!client) return;
   
+  // Runtime guard: Check if Redis is available
+  if (!redis || !redisReady) {
+    console.error(`[WS] Party creation blocked - Redis not ready, instanceId: ${INSTANCE_ID}`);
+    ws.send(JSON.stringify({ 
+      t: "ERROR", 
+      message: "Server not ready. Please retry in a moment." 
+    }));
+    return;
+  }
+  
   // Remove from current party if already in one
   if (client.party) {
     handleDisconnect(ws);
@@ -433,9 +513,9 @@ function handleCreate(ws, msg) {
     guestCount: 0
   };
   
-  setPartyInRedis(code, partyData).then(storeWriteOk => {
+  setPartyInRedis(code, partyData).then(() => {
     const totalParties = parties.size;
-    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storeWriteOk: ${storeWriteOk}, totalParties: ${totalParties}`);
+    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, totalParties: ${totalParties}`);
   }).catch(err => {
     console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
   });
