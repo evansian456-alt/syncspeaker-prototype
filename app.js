@@ -1,6 +1,7 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 3; // Number of retries for party lookup
+const PARTY_LOOKUP_404_RETRIES = 2; // Number of additional retries specifically for 404 errors
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1500; // Delay between retries in milliseconds
 
 // Music player state
@@ -925,6 +926,7 @@ function updateDebugState() {
     debugPanel.setAttribute("aria-hidden", "false");
     
     // Update all debug fields
+    const versionEl = el("debugAppVersion");
     const roleEl = el("debugRole");
     const partyCodeEl = el("debugPartyCode");
     const connectedEl = el("debugConnected");
@@ -933,6 +935,16 @@ function updateDebugState() {
     const playbackStateEl = el("debugPlaybackState");
     const lastHostEventEl = el("debugLastHostEvent");
     const visualModeEl = el("debugVisualMode");
+    
+    // Fetch and display app version from server
+    if (versionEl && versionEl.textContent === "Loading...") {
+      fetch("/health").then(res => {
+        const version = res.headers.get("X-App-Version") || "Unknown";
+        versionEl.textContent = version;
+      }).catch(() => {
+        versionEl.textContent = "Unknown";
+      });
+    }
     
     if (roleEl) roleEl.textContent = state.isHost ? "host" : "guest";
     if (partyCodeEl) partyCodeEl.textContent = state.code || "None";
@@ -1809,11 +1821,12 @@ function attemptAddPhone() {
       
       // Handle 404 (Party not found) with retry
       if (response.status === 404) {
-        // Try one more time after a delay for 404 errors
+        // Try additional retries for 404 errors
         let retryResponse = null;
-        for (let retryAttempt = 1; retryAttempt <= 2; retryAttempt++) {
-          updateStatus(`Party not found, retrying… (${retryAttempt}/2)`);
-          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/2`);
+        for (let retryAttempt = 1; retryAttempt <= PARTY_LOOKUP_404_RETRIES; retryAttempt++) {
+          updateStatus(`Party not found (HTTP 404), retrying… (${retryAttempt}/${PARTY_LOOKUP_404_RETRIES})`);
+          updateDebug(`HTTP 404 - Retry ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES} - Waiting ${PARTY_LOOKUP_RETRY_DELAY_MS}ms`);
+          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES}`);
           
           await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
           
@@ -1836,14 +1849,19 @@ function attemptAddPhone() {
             
             if (retryResponse.ok) {
               response = retryResponse;
+              updateDebug(`HTTP ${retryResponse.status} - Success on retry ${retryAttempt}`);
               break;
             } else if (retryResponse.status !== 404) {
               // Different error, use this response
               response = retryResponse;
+              updateDebug(`HTTP ${retryResponse.status} - Different error on retry`);
               break;
+            } else {
+              updateDebug(`HTTP 404 - Still not found on retry ${retryAttempt}`);
             }
           } catch (retryError) {
             console.log(`[Party] Retry attempt ${retryAttempt} failed:`, retryError.message);
+            updateDebug(`Retry ${retryAttempt} failed: ${retryError.name}`);
           }
         }
       }
@@ -1852,8 +1870,10 @@ function attemptAddPhone() {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorMsg = errorData.error || `Server error: ${response.status}`;
         const endpoint = "POST /api/join-party";
-        updateDebugPanel(endpoint, errorMsg);
-        throw new Error(errorMsg);
+        const statusMessage = `HTTP ${response.status}: ${errorMsg}`;
+        updateDebugPanel(endpoint, statusMessage);
+        updateDebug(`HTTP ${response.status} - ${errorMsg}`);
+        throw new Error(statusMessage);
       }
       
       const data = await response.json();

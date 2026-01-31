@@ -5,9 +5,16 @@ const { customAlphabet } = require("nanoid");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and version display
 
 // Parse JSON bodies
 app.use(express.json());
+
+// Add version header to all responses
+app.use((req, res, next) => {
+  res.setHeader("X-App-Version", APP_VERSION);
+  next();
+});
 
 // Serve static files from the repo root
 app.use(express.static(__dirname));
@@ -34,39 +41,46 @@ const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
 const PARTY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-// In-memory party storage for HTTP API
-const httpParties = new Map(); // code -> { hostId, createdAt, members: [] }
+// Unified party storage - used by both HTTP API and WebSocket
+// code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN", createdAt, hostId }
+const parties = new Map();
+const clients = new Map(); // ws -> { id, party }
+let nextClientId = 1;
 let nextHostId = 1;
 
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[API] POST /api/create-party at ${timestamp}`);
+  console.log(`[HTTP] POST /api/create-party at ${timestamp}`);
   
   try {
-    // Generate unique party code (check for collisions in both storage systems)
+    // Generate unique party code
     let code;
     do {
       code = generateCode();
-    } while (httpParties.has(code) || parties.has(code));
+    } while (parties.has(code));
     
     const hostId = nextHostId++;
     const createdAt = Date.now();
     
-    httpParties.set(code, {
-      hostId,
+    // Store in unified parties Map
+    parties.set(code, {
+      host: null, // No WebSocket connection (HTTP-created party)
+      members: [],
+      chatMode: "OPEN",
       createdAt,
-      members: []
+      hostId
     });
     
-    console.log(`[API] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, createdAt: ${createdAt}`);
+    const totalParties = parties.size;
+    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, createdAt: ${createdAt}, totalParties: ${totalParties}`);
     
     res.json({
       partyCode: code,
       hostId: hostId
     });
   } catch (error) {
-    console.error("[API] Error creating party:", error);
+    console.error("[HTTP] Error creating party:", error);
     res.status(500).json({ error: "Failed to create party" });
   }
 });
@@ -74,7 +88,7 @@ app.post("/api/create-party", (req, res) => {
 // POST /api/join-party - Join an existing party
 app.post("/api/join-party", (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[API] POST /api/join-party at ${timestamp}`, req.body);
+  console.log(`[HTTP] POST /api/join-party at ${timestamp}`, req.body);
   
   try {
     const { partyCode } = req.body;
@@ -84,37 +98,60 @@ app.post("/api/join-party", (req, res) => {
     }
     
     const code = partyCode.toUpperCase().trim();
-    
-    // Check httpParties first
-    let party = httpParties.get(code);
-    
-    // If not found in httpParties, check WebSocket parties and sync
-    if (!party) {
-      const wsParty = parties.get(code);
-      if (wsParty) {
-        // Sync WebSocket party to HTTP storage, preserving original createdAt
-        party = {
-          hostId: wsParty.members.find(m => m.isHost)?.id || 0,
-          createdAt: wsParty.createdAt || Date.now(), // Use original createdAt if available
-          members: []
-        };
-        httpParties.set(code, party);
-        console.log(`[API] Synced WebSocket party ${code} to HTTP storage`);
-      }
-    }
+    const party = parties.get(code);
     
     if (!party) {
-      console.log(`[API] Party not found: ${code}, timestamp: ${timestamp}, available parties: ${Array.from(httpParties.keys()).join(', ') || 'none'}`);
+      const totalParties = parties.size;
+      const availableCodes = Array.from(parties.keys()).join(', ') || 'none';
+      console.log(`[HTTP] Party not found: ${code}, timestamp: ${timestamp}, totalParties: ${totalParties}, availableCodes: ${availableCodes}`);
       return res.status(404).json({ error: "Party not found" });
     }
     
-    console.log(`[API] Party joined: ${code}, timestamp: ${timestamp}, party age: ${Date.now() - party.createdAt}ms`);
+    const partyAge = Date.now() - party.createdAt;
+    const guestCount = party.members.filter(m => !m.isHost).length;
+    const totalParties = parties.size;
+    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}`);
     
     res.json({ ok: true });
   } catch (error) {
-    console.error("[API] Error joining party:", error);
+    console.error("[HTTP] Error joining party:", error);
     res.status(500).json({ error: "Failed to join party" });
   }
+});
+
+// GET /api/party/:code - Debug endpoint to check if a party exists
+app.get("/api/party/:code", (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code.toUpperCase().trim();
+  
+  console.log(`[HTTP] GET /api/party/${code} at ${timestamp}`);
+  
+  const party = parties.get(code);
+  
+  if (!party) {
+    const totalParties = parties.size;
+    console.log(`[HTTP] Debug query - Party not found: ${code}, totalParties: ${totalParties}`);
+    return res.json({
+      exists: false,
+      code: code,
+      totalParties: totalParties
+    });
+  }
+  
+  const hostConnected = party.host !== null && party.host !== undefined;
+  const guestCount = party.members.filter(m => !m.isHost).length;
+  
+  console.log(`[HTTP] Debug query - Party found: ${code}, hostConnected: ${hostConnected}, guestCount: ${guestCount}`);
+  
+  res.json({
+    exists: true,
+    code: code,
+    createdAt: new Date(party.createdAt).toISOString(),
+    hostConnected: hostConnected,
+    guestCount: guestCount,
+    totalMembers: party.members.length,
+    chatMode: party.chatMode
+  });
 });
 
 // Cleanup expired parties
@@ -122,26 +159,16 @@ function cleanupExpiredParties() {
   const now = Date.now();
   const expiredCodes = [];
   
-  // Clean up HTTP parties
-  for (const [code, party] of httpParties.entries()) {
-    if (now - party.createdAt > PARTY_TTL_MS) {
-      expiredCodes.push(code);
-    }
-  }
-  
-  // Clean up WebSocket-only parties (not in HTTP storage)
+  // Clean up expired parties from unified storage
   for (const [code, party] of parties.entries()) {
     if (party.createdAt && now - party.createdAt > PARTY_TTL_MS) {
-      if (!expiredCodes.includes(code)) {
-        expiredCodes.push(code);
-      }
+      expiredCodes.push(code);
     }
   }
   
   if (expiredCodes.length > 0) {
     console.log(`[Cleanup] Removing ${expiredCodes.length} expired parties: ${expiredCodes.join(', ')}`);
     expiredCodes.forEach(code => {
-      httpParties.delete(code);
       parties.delete(code);
     });
   }
@@ -149,11 +176,6 @@ function cleanupExpiredParties() {
 
 // Start cleanup interval
 let cleanupInterval;
-
-// Party state management
-const parties = new Map(); // code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN", createdAt }
-const clients = new Map(); // ws -> { id, party }
-let nextClientId = 1;
 
 // Start the HTTP server only if not imported as a module
 let server;
@@ -256,11 +278,11 @@ function handleCreate(ws, msg) {
     handleDisconnect(ws);
   }
   
-  // Generate unique party code (check for collisions in both storage systems)
+  // Generate unique party code
   let code;
   do {
     code = generateCode();
-  } while (parties.has(code) || httpParties.has(code));
+  } while (parties.has(code));
   
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
@@ -276,24 +298,21 @@ function handleCreate(ws, msg) {
   
   const createdAt = Date.now();
   const timestamp = new Date().toISOString();
+  const hostId = client.id; // Use client ID as host ID for WebSocket connections
   
+  // Store in unified parties Map
   parties.set(code, {
     host: ws,
     members: [member],
     chatMode: "OPEN", // Default chat mode
-    createdAt
-  });
-  
-  // Sync to HTTP party storage for cross-protocol access
-  httpParties.set(code, {
-    hostId: client.id,
     createdAt,
-    members: []
+    hostId
   });
   
   client.party = code;
   
-  console.log(`[Party] Created party ${code} by client ${client.id}, timestamp: ${timestamp}, createdAt: ${createdAt}`);
+  const totalParties = parties.size;
+  console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, createdAt: ${createdAt}, totalParties: ${totalParties}`);
   
   ws.send(JSON.stringify({ t: "CREATED", code }));
   broadcastRoomState(code);
@@ -304,19 +323,13 @@ function handleJoin(ws, msg) {
   if (!client) return;
   
   const code = msg.code?.toUpperCase();
-  let party = parties.get(code);
+  const party = parties.get(code);
   
-  // If not found in WebSocket parties, check HTTP parties and sync
   if (!party) {
-    const httpParty = httpParties.get(code);
-    if (httpParty) {
-      console.log(`[Party] HTTP party ${code} exists but not in WebSocket storage - party may have been created via HTTP API`);
-      // Party exists in HTTP but not WebSocket - this can happen if created via HTTP API
-      // Guest should wait for host to connect via WebSocket first
-    }
-    
     const timestamp = new Date().toISOString();
-    console.log(`[Party] Join failed - party ${code} not found in WebSocket storage, timestamp: ${timestamp}`);
+    const totalParties = parties.size;
+    const availableCodes = Array.from(parties.keys()).join(', ') || 'none';
+    console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, totalParties: ${totalParties}, availableCodes: ${availableCodes}`);
     ws.send(JSON.stringify({ t: "ERROR", message: "Party not found" }));
     return;
   }
@@ -346,7 +359,9 @@ function handleJoin(ws, msg) {
   party.members.push(member);
   client.party = code;
   
-  console.log(`[Party] Client ${client.id} joined party ${code}`);
+  const guestCount = party.members.filter(m => !m.isHost).length;
+  const totalParties = parties.size;
+  console.log(`[WS] Client ${client.id} joined party ${code}, guestCount: ${guestCount}, totalParties: ${totalParties}`);
   
   ws.send(JSON.stringify({ t: "JOINED", code }));
   broadcastRoomState(code);
@@ -680,6 +695,6 @@ module.exports = {
   app,
   server,
   generateCode,
-  httpParties,
+  parties,
   startServer
 };

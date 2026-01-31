@@ -1,10 +1,10 @@
 const request = require('supertest');
-const { app, generateCode, httpParties } = require('./server');
+const { app, generateCode, parties } = require('./server');
 
 describe('Server HTTP Endpoints', () => {
-  // Clear httpParties before each test to ensure clean state
+  // Clear parties before each test to ensure clean state
   beforeEach(() => {
-    httpParties.clear();
+    parties.clear();
   });
 
   describe('GET /health', () => {
@@ -86,13 +86,13 @@ describe('Server HTTP Endpoints', () => {
       expect(codes.size).toBe(10);
     });
 
-    it('should store party in httpParties map', async () => {
+    it('should store party in parties map', async () => {
       const response = await request(app).post('/api/create-party');
       const partyCode = response.body.partyCode;
       
-      expect(httpParties.has(partyCode)).toBe(true);
+      expect(parties.has(partyCode)).toBe(true);
       
-      const party = httpParties.get(partyCode);
+      const party = parties.get(partyCode);
       expect(party).toHaveProperty('hostId');
       expect(party).toHaveProperty('createdAt');
       expect(party).toHaveProperty('members');
@@ -170,6 +170,50 @@ describe('Server HTTP Endpoints', () => {
     });
   });
 
+  describe('GET /api/party/:code', () => {
+    let partyCode;
+
+    beforeEach(async () => {
+      // Create a party to query
+      const response = await request(app).post('/api/create-party');
+      partyCode = response.body.partyCode;
+    });
+
+    it('should return party information if party exists', async () => {
+      const response = await request(app).get(`/api/party/${partyCode}`);
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(true);
+      expect(response.body.code).toBe(partyCode);
+      expect(response.body.createdAt).toBeDefined();
+      expect(response.body.hostConnected).toBeDefined();
+      expect(response.body.guestCount).toBeDefined();
+    });
+
+    it('should return exists false if party does not exist', async () => {
+      const response = await request(app).get('/api/party/NOEXST');
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(false);
+      expect(response.body.code).toBe('NOEXST');
+    });
+
+    it('should handle lowercase party codes', async () => {
+      const response = await request(app).get(`/api/party/${partyCode.toLowerCase()}`);
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(true);
+      expect(response.body.code).toBe(partyCode);
+    });
+
+    it('should return hostConnected false for HTTP-only parties', async () => {
+      const response = await request(app).get(`/api/party/${partyCode}`);
+      
+      expect(response.status).toBe(200);
+      expect(response.body.hostConnected).toBe(false); // No WebSocket connection yet
+    });
+  });
+
   describe('GET /', () => {
     it('should serve index.html', async () => {
       const response = await request(app).get('/');
@@ -230,7 +274,7 @@ describe('Utility Functions', () => {
 
 describe('Party Storage and Sync', () => {
   beforeEach(() => {
-    httpParties.clear();
+    parties.clear();
   });
 
   describe('Party TTL and Cleanup', () => {
@@ -242,7 +286,7 @@ describe('Party Storage and Sync', () => {
       expect(response.status).toBe(200);
       const partyCode = response.body.partyCode;
       
-      const party = httpParties.get(partyCode);
+      const party = parties.get(partyCode);
       expect(party).toBeDefined();
       expect(party.createdAt).toBeDefined();
       expect(party.createdAt).toBeGreaterThanOrEqual(beforeCreate);
@@ -265,7 +309,7 @@ describe('Party Storage and Sync', () => {
       expect(joinResponse.status).toBe(200);
       
       // Verify party still exists and has valid createdAt
-      const party = httpParties.get(partyCode);
+      const party = parties.get(partyCode);
       expect(party).toBeDefined();
       expect(Date.now() - party.createdAt).toBeGreaterThanOrEqual(10);
     });
@@ -289,10 +333,10 @@ describe('Party Storage and Sync', () => {
       const party3 = await request(app).post('/api/create-party');
       
       // Verify all parties are in storage
-      expect(httpParties.size).toBe(3);
-      expect(httpParties.has(party1.body.partyCode)).toBe(true);
-      expect(httpParties.has(party2.body.partyCode)).toBe(true);
-      expect(httpParties.has(party3.body.partyCode)).toBe(true);
+      expect(parties.size).toBe(3);
+      expect(parties.has(party1.body.partyCode)).toBe(true);
+      expect(parties.has(party2.body.partyCode)).toBe(true);
+      expect(parties.has(party3.body.partyCode)).toBe(true);
       
       // Join each party
       const join1 = await request(app)

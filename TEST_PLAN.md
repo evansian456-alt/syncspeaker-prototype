@@ -603,6 +603,205 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 
 ---
 
+## Multi-Device Party Discovery Testing (CRITICAL)
+
+### Prerequisites
+- Server running (`npm start`)
+- Two physical devices with different network connections
+- Debug mode enabled (`?debug=1` in URL)
+
+### Test 1: Android Chrome - Same Wi-Fi Network
+**Steps:**
+1. **Device A (Host - Android Chrome):**
+   - Open app on Wi-Fi network
+   - Click "Start a party"
+   - Enter optional nickname
+   - Click "Start party"
+   - **VERIFY**: Party code displayed immediately (e.g., "ABC123")
+   - **VERIFY**: Debug panel shows app version
+   - Copy the party code
+
+2. **Device B (Guest - Android Chrome):**
+   - Open app on same Wi-Fi network
+   - Click "Join a party"
+   - Enter the party code from Device A
+   - Click "Join party"
+   - **VERIFY**: Status shows "Looking for party…"
+   - **VERIFY**: Status shows "Attempt 1/3" if needed
+   - **VERIFY**: Join succeeds within 3 attempts
+   - **VERIFY**: No "Party not found" error
+
+**Expected Results:**
+- ✅ Host creates party successfully
+- ✅ Guest finds and joins party immediately
+- ✅ Debug panel shows matching app versions
+- ✅ No 404 errors in console
+- ✅ Status messages show clear progress
+
+### Test 2: Android Chrome - Host Mobile Hotspot
+**Steps:**
+1. **Device A (Host - Android Chrome):**
+   - Enable mobile hotspot on Device A
+   - Open app while hotspot is active
+   - Create party as in Test 1
+   - Copy party code
+
+2. **Device B (Guest - Android Chrome):**
+   - Connect to Device A's mobile hotspot
+   - Open app
+   - Join party using code from Device A
+   - **VERIFY**: Join succeeds despite different network type
+
+**Expected Results:**
+- ✅ Party creation works on mobile hotspot
+- ✅ Guest on hotspot can join immediately
+- ✅ Connection stable throughout session
+
+### Test 3: iPhone Safari - Same Wi-Fi Network
+**Steps:**
+1. **Device A (Host - iPhone Safari):**
+   - Open app on Wi-Fi network
+   - Create party
+   - Copy party code
+
+2. **Device B (Guest - iPhone Safari):**
+   - Open app on same Wi-Fi network
+   - Join using host's party code
+   - **VERIFY**: Join succeeds without retry
+
+**Expected Results:**
+- ✅ Works on iOS Safari
+- ✅ No iOS-specific errors
+- ✅ UI displays correctly on iPhone
+
+### Test 4: Cross-Platform (Android Host + iPhone Guest)
+**Steps:**
+1. **Device A (Host - Android Chrome):**
+   - Create party on Wi-Fi
+   - Copy party code
+
+2. **Device B (Guest - iPhone Safari):**
+   - Join party on same Wi-Fi
+   - **VERIFY**: Cross-platform join works
+
+**Expected Results:**
+- ✅ Android and iOS devices can connect
+- ✅ No platform-specific issues
+
+### Test 5: Immediate Join (Timing Test)
+**Steps:**
+1. Device A creates party
+2. Device B joins **immediately** (within 2 seconds of code display)
+3. **VERIFY**: Join succeeds without retry
+
+**Expected Results:**
+- ✅ Immediate join works (no race condition)
+- ✅ No 404 error on immediate join
+
+### Test 6: Delayed Join (10 Second Wait)
+**Steps:**
+1. Device A creates party
+2. Wait 10 seconds
+3. Device B joins using party code
+4. **VERIFY**: Join succeeds
+
+**Expected Results:**
+- ✅ Party still discoverable after 10 seconds
+- ✅ No expiration issues
+
+### Test 7: Debug Endpoint Verification
+**Steps:**
+1. Device A creates party with code ABC123
+2. **From any browser**, navigate to:
+   ```
+   http://[server-url]/api/party/ABC123
+   ```
+3. **VERIFY** response shows:
+   ```json
+   {
+     "exists": true,
+     "code": "ABC123",
+     "createdAt": "[timestamp]",
+     "hostConnected": true/false,
+     "guestCount": 0,
+     "totalMembers": 1
+   }
+   ```
+4. **Test case-insensitive lookup:**
+   - Navigate to: `http://[server-url]/api/party/abc123` (lowercase)
+   - **VERIFY** response still shows `exists: true` with code `"ABC123"` (uppercase)
+
+**Expected Results:**
+- ✅ Debug endpoint returns party info
+- ✅ `exists: true` for valid parties
+- ✅ `exists: false` for invalid codes
+- ✅ Guest count increments when guests join
+- ✅ Lowercase codes work (case-insensitive)
+
+### Test 8: Error Message Clarity
+**Steps:**
+1. Device B attempts to join with invalid code "NOEXST"
+2. **VERIFY** error message shows:
+   - "HTTP 404: Party not found" (not just "Party not found")
+   - Retry attempt count (e.g., "attempt 2/3")
+   - Debug info shows endpoint and status code
+
+**Expected Results:**
+- ✅ HTTP status code visible in error
+- ✅ Retry attempts shown clearly
+- ✅ No silent failures
+- ✅ Debug panel shows last error
+
+### Test 9: Network Timeout Handling
+**Steps:**
+1. Turn off server while Device B attempts to join
+2. **VERIFY**: Clear timeout error message
+3. **VERIFY**: "Server not responding" message shown
+
+**Expected Results:**
+- ✅ Timeout errors handled gracefully
+- ✅ User-friendly timeout message
+- ✅ No indefinite waiting
+
+### Test 10: Multiple Retries Exhausted
+**Steps:**
+1. Device B joins with code that doesn't exist
+2. Let all 3 retry attempts fail
+3. **VERIFY**: Final error message clear
+4. **VERIFY**: Button re-enabled after failure
+
+**Expected Results:**
+- ✅ All 3 retries attempted
+- ✅ Clear final error message
+- ✅ Button returns to "Join party" state
+- ✅ User can try again
+
+---
+
+## Multi-Device Test Summary Checklist
+
+### Critical Scenarios
+- [ ] Android Chrome (Wi-Fi) → Android Chrome (Wi-Fi) ✅
+- [ ] Android Chrome (Hotspot) → Android Chrome (Hotspot) ✅
+- [ ] iPhone Safari (Wi-Fi) → iPhone Safari (Wi-Fi) ✅
+- [ ] Android Chrome → iPhone Safari (cross-platform) ✅
+- [ ] Immediate join (< 2 seconds) ✅
+- [ ] Delayed join (10+ seconds) ✅
+
+### Debug & Observability
+- [ ] Debug endpoint `/api/party/:code` works ✅
+- [ ] App version visible in debug panel ✅
+- [ ] HTTP status codes shown in errors ✅
+- [ ] Retry attempts counted and displayed ✅
+
+### Error Handling
+- [ ] 404 errors retry automatically ✅
+- [ ] Timeout errors show clear message ✅
+- [ ] Network errors handled gracefully ✅
+- [ ] Button re-enables after failure ✅
+
+---
+
 ## Known Limitations
 - Browser prototype, not production app
 - WebSocket sync not tested (offline mode)
