@@ -709,7 +709,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 - ✅ Party still discoverable after 10 seconds
 - ✅ No expiration issues
 
-### Test 7: Debug Endpoint Verification
+### Test 7: Debug Endpoint Verification (REDIS-BASED)
 **Steps:**
 1. Device A creates party with code ABC123
 2. **From any browser**, navigate to:
@@ -724,7 +724,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
      "createdAt": "[timestamp]",
      "hostConnected": true/false,
      "guestCount": 0,
-     "totalMembers": 1
+     "instanceId": "server-xxxxx"
    }
    ```
 4. **Test case-insensitive lookup:**
@@ -732,13 +732,82 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
    - **VERIFY** response still shows `exists: true` with code `"ABC123"` (uppercase)
 
 **Expected Results:**
-- ✅ Debug endpoint returns party info
+- ✅ Debug endpoint returns party info from Redis
 - ✅ `exists: true` for valid parties
 - ✅ `exists: false` for invalid codes
 - ✅ Guest count increments when guests join
 - ✅ Lowercase codes work (case-insensitive)
+- ✅ instanceId shown to identify which server instance responded
 
-### Test 8: Error Message Clarity
+### Test 8: Immediate Party Discovery (No Race Condition)
+**Steps:**
+1. Host creates party and receives code
+2. **Immediately** (within 1 second) check `/api/party/:code` endpoint
+3. **VERIFY**: Party exists in Redis (exists: true)
+4. Guest joins immediately (within 2 seconds of creation)
+5. **VERIFY**: Join succeeds without retry
+
+**Expected Results:**
+- ✅ Party is in Redis before creation endpoint returns to client
+- ✅ No race condition between party creation and Redis write
+- ✅ Immediate joins succeed on first attempt
+- ✅ No 404 errors
+
+### Test 9: Party Discovery After 60 Seconds
+**Steps:**
+1. Host creates party and receives code
+2. Wait 60 seconds
+3. Check `/api/party/:code` endpoint
+4. **VERIFY**: Party still exists (exists: true)
+5. Guest joins after 60 seconds
+6. **VERIFY**: Join succeeds
+
+**Expected Results:**
+- ✅ Party persists in Redis for at least 60 seconds
+- ✅ No premature expiration
+- ✅ TTL is set correctly (2 hours)
+- ✅ Guest can join after waiting
+
+### Test 10: Multi-Instance Party Discovery
+**Steps:**
+1. Start server instance 1 with `npm start`
+2. Start server instance 2 on different port: `PORT=8081 npm start`
+3. Create party on instance 1: `curl -X POST http://localhost:8080/api/create-party`
+4. Note the partyCode from response
+5. Check party on instance 2: `curl http://localhost:8081/api/party/:code`
+6. **VERIFY**: Party exists on instance 2 (different instance)
+7. **VERIFY**: Both instances show different instanceId
+8. Join party on instance 2: `curl -X POST http://localhost:8081/api/join-party -d '{"partyCode":"CODE"}'`
+9. **VERIFY**: Join succeeds across instances
+
+**Expected Results:**
+- ✅ Parties created on instance 1 are visible on instance 2
+- ✅ Redis acts as shared storage between instances
+- ✅ instanceId differs between servers
+- ✅ Guests can join parties created on different instances
+- ✅ No 404 errors across instances
+
+### Test 11: Health Endpoint Instance Identification
+**Steps:**
+1. Call `/health` endpoint
+2. **VERIFY** response includes:
+   ```json
+   {
+     "status": "ok",
+     "instanceId": "server-xxxxx",
+     "redis": "connected",
+     "version": "0.1.0-party-fix"
+   }
+   ```
+3. If multiple instances running, verify each has unique instanceId
+
+**Expected Results:**
+- ✅ Health endpoint returns instanceId
+- ✅ Redis connection status shown
+- ✅ Each instance has unique identifier
+- ✅ Can identify which instance handled request
+
+### Test 12: Error Message Clarity
 **Steps:**
 1. Device B attempts to join with invalid code "NOEXST"
 2. **VERIFY** error message shows:
@@ -752,7 +821,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 - ✅ No silent failures
 - ✅ Debug panel shows last error
 
-### Test 9: Network Timeout Handling
+### Test 13: Network Timeout Handling
 **Steps:**
 1. Turn off server while Device B attempts to join
 2. **VERIFY**: Clear timeout error message
@@ -763,7 +832,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 - ✅ User-friendly timeout message
 - ✅ No indefinite waiting
 
-### Test 10: Multiple Retries Exhausted
+### Test 14: Multiple Retries Exhausted
 **Steps:**
 1. Device B joins with code that doesn't exist
 2. Let all 3 retry attempts fail
@@ -780,7 +849,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 
 ## Multi-Device Test Summary Checklist
 
-### Critical Scenarios
+### Critical Scenarios (Original)
 - [ ] Android Chrome (Wi-Fi) → Android Chrome (Wi-Fi) ✅
 - [ ] Android Chrome (Hotspot) → Android Chrome (Hotspot) ✅
 - [ ] iPhone Safari (Wi-Fi) → iPhone Safari (Wi-Fi) ✅
@@ -788,11 +857,21 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 - [ ] Immediate join (< 2 seconds) ✅
 - [ ] Delayed join (10+ seconds) ✅
 
+### Redis-Based Shared Store Tests (NEW)
+- [ ] Host creates party → immediately open `/api/party/:code` (must exist in Redis) ✅
+- [ ] Guest opens `/api/party/:code` (must match across instances) ✅
+- [ ] Join from second phone succeeds (via Redis lookup) ✅
+- [ ] Verify works after 60 seconds (Redis persistence) ✅
+- [ ] Multi-instance: party created on instance 1 is discoverable on instance 2 ✅
+- [ ] Health endpoint shows instanceId and Redis status ✅
+
 ### Debug & Observability
 - [ ] Debug endpoint `/api/party/:code` works ✅
+- [ ] Debug endpoint shows instanceId ✅
 - [ ] App version visible in debug panel ✅
 - [ ] HTTP status codes shown in errors ✅
 - [ ] Retry attempts counted and displayed ✅
+- [ ] Server logs include instanceId and storeReadResult/storeWriteOk ✅
 
 ### Error Handling
 - [ ] 404 errors retry automatically ✅

@@ -1,21 +1,35 @@
 const request = require('supertest');
-const { app, generateCode, parties } = require('./server');
+const { app, generateCode, parties, redis } = require('./server');
 
 describe('Server HTTP Endpoints', () => {
-  // Clear parties before each test to ensure clean state
-  beforeEach(() => {
+  // Clear parties and Redis before each test to ensure clean state
+  beforeEach(async () => {
     parties.clear();
+    // Clear Redis mock
+    await redis.flushall();
   });
 
   describe('GET /health', () => {
     it('should return status ok', async () => {
       const response = await request(app).get('/health');
-      expect(response.body).toEqual({ status: 'ok' });
+      expect(response.body.status).toBe('ok');
     });
 
     it('should return 200 status code', async () => {
       const response = await request(app).get('/health');
       expect(response.status).toBe(200);
+    });
+    
+    it('should include instanceId', async () => {
+      const response = await request(app).get('/health');
+      expect(response.body.instanceId).toBeDefined();
+      expect(typeof response.body.instanceId).toBe('string');
+    });
+    
+    it('should include Redis status', async () => {
+      const response = await request(app).get('/health');
+      expect(response.body.redis).toBeDefined();
+      expect(typeof response.body.redis).toBe('string');
     });
 
     it('should return JSON content type', async () => {
@@ -188,6 +202,7 @@ describe('Server HTTP Endpoints', () => {
       expect(response.body.createdAt).toBeDefined();
       expect(response.body.hostConnected).toBeDefined();
       expect(response.body.guestCount).toBeDefined();
+      expect(response.body.instanceId).toBeDefined();
     });
 
     it('should return exists false if party does not exist', async () => {
@@ -196,6 +211,7 @@ describe('Server HTTP Endpoints', () => {
       expect(response.status).toBe(200);
       expect(response.body.exists).toBe(false);
       expect(response.body.code).toBe('NOEXST');
+      expect(response.body.instanceId).toBeDefined();
     });
 
     it('should handle lowercase party codes', async () => {
