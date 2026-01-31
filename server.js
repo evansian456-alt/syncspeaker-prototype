@@ -360,13 +360,16 @@ app.post("/api/join-party", async (req, res) => {
     if (partyData && !localParty) {
       setImmediate(() => {
         try {
-          parties.set(code, {
-            host: null,
-            members: [],
-            chatMode: partyData.chatMode || "OPEN",
-            createdAt: partyData.createdAt,
-            hostId: partyData.hostId
-          });
+          // Re-check if party was created by another request in the meantime
+          if (!parties.has(code)) {
+            parties.set(code, {
+              host: null,
+              members: [],
+              chatMode: partyData.chatMode || "OPEN",
+              createdAt: partyData.createdAt,
+              hostId: partyData.hostId
+            });
+          }
         } catch (err) {
           console.error(`[join-party] Async state update error:`, err);
         }
