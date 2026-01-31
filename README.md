@@ -117,6 +117,52 @@ cp .env.example .env
 
 Default configuration connects to Redis at `localhost:6379`. See [REDIS_SETUP.md](REDIS_SETUP.md) for production configuration.
 
+## Production Deployment (Railway)
+
+SyncSpeaker requires Redis for multi-device party discovery and synchronization. Follow these steps to deploy on Railway:
+
+### 1. Add Redis Plugin
+
+1. Go to your Railway project dashboard
+2. Click **"+ New"** → **"Database"** → **"Add Redis"**
+3. Railway will automatically provision a Redis instance and set the `REDIS_URL` environment variable
+
+### 2. Verify REDIS_URL
+
+1. Go to your app service in Railway
+2. Click on **"Variables"** tab
+3. Confirm that `REDIS_URL` is set (it should be automatically linked from the Redis plugin)
+4. The URL format should be: `redis://default:[password]@[host]:[port]`
+
+### 3. Deploy Your App
+
+Railway will automatically deploy your app with Redis connected. 
+
+### 4. Health Check
+
+After deployment, verify Redis connection:
+```bash
+curl https://your-app.railway.app/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "instanceId": "server-abc123",
+  "redis": "connected",
+  "version": "0.1.0-party-fix"
+}
+```
+
+**Important**: If `redis` shows `"missing"` or `"error"`, party creation will fail. Check your Railway Redis plugin configuration.
+
+### Common Issues
+
+- **Redis shows "missing"**: The `REDIS_URL` environment variable is not set. Add the Redis plugin in Railway.
+- **Redis shows "error"**: Redis connection failed. Check Redis plugin status and network connectivity.
+- **Party creation returns 503**: Redis is not ready. Wait a few seconds for Redis to connect, or check logs.
+
 ## Testing
 
 This project includes a comprehensive test suite for server-side functions and utilities.
@@ -154,10 +200,20 @@ Tests are located in:
 ## API Endpoints
 
 ### GET /health
-Returns server health status
+Returns server health status and Redis connection state
 ```json
-{ "status": "ok" }
+{
+  "status": "ok",
+  "instanceId": "server-abc123",
+  "redis": "connected",
+  "version": "0.1.0-party-fix"
+}
 ```
+
+Redis status values:
+- `"connected"` - Redis is connected and ready
+- `"missing"` - Redis configuration not found (REDIS_URL not set)
+- `"error"` - Redis connection error (includes `redisError` field with details)
 
 ### GET /api/ping
 Ping endpoint for testing connectivity

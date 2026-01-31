@@ -395,3 +395,85 @@ describe('Party Storage and Sync', () => {
   });
 });
 
+describe('Production Scenarios', () => {
+  beforeEach(async () => {
+    parties.clear();
+    await redis.flushall();
+  });
+
+  describe('Cross-Instance Party Discovery', () => {
+    it('should allow party created via HTTP to be discovered via GET /api/party/:code', async () => {
+      // Simulate first request: Create party
+      const createResponse = await request(app)
+        .post('/api/create-party');
+      
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      expect(partyCode).toBeDefined();
+      
+      // Simulate second request from another client/instance: Check if party exists
+      const checkResponse = await request(app)
+        .get(`/api/party/${partyCode}`);
+      
+      expect(checkResponse.status).toBe(200);
+      expect(checkResponse.body.exists).toBe(true);
+      expect(checkResponse.body.code).toBe(partyCode);
+      expect(checkResponse.body.createdAt).toBeDefined();
+      expect(checkResponse.body.hostConnected).toBeDefined();
+      expect(checkResponse.body.guestCount).toBeDefined();
+      expect(checkResponse.body.instanceId).toBeDefined();
+    });
+    
+    it('should persist party in Redis for cross-instance lookup', async () => {
+      // Create party
+      const createResponse = await request(app)
+        .post('/api/create-party');
+      
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Directly check Redis (simulating another instance)
+      const { getPartyFromRedis } = require('./server');
+      const partyData = await getPartyFromRedis(partyCode);
+      
+      expect(partyData).toBeDefined();
+      expect(partyData.createdAt).toBeDefined();
+      expect(partyData.hostId).toBeDefined();
+      expect(partyData.chatMode).toBe('OPEN');
+      expect(partyData.guestCount).toBe(0);
+    });
+    
+    it('should allow guests to join party created on different instance', async () => {
+      // Instance 1: Create party
+      const createResponse = await request(app)
+        .post('/api/create-party');
+      
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Clear local memory to simulate different instance
+      parties.clear();
+      
+      // Instance 2: Join party (should find it in Redis)
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body.ok).toBe(true);
+    });
+  });
+  
+  describe('Redis Connection Requirements', () => {
+    it('should show redis status in health endpoint', async () => {
+      const response = await request(app).get('/health');
+      
+      expect(response.status).toBe(200);
+      expect(response.body.redis).toBeDefined();
+      expect(typeof response.body.redis).toBe('string');
+      // In test environment with mock, status could be various states
+      expect(['connected', 'ready', 'connect', 'connecting', 'unknown']).toContain(response.body.redis);
+    });
+  });
+});
+
