@@ -5,7 +5,7 @@ const { customAlphabet } = require("nanoid");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const APP_VERSION = "0.1.0-party-fix"; // Build version for cache busting
+const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and version display
 
 // Parse JSON bodies
 app.use(express.json());
@@ -42,7 +42,11 @@ const PARTY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Unified party storage - used by both HTTP API and WebSocket
-// Will be initialized after parties Map is defined below
+// code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN", createdAt, hostId }
+const parties = new Map();
+const clients = new Map(); // ws -> { id, party }
+let nextClientId = 1;
+let nextHostId = 1;
 
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", (req, res) => {
@@ -61,7 +65,7 @@ app.post("/api/create-party", (req, res) => {
     
     // Store in unified parties Map
     parties.set(code, {
-      host: null, // No WebSocket connection yet
+      host: null, // No WebSocket connection (HTTP-created party)
       members: [],
       chatMode: "OPEN",
       createdAt,
@@ -172,13 +176,6 @@ function cleanupExpiredParties() {
 
 // Start cleanup interval
 let cleanupInterval;
-
-// Unified party storage - used by both HTTP API and WebSocket
-// code -> { host, members: [{ ws, id, name, isPro, isHost }], chatMode: "OPEN", createdAt, hostId }
-const parties = new Map();
-const clients = new Map(); // ws -> { id, party }
-let nextClientId = 1;
-let nextHostId = 1;
 
 // Start the HTTP server only if not imported as a module
 let server;

@@ -1,6 +1,7 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 3; // Number of retries for party lookup
+const PARTY_LOOKUP_404_RETRIES = 2; // Number of additional retries specifically for 404 errors
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1500; // Delay between retries in milliseconds
 
 // Music player state
@@ -1820,12 +1821,12 @@ function attemptAddPhone() {
       
       // Handle 404 (Party not found) with retry
       if (response.status === 404) {
-        // Try one more time after a delay for 404 errors
+        // Try additional retries for 404 errors
         let retryResponse = null;
-        for (let retryAttempt = 1; retryAttempt <= 2; retryAttempt++) {
-          updateStatus(`Party not found (HTTP 404), retrying… (${retryAttempt}/2)`);
-          updateDebug(`HTTP 404 - Retry ${retryAttempt}/2 - Waiting ${PARTY_LOOKUP_RETRY_DELAY_MS}ms`);
-          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/2`);
+        for (let retryAttempt = 1; retryAttempt <= PARTY_LOOKUP_404_RETRIES; retryAttempt++) {
+          updateStatus(`Party not found (HTTP 404), retrying… (${retryAttempt}/${PARTY_LOOKUP_404_RETRIES})`);
+          updateDebug(`HTTP 404 - Retry ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES} - Waiting ${PARTY_LOOKUP_RETRY_DELAY_MS}ms`);
+          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES}`);
           
           await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
           

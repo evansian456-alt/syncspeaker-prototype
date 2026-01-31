@@ -727,12 +727,16 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
      "totalMembers": 1
    }
    ```
+4. **Test case-insensitive lookup:**
+   - Navigate to: `http://[server-url]/api/party/abc123` (lowercase)
+   - **VERIFY** response still shows `exists: true` with code `"ABC123"` (uppercase)
 
 **Expected Results:**
 - ✅ Debug endpoint returns party info
 - ✅ `exists: true` for valid parties
 - ✅ `exists: false` for invalid codes
 - ✅ Guest count increments when guests join
+- ✅ Lowercase codes work (case-insensitive)
 
 ### Test 8: Error Message Clarity
 **Steps:**
