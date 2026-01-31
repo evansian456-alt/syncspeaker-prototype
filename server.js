@@ -389,7 +389,9 @@ function handleCreate(ws, msg) {
     handleDisconnect(ws);
   }
   
-  // Generate unique party code (async now, but we handle it synchronously for simplicity)
+  // Generate unique party code
+  // Note: WebSocket party creation uses local Map for uniqueness check
+  // Redis write happens after, but doesn't prevent UI from showing code
   let code;
   do {
     code = generateCode();
@@ -456,6 +458,8 @@ async function handleJoin(ws, msg) {
   let party = parties.get(code);
   
   // If party exists in Redis but not locally, create local entry
+  // Note: guestCount and hostConnected are derived from members array in local state
+  // and don't need to be initialized from Redis here
   if (partyData && !party) {
     parties.set(code, {
       host: null,
@@ -503,13 +507,17 @@ async function handleJoin(ws, msg) {
   const guestCount = party.members.filter(m => !m.isHost).length;
   const totalParties = parties.size;
   
-  // Update Redis with new guest count
-  if (partyData) {
-    partyData.guestCount = guestCount;
-    setPartyInRedis(code, partyData).catch(err => {
-      console.error(`[WS] Error updating guest count in Redis for ${code}:`, err.message);
-    });
-  }
+  // Update Redis with new guest count (fetch fresh to avoid race conditions)
+  getPartyFromRedis(code).then(freshPartyData => {
+    if (freshPartyData) {
+      freshPartyData.guestCount = guestCount;
+      setPartyInRedis(code, freshPartyData).catch(err => {
+        console.error(`[WS] Error updating guest count in Redis for ${code}:`, err.message);
+      });
+    }
+  }).catch(err => {
+    console.error(`[WS] Error fetching party for guest count update:`, err.message);
+  });
   
   console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}`);
   
