@@ -70,6 +70,28 @@ For **single-device testing** without installing dependencies:
 
 For **multi-device testing** with real-time sync:
 
+#### Prerequisites
+- Node.js (v14 or higher)
+- Redis server (required for multi-instance party discovery)
+
+#### Redis Setup
+See [REDIS_SETUP.md](REDIS_SETUP.md) for detailed installation and configuration instructions.
+
+Quick start:
+```bash
+# Ubuntu/Debian
+sudo apt-get install redis-server
+sudo systemctl start redis-server
+
+# macOS
+brew install redis
+brew services start redis
+
+# Docker
+docker run -d -p 6379:6379 redis:7-alpine
+```
+
+#### Server Setup
 ```bash
 npm install
 npm start
@@ -85,6 +107,15 @@ The server will start on `http://localhost:8080`
 - ✅ Join party from other devices
 - ✅ WebSocket real-time updates
 - ✅ Party state management
+- ✅ Cross-instance party discovery (via Redis)
+
+#### Configuration
+Copy `.env.example` to `.env` and customize if needed:
+```bash
+cp .env.example .env
+```
+
+Default configuration connects to Redis at `localhost:6379`. See [REDIS_SETUP.md](REDIS_SETUP.md) for production configuration.
 
 ## Testing
 
