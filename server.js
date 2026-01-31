@@ -364,7 +364,7 @@ function startServer() {
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Instance ID: ${INSTANCE_ID}`);
-    console.log(`Redis: ${redis.status}`);
+    console.log(`Redis: ${redis ? redis.status : 'NOT CONFIGURED'}`);
   });
   
   // Start cleanup interval
