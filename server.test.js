@@ -182,6 +182,49 @@ describe('Server HTTP Endpoints', () => {
       
       expect(response.headers['content-type']).toMatch(/json/);
     });
+
+    it('should respond within 500ms for valid party', async () => {
+      const startTime = Date.now();
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      const duration = Date.now() - startTime;
+      
+      expect(response.status).toBe(200);
+      expect(duration).toBeLessThan(500);
+    });
+
+    it('should respond within 500ms even for non-existent party', async () => {
+      const startTime = Date.now();
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: 'NOEXST' });
+      const duration = Date.now() - startTime;
+      
+      expect(response.status).toBe(404);
+      expect(duration).toBeLessThan(500);
+    });
+
+    it('should handle slow Redis gracefully', async () => {
+      // Mock a slow Redis response by temporarily slowing down get
+      const originalGet = redis.get.bind(redis);
+      redis.get = jest.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve(null), 400); // Simulate slow Redis
+        });
+      });
+
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: 'SLOW01' });
+
+      // Should return timeout error
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBeDefined();
+
+      // Restore original get
+      redis.get = originalGet;
+    });
   });
 
   describe('GET /api/party/:code', () => {
