@@ -143,6 +143,16 @@ const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 let nextHostId = 1;
 
+// Helper function to wrap promises with timeout
+function promiseWithTimeout(promise, timeoutMs, errorMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(errorMessage || `Timeout after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
 // Redis party storage helpers
 async function getPartyFromRedis(code) {
   if (!redis) {
@@ -257,40 +267,123 @@ app.post("/api/create-party", async (req, res) => {
 
 // POST /api/join-party - Join an existing party
 app.post("/api/join-party", async (req, res) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[HTTP] POST /api/join-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  const startTime = Date.now();
+  console.log("[join-party] start");
+  
+  // Safety fallback: abort after 1 second
+  const abortTimeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.log("[join-party] TIMEOUT - aborting after 1s");
+      res.status(503).json({ error: "Request timeout - server overloaded" });
+      console.log("[join-party] end (timeout)");
+    }
+  }, 1000);
   
   try {
+    const timestamp = new Date().toISOString();
+    console.log(`[HTTP] POST /api/join-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+    
     const { partyCode } = req.body;
     
     if (!partyCode) {
+      clearTimeout(abortTimeout);
+      console.log("[join-party] end (missing party code)");
       return res.status(400).json({ error: "Party code is required" });
     }
     
     const code = partyCode.toUpperCase().trim();
     
-    // Read from Redis - this is the source of truth
-    const partyData = await getPartyFromRedis(code);
+    // Check if Redis is available
+    if (!redis || !redisReady) {
+      clearTimeout(abortTimeout);
+      console.log("[join-party] end (Redis not ready)");
+      return res.status(503).json({ 
+        error: "Server not ready",
+        details: "Redis connection required for party discovery"
+      });
+    }
+    
+    // Read from Redis with timeout guard - this is the source of truth
+    let partyData;
+    try {
+      partyData = await promiseWithTimeout(
+        getPartyFromRedis(code),
+        300, // 300ms timeout for Redis call
+        "Redis read timeout"
+      );
+    } catch (error) {
+      clearTimeout(abortTimeout);
+      console.error(`[join-party] Redis error: ${error.message}`);
+      console.log("[join-party] end (Redis error)");
+      
+      if (error.message.includes("timeout")) {
+        return res.status(503).json({ 
+          error: "Server is slow",
+          details: "Please try again in a moment"
+        });
+      }
+      return res.status(500).json({ 
+        error: "Failed to join party",
+        details: "Database error"
+      });
+    }
+    
     const storeReadResult = partyData ? "found" : "not_found";
     
     if (!partyData) {
+      clearTimeout(abortTimeout);
       const totalParties = parties.size;
       console.log(`[HTTP] Party not found in Redis: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}`);
+      console.log("[join-party] end (party not found)");
       return res.status(404).json({ error: "Party not found" });
     }
     
-    // Also check local memory for WebSocket-created parties
+    // Get local party reference (non-blocking)
     const localParty = parties.get(code);
     
     const partyAge = Date.now() - partyData.createdAt;
     const guestCount = partyData.guestCount || 0;
     const totalParties = parties.size;
-    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}`);
+    const duration = Date.now() - startTime;
     
+    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms`);
+    
+    // Clear the safety timeout before responding
+    clearTimeout(abortTimeout);
+    
+    // Always respond with success
     res.json({ ok: true });
+    console.log("[join-party] end (success)");
+    
+    // Fire-and-forget: Update local state asynchronously (non-blocking)
+    // This ensures HTTP response is sent immediately
+    if (partyData && !localParty) {
+      setImmediate(() => {
+        try {
+          // Re-check if party was created by another request in the meantime
+          if (!parties.has(code)) {
+            parties.set(code, {
+              host: null,
+              members: [],
+              chatMode: partyData.chatMode || "OPEN",
+              createdAt: partyData.createdAt,
+              hostId: partyData.hostId
+            });
+          }
+        } catch (err) {
+          console.error(`[join-party] Async state update error:`, err);
+        }
+      });
+    }
+    
   } catch (error) {
+    clearTimeout(abortTimeout);
     console.error(`[HTTP] Error joining party, instanceId: ${INSTANCE_ID}:`, error);
-    res.status(500).json({ error: "Failed to join party" });
+    console.log("[join-party] end (error)");
+    
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to join party" });
+    }
   }
 });
 
