@@ -146,7 +146,7 @@ let nextHostId = 1;
 // Redis party storage helpers
 async function getPartyFromRedis(code) {
   if (!redis) {
-    throw new Error("Redis not configured");
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
   }
   try {
     const data = await redis.get(`${PARTY_KEY_PREFIX}${code}`);
@@ -160,7 +160,7 @@ async function getPartyFromRedis(code) {
 
 async function setPartyInRedis(code, partyData) {
   if (!redis) {
-    throw new Error("Redis not configured");
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
   }
   try {
     const data = JSON.stringify(partyData);
@@ -174,7 +174,7 @@ async function setPartyInRedis(code, partyData) {
 
 async function deletePartyFromRedis(code) {
   if (!redis) {
-    throw new Error("Redis not configured");
+    throw new Error("Redis not configured. Set REDIS_URL environment variable for production or REDIS_HOST for development.");
   }
   try {
     await redis.del(`${PARTY_KEY_PREFIX}${code}`);
