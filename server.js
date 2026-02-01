@@ -57,12 +57,17 @@ if (redis) {
     console.error(`[Redis] Error (instance: ${INSTANCE_ID}):`, err.message);
     redisConnectionError = err.message;
     redisReady = false;
+    if (!useFallbackMode) {
+      console.warn(`⚠️  Redis unavailable — using fallback mode (instance: ${INSTANCE_ID})`);
+      useFallbackMode = true;
+    }
   });
 
   redis.on("ready", () => {
-    console.log(`[Redis] Ready to accept commands (instance: ${INSTANCE_ID})`);
+    console.log(`✓ Redis connected (instance: ${INSTANCE_ID})`);
     redisReady = true;
     redisConnectionError = null;
+    useFallbackMode = false;
   });
   
   redis.on("close", () => {
@@ -70,7 +75,8 @@ if (redis) {
     redisReady = false;
   });
 } else {
-  console.warn("⚠️  Redis NOT CONNECTED — party discovery will fail in production");
+  console.warn("⚠️  Redis unavailable — using fallback mode");
+  useFallbackMode = true;
 }
 
 // Parse JSON bodies
@@ -95,13 +101,13 @@ app.get("/health", async (req, res) => {
   let redisStatus;
   
   if (!redis) {
-    redisStatus = "missing";
-  } else if (redisConnectionError) {
-    redisStatus = "error";
+    redisStatus = "fallback";
+  } else if (redisConnectionError || !redisReady) {
+    redisStatus = "fallback";
   } else if (redis.status === "ready" && redisReady) {
-    redisStatus = "connected";
+    redisStatus = "ready";
   } else {
-    redisStatus = redis.status || "unknown";
+    redisStatus = "error";
   }
   
   const health = { 
@@ -142,6 +148,11 @@ const parties = new Map();
 const clients = new Map(); // ws -> { id, party }
 let nextClientId = 1;
 let nextHostId = 1;
+
+// Fallback storage for party metadata when Redis is unavailable
+// code -> { chatMode, createdAt, hostId, hostConnected, guestCount }
+const fallbackPartyStorage = new Map();
+let useFallbackMode = false;
 
 // Helper function to wrap promises with timeout
 function promiseWithTimeout(promise, timeoutMs, errorMessage) {
@@ -195,18 +206,30 @@ async function deletePartyFromRedis(code) {
   }
 }
 
+// Fallback storage helpers
+function getPartyFromFallback(code) {
+  return fallbackPartyStorage.get(code) || null;
+}
+
+function setPartyInFallback(code, partyData) {
+  fallbackPartyStorage.set(code, partyData);
+  return true;
+}
+
+function deletePartyFromFallback(code) {
+  return fallbackPartyStorage.delete(code);
+}
+
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`);
   
-  // Runtime guard: Check if Redis is available
-  if (!redis || !redisReady) {
-    console.error(`[HTTP] Party creation blocked - Redis not ready, instanceId: ${INSTANCE_ID}`);
-    return res.status(503).json({ 
-      error: "Server not ready. Please retry in a moment.",
-      details: "Redis connection required for party discovery"
-    });
+  // Check if Redis is available - use fallback if not
+  const usingFallback = !redis || !redisReady;
+  
+  if (usingFallback) {
+    console.warn(`[HTTP] Party creation using fallback mode - Redis not ready, instanceId: ${INSTANCE_ID}`);
   }
   
   try {
@@ -215,7 +238,15 @@ app.post("/api/create-party", async (req, res) => {
     let attempts = 0;
     do {
       code = generateCode();
-      const existing = await getPartyFromRedis(code);
+      
+      // Check for existing party in appropriate storage
+      let existing;
+      if (usingFallback) {
+        existing = getPartyFromFallback(code);
+      } else {
+        existing = await getPartyFromRedis(code);
+      }
+      
       if (!existing) break;
       attempts++;
     } while (attempts < 10);
@@ -228,7 +259,7 @@ app.post("/api/create-party", async (req, res) => {
     const hostId = nextHostId++;
     const createdAt = Date.now();
     
-    // Create party data for Redis (only serializable data)
+    // Create party data for storage (only serializable data)
     const partyData = {
       chatMode: "OPEN",
       createdAt,
@@ -237,8 +268,12 @@ app.post("/api/create-party", async (req, res) => {
       guestCount: 0
     };
     
-    // Write to Redis first - only return success if write succeeds
-    await setPartyInRedis(code, partyData);
+    // Write to Redis or fallback storage
+    if (usingFallback) {
+      setPartyInFallback(code, partyData);
+    } else {
+      await setPartyInRedis(code, partyData);
+    }
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -250,7 +285,7 @@ app.post("/api/create-party", async (req, res) => {
     });
     
     const totalParties = parties.size;
-    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, totalParties: ${totalParties}`);
+    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, totalParties: ${totalParties}, usingFallback: ${usingFallback}`);
     
     res.json({
       partyCode: code,
@@ -293,39 +328,28 @@ app.post("/api/join-party", async (req, res) => {
     
     const code = partyCode.toUpperCase().trim();
     
-    // Check if Redis is available
-    if (!redis || !redisReady) {
-      clearTimeout(abortTimeout);
-      console.log("[join-party] end (Redis not ready)");
-      return res.status(503).json({ 
-        error: "Server not ready",
-        details: "Redis connection required for party discovery"
-      });
-    }
-    
-    // Read from Redis with timeout guard - this is the source of truth
+    // Check if Redis is available - use fallback if not
     let partyData;
-    try {
-      partyData = await promiseWithTimeout(
-        getPartyFromRedis(code),
-        300, // 300ms timeout for Redis call
-        "Redis read timeout"
-      );
-    } catch (error) {
-      clearTimeout(abortTimeout);
-      console.error(`[join-party] Redis error: ${error.message}`);
-      console.log("[join-party] end (Redis error)");
-      
-      if (error.message.includes("timeout")) {
-        return res.status(503).json({ 
-          error: "Server is slow",
-          details: "Please try again in a moment"
-        });
+    let usedFallback = false;
+    
+    if (!redis || !redisReady) {
+      // Redis not available - use fallback storage
+      console.warn(`[join-party] Redis not ready, using fallback mode for party: ${code}`);
+      partyData = getPartyFromFallback(code);
+      usedFallback = true;
+    } else {
+      // Read from Redis with timeout guard - this is the source of truth
+      try {
+        partyData = await promiseWithTimeout(
+          getPartyFromRedis(code),
+          300, // 300ms timeout for Redis call
+          "Redis read timeout"
+        );
+      } catch (error) {
+        console.warn(`[join-party] Redis error, falling back to in-memory: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+        usedFallback = true;
       }
-      return res.status(500).json({ 
-        error: "Failed to join party",
-        details: "Database error"
-      });
     }
     
     const storeReadResult = partyData ? "found" : "not_found";
@@ -333,7 +357,7 @@ app.post("/api/join-party", async (req, res) => {
     if (!partyData) {
       clearTimeout(abortTimeout);
       const totalParties = parties.size;
-      console.log(`[HTTP] Party not found in Redis: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}`);
+      console.log(`[HTTP] Party not found: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, usedFallback: ${usedFallback}`);
       console.log("[join-party] end (party not found)");
       return res.status(404).json({ error: "Party not found" });
     }
@@ -346,7 +370,7 @@ app.post("/api/join-party", async (req, res) => {
     const totalParties = parties.size;
     const duration = Date.now() - startTime;
     
-    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms`);
+    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms, usedFallback: ${usedFallback}`);
     
     // Clear the safety timeout before responding
     clearTimeout(abortTimeout);
@@ -394,12 +418,24 @@ app.get("/api/party/:code", async (req, res) => {
   
   console.log(`[HTTP] GET /api/party/${code} at ${timestamp}, instanceId: ${INSTANCE_ID}`);
   
-  // Read from Redis - source of truth
-  const partyData = await getPartyFromRedis(code);
+  // Read from Redis or fallback storage
+  let partyData;
+  const usingFallback = !redis || !redisReady;
+  
+  try {
+    if (usingFallback) {
+      partyData = getPartyFromFallback(code);
+    } else {
+      partyData = await getPartyFromRedis(code);
+    }
+  } catch (error) {
+    console.warn(`[HTTP] Error reading party ${code}, trying fallback:`, error.message);
+    partyData = getPartyFromFallback(code);
+  }
   
   if (!partyData) {
     const totalParties = parties.size;
-    console.log(`[HTTP] Debug query - Party not found in Redis: ${code}, instanceId: ${INSTANCE_ID}, localParties: ${totalParties}`);
+    console.log(`[HTTP] Debug query - Party not found: ${code}, instanceId: ${INSTANCE_ID}, localParties: ${totalParties}, usingFallback: ${usingFallback}`);
     return res.json({
       exists: false,
       code: code,
@@ -412,7 +448,7 @@ app.get("/api/party/:code", async (req, res) => {
   const hostConnected = localParty ? (localParty.host !== null && localParty.host !== undefined) : partyData.hostConnected || false;
   const guestCount = localParty ? localParty.members.filter(m => !m.isHost).length : partyData.guestCount || 0;
   
-  console.log(`[HTTP] Debug query - Party found in Redis: ${code}, instanceId: ${INSTANCE_ID}, hostConnected: ${hostConnected}, guestCount: ${guestCount}`);
+  console.log(`[HTTP] Debug query - Party found: ${code}, instanceId: ${INSTANCE_ID}, hostConnected: ${hostConnected}, guestCount: ${guestCount}, usingFallback: ${usingFallback}`);
   
   res.json({
     exists: true,
@@ -1051,5 +1087,9 @@ module.exports = {
   getPartyFromRedis,
   setPartyInRedis,
   deletePartyFromRedis,
+  getPartyFromFallback,
+  setPartyInFallback,
+  deletePartyFromFallback,
+  fallbackPartyStorage,
   INSTANCE_ID
 };
