@@ -1230,6 +1230,35 @@ function handleChatModeSet(ws, msg) {
   });
 }
 
+// Helper function to wait for Redis to be ready (for tests)
+function waitForRedis(timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    if (redisReady) {
+      resolve();
+      return;
+    }
+    
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout waiting for Redis'));
+    }, timeoutMs);
+    
+    if (redis) {
+      redis.once('ready', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    } else {
+      clearTimeout(timeout);
+      reject(new Error('Redis not configured'));
+    }
+  });
+}
+
+// Helper to get Redis ready state (for tests)
+function isRedisReady() {
+  return redisReady;
+}
+
 // Start server if run directly (not imported as module)
 if (require.main === module) {
   startServer();
@@ -1250,5 +1279,7 @@ module.exports = {
   setPartyInFallback,
   deletePartyFromFallback,
   fallbackPartyStorage,
-  INSTANCE_ID
+  INSTANCE_ID,
+  waitForRedis,
+  isRedisReady
 };
