@@ -518,5 +518,96 @@ describe('Production Scenarios', () => {
       expect(['ready', 'fallback', 'error']).toContain(response.body.redis);
     });
   });
+
+  describe('Redis Fallback Mode', () => {
+    const { fallbackPartyStorage, setPartyInFallback, getPartyFromFallback, redis } = require('./server');
+
+    beforeEach(() => {
+      // Clear fallback storage before each test
+      fallbackPartyStorage.clear();
+    });
+
+    it('should allow creating party using fallback storage', async () => {
+      // Create a party directly in fallback storage
+      const testCode = 'TEST01';
+      const partyData = {
+        chatMode: 'OPEN',
+        createdAt: Date.now(),
+        hostId: 999,
+        hostConnected: false,
+        guestCount: 0
+      };
+      
+      setPartyInFallback(testCode, partyData);
+      
+      // Verify it was stored
+      const retrieved = getPartyFromFallback(testCode);
+      expect(retrieved).toBeDefined();
+      expect(retrieved.hostId).toBe(999);
+      expect(retrieved.chatMode).toBe('OPEN');
+    });
+
+    it('should allow joining party from fallback storage when Redis times out', async () => {
+      // Create a party in fallback storage
+      const testCode = 'TEST02';
+      const partyData = {
+        chatMode: 'OPEN',
+        createdAt: Date.now(),
+        hostId: 888,
+        hostConnected: false,
+        guestCount: 0
+      };
+      
+      setPartyInFallback(testCode, partyData);
+      
+      // Mock Redis to timeout
+      const originalGet = redis.get.bind(redis);
+      redis.get = jest.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve(null), 400); // Timeout
+        });
+      });
+      
+      // Try to join the party - this should work using fallback
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: testCode });
+      
+      // Should succeed using fallback
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ ok: true });
+      
+      // Restore Redis
+      redis.get = originalGet;
+    });
+
+    it('should query party from fallback storage via GET endpoint when Redis fails', async () => {
+      // Create a party in fallback storage
+      const testCode = 'TEST03';
+      const partyData = {
+        chatMode: 'OPEN',
+        createdAt: Date.now(),
+        hostId: 777,
+        hostConnected: false,
+        guestCount: 0
+      };
+      
+      setPartyInFallback(testCode, partyData);
+      
+      // Mock Redis to throw error
+      const originalGet = redis.get.bind(redis);
+      redis.get = jest.fn().mockRejectedValue(new Error('Redis connection error'));
+      
+      // Query the party
+      const response = await request(app).get(`/api/party/${testCode}`);
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(true);
+      expect(response.body.code).toBe(testCode);
+      
+      // Restore Redis
+      redis.get = originalGet;
+    });
+  });
 });
 
