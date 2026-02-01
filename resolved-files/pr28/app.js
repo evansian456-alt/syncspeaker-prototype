@@ -1,7 +1,27 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
-const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
-const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
+
+// Event name constants matching server (from PR #28)
+const EVENT = {
+  // Party lifecycle
+  PARTY_CREATED: "PARTY_CREATED",
+  GUEST_JOINED: "GUEST_JOINED",
+  GUEST_LEFT: "GUEST_LEFT",
+  PARTY_ENDED: "PARTY_ENDED",
+  // Track management
+  TRACK_CURRENT_SELECTED: "TRACK_CURRENT_SELECTED",
+  TRACK_NEXT_QUEUED: "TRACK_NEXT_QUEUED",
+  TRACK_NEXT_CLEARED: "TRACK_NEXT_CLEARED",
+  TRACK_SWITCHED: "TRACK_SWITCHED",
+  TRACK_ENDED: "TRACK_ENDED",
+  // Playback control
+  PLAYBACK_PLAY: "PLAYBACK_PLAY",
+  PLAYBACK_PAUSE: "PLAYBACK_PAUSE",
+  PLAYBACK_TICK: "PLAYBACK_TICK",
+  // Visuals
+  VISUALS_MODE: "VISUALS_MODE",
+  VISUALS_FLASH: "VISUALS_FLASH"
+};
 
 // Music player state
 const musicState = {
@@ -66,18 +86,7 @@ const state = {
   partyTheme: "neon", // neon, dark-rave, festival, minimal
   // Guest counter for anonymous names
   nextGuestNumber: 1,
-  guestNickname: null,
-  // Monetization expansion features
-  hostGiftedPass: false, // Host paid for everyone
-  extensionShown: false, // Track if extension modal was shown for this countdown
-  activeDJPack: null, // Current DJ pack: 'rave', 'festival', 'darkclub', 'bassdrop'
-  ownedDJPacks: [], // Packs owned by non-Pro users
-  activeMicroUnlocks: [], // [{type, endTime}] for temporary effects
-  guestBoosts: [], // [{from, type, approved}] gifts from guests
-  djLevel: 1, // DJ status level (1-10)
-  djXP: 0, // XP points for leveling up
-  partyHighlights: [], // Captured highlights
-  limitedOffers: [] // [{type, endTime, price}] time-limited offers
+  guestNickname: null
 };
 
 // Client-side party code generator for offline fallback
@@ -194,7 +203,6 @@ function handleServer(msg) {
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
-    rewardDJAction('start_party'); // Add XP for starting party
     return;
   }
   if (msg.t === "JOINED") {
@@ -334,30 +342,6 @@ function handleServer(msg) {
     state.chatMode = msg.mode;
     updateChatModeUI();
     updateDebugState();
-    return;
-  }
-  
-  // Guest boost message
-  if (msg.t === "GUEST_BOOST") {
-    if (state.isHost) {
-      const boost = BOOSTS[msg.boostType];
-      if (boost) {
-        state.guestBoosts.push({
-          type: msg.boostType,
-          name: boost.name,
-          from: msg.guestName || 'Guest',
-          approved: false
-        });
-        updateGuestBoostsUI();
-        toast(`${msg.guestName} wants to gift ${boost.name}`);
-        
-        // Show the guest boosts card
-        const card = el("guestBoostsCard");
-        if (card && state.guestBoosts.length > 0) {
-          card.classList.remove("hidden");
-        }
-      }
-    }
     return;
   }
 }
@@ -961,7 +945,6 @@ function updateDebugState() {
     debugPanel.setAttribute("aria-hidden", "false");
     
     // Update all debug fields
-    const versionEl = el("debugAppVersion");
     const roleEl = el("debugRole");
     const partyCodeEl = el("debugPartyCode");
     const connectedEl = el("debugConnected");
@@ -970,16 +953,6 @@ function updateDebugState() {
     const playbackStateEl = el("debugPlaybackState");
     const lastHostEventEl = el("debugLastHostEvent");
     const visualModeEl = el("debugVisualMode");
-    
-    // Fetch and display app version from server
-    if (versionEl && versionEl.textContent === "Loading...") {
-      fetch("/health").then(res => {
-        const version = res.headers.get("X-App-Version") || "Unknown";
-        versionEl.textContent = version;
-      }).catch(() => {
-        versionEl.textContent = "Unknown";
-      });
-    }
     
     if (roleEl) roleEl.textContent = state.isHost ? "host" : "guest";
     if (partyCodeEl) partyCodeEl.textContent = state.code || "None";
@@ -1488,9 +1461,6 @@ function updatePartyPassTimer() {
     return;
   }
   
-  // Check if we should show extension modal (at 10 minutes remaining)
-  showExtensionModal();
-  
   // Calculate hours and minutes
   const hours = Math.floor(remaining / (60 * 60 * 1000));
   const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
@@ -1499,9 +1469,6 @@ function updatePartyPassTimer() {
   if (timerEl) {
     timerEl.textContent = `${hours}h ${minutes}m remaining`;
   }
-  
-  // Update micro-unlocks timers
-  updateMicroUnlocksUI();
 }
 
 function expirePartyPass() {
@@ -1602,594 +1569,6 @@ function checkPartyPassStatus() {
   }
 }
 
-// ========================================
-// MONETIZATION EXPANSION FEATURES
-// ========================================
-
-// Shared constants
-const BOOSTS = {
-  better_visuals: { name: 'Better Visuals', price: '£0.99' },
-  extend_30min: { name: 'Extend 30 mins', price: '£0.99' },
-  unlock_shoutouts: { name: 'Unlock Shoutouts', price: '£1.49' }
-};
-
-const DJ_LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500];
-
-// 1. HOST-GIFTED PARTY PASS
-function activateHostGiftedPass() {
-  if (!state.code || !state.isHost) {
-    toast("Only hosts can gift Party Pass");
-    return;
-  }
-  
-  if (state.partyPassActive || state.hostGiftedPass) {
-    toast("Party Pass already active!");
-    return;
-  }
-  
-  // Simulate payment and activate
-  state.hostGiftedPass = true;
-  state.partyPassActive = true;
-  const twoHours = 2 * 60 * 60 * 1000;
-  state.partyPassEndTime = Date.now() + twoHours;
-  state.partyPro = true;
-  // Note: Do NOT set state.isPro = true here, as that would give permanent Pro benefits beyond this party
-  
-  send({ t: "SET_PRO", isPro: true });
-  
-  if (state.code) {
-    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
-      endTime: state.partyPassEndTime,
-      active: true,
-      hostGifted: true
-    }));
-  }
-  
-  updatePartyPassTimer();
-  if (state.partyPassTimerInterval) clearInterval(state.partyPassTimerInterval);
-  state.partyPassTimerInterval = setInterval(updatePartyPassTimer, 60000);
-  
-  setPlanPill();
-  updatePartyPassUI();
-  updatePlaybackUI();
-  
-  toast("🎉 Party unlocked for everyone! 2 hours of premium features!");
-  hide("modalHostGiftedPass");
-}
-
-// 2. PARTY EXTENSIONS (TIME UPSELL)
-function showExtensionModal() {
-  if (!state.isHost || !state.partyPassActive || state.extensionShown) return;
-  
-  const now = Date.now();
-  const remaining = state.partyPassEndTime - now;
-  const tenMinutes = 10 * 60 * 1000;
-  
-  if (remaining > 0 && remaining <= tenMinutes && !state.extensionShown) {
-    state.extensionShown = true;
-    show("modalExtendParty");
-  }
-}
-
-function extendParty() {
-  if (!state.isHost || !state.partyPassActive) return;
-  
-  // Add 1 hour
-  const oneHour = 60 * 60 * 1000;
-  state.partyPassEndTime += oneHour;
-  
-  if (state.code) {
-    localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
-      endTime: state.partyPassEndTime,
-      active: true,
-      hostGifted: state.hostGiftedPass
-    }));
-  }
-  
-  updatePartyPassTimer();
-  toast("⏰ Party extended by 1 hour!");
-  hide("modalExtendParty");
-  
-  // Reset extension flag when there will be 10 minutes remaining
-  // Calculate: current remaining + 1 hour added - 10 minutes = when to reset flag
-  const now = Date.now();
-  const currentRemaining = state.partyPassEndTime - oneHour - now; // Remaining before extension
-  const resetAfter = currentRemaining + oneHour - (10 * 60 * 1000);
-  
-  if (resetAfter > 0) {
-    setTimeout(() => { state.extensionShown = false; }, resetAfter);
-  }
-}
-
-// 3. DJ PACKS (COSMETIC SALES)
-const DJ_PACKS = [
-  { id: 'rave', name: 'Rave Pack', price: '£2.99', colors: ['#FF1493', '#00FF00', '#00FFFF'] },
-  { id: 'festival', name: 'Festival Pack', price: '£2.99', colors: ['#FFD700', '#FF6B35', '#FF1493'] },
-  { id: 'darkclub', name: 'Dark Club Pack', price: '£1.99', colors: ['#1a0033', '#4B0082', '#8B00FF'] },
-  { id: 'bassdrop', name: 'Bass Drop Pack', price: '£0.99', colors: ['#FF0000', '#000000', '#FF4500'] }
-];
-
-function selectDJPack(packId) {
-  const pack = DJ_PACKS.find(p => p.id === packId);
-  if (!pack) return;
-  
-  // Pro users get all packs
-  if (!state.isPro && !state.partyPro) {
-    // Non-Pro must own the pack
-    if (!state.ownedDJPacks.includes(packId)) {
-      showBuyPackModal(packId);
-      return;
-    }
-  }
-  
-  // Allow deselecting if clicking the same pack
-  if (state.activeDJPack === packId) {
-    state.activeDJPack = null;
-    removeDJPackVisuals();
-    toast("Pack deactivated");
-    updateDJPacksUI();
-    return;
-  }
-  
-  // Remove previous pack visuals if any
-  if (state.activeDJPack) {
-    removeDJPackVisuals();
-  }
-  
-  state.activeDJPack = packId;
-  applyDJPackVisuals(pack);
-  toast(`${pack.name} activated!`);
-  updateDJPacksUI();
-}
-
-function removeDJPackVisuals() {
-  const djScreen = el("djScreenOverlay");
-  if (!djScreen) return;
-  
-  djScreen.classList.remove('pack-active');
-  djScreen.style.removeProperty('--pack-color-1');
-  djScreen.style.removeProperty('--pack-color-2');
-  djScreen.style.removeProperty('--pack-color-3');
-}
-
-function buyDJPack(packId) {
-  if (state.isPro || state.partyPro) {
-    toast("Pro users get all packs!");
-    return;
-  }
-  
-  const pack = DJ_PACKS.find(p => p.id === packId);
-  if (!pack) return;
-  
-  // Simulate purchase
-  if (!state.ownedDJPacks.includes(packId)) {
-    state.ownedDJPacks.push(packId);
-    localStorage.setItem('ownedDJPacks', JSON.stringify(state.ownedDJPacks));
-  }
-  
-  state.activeDJPack = packId;
-  applyDJPackVisuals(pack);
-  toast(`${pack.name} purchased!`);
-  hide("modalBuyPack");
-  updateDJPacksUI();
-}
-
-function applyDJPackVisuals(pack) {
-  const djScreen = el("djScreenOverlay");
-  if (!djScreen) return;
-  
-  // Apply pack color scheme to DJ screen
-  djScreen.style.setProperty('--pack-color-1', pack.colors[0]);
-  djScreen.style.setProperty('--pack-color-2', pack.colors[1]);
-  djScreen.style.setProperty('--pack-color-3', pack.colors[2]);
-  djScreen.classList.add('pack-active');
-}
-
-function updateDJPacksUI() {
-  const packsContainer = el("djPacksContainer");
-  if (!packsContainer) return;
-  
-  packsContainer.innerHTML = '';
-  DJ_PACKS.forEach(pack => {
-    const packEl = document.createElement('div');
-    packEl.className = `dj-pack ${state.activeDJPack === pack.id ? 'active' : ''}`;
-    
-    const isOwned = state.isPro || state.partyPro || state.ownedDJPacks.includes(pack.id);
-    const btnText = isOwned ? 'Select' : `Buy ${pack.price}`;
-    
-    packEl.innerHTML = `
-      <div class="pack-name">${pack.name}</div>
-      <div class="pack-preview" style="background: linear-gradient(135deg, ${pack.colors[0]}, ${pack.colors[1]}, ${pack.colors[2]})"></div>
-      <button class="btn pack-btn ${isOwned ? 'primary' : 'secondary'}" onclick="selectDJPack('${pack.id}')">${btnText}</button>
-    `;
-    packsContainer.appendChild(packEl);
-  });
-}
-
-// 4. PEAK MOMENT MICRO-UNLOCKS
-const MICRO_UNLOCKS = [
-  { id: 'ultra_drop', name: 'Ultra Drop Mode', price: '£0.99', duration: 5 * 60 * 1000 },
-  { id: 'festival_lights', name: 'Festival Lights', price: '£0.99', duration: 0 },
-  { id: 'crowd_takeover', name: 'Crowd Takeover', price: '£0.99', duration: 0 }
-];
-
-function activateMicroUnlock(unlockId) {
-  if (!state.isHost) {
-    toast("Only hosts can activate peak moments");
-    return;
-  }
-  
-  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
-  if (!unlock) return;
-  
-  // Check if already active
-  if (state.activeMicroUnlocks.find(u => u.type === unlockId)) {
-    toast(`${unlock.name} is already active!`);
-    return;
-  }
-  
-  // Simulate purchase and activate
-  const now = Date.now();
-  const endTime = unlock.duration > 0 ? now + unlock.duration : null;
-  
-  state.activeMicroUnlocks.push({
-    type: unlockId,
-    name: unlock.name,
-    endTime: endTime,
-    activatedAt: now
-  });
-  
-  applyMicroUnlockEffect(unlockId);
-  toast(`${unlock.name} activated!`);
-  hide("modalMicroUnlock");
-  updateMicroUnlocksUI();
-  
-  // Show the active micro-unlocks card
-  const card = el("activeMicroUnlocksCard");
-  if (card && state.activeMicroUnlocks.length > 0) {
-    card.classList.remove("hidden");
-  }
-  
-  // Auto-expire if it has a duration
-  if (endTime) {
-    setTimeout(() => expireMicroUnlock(unlockId), unlock.duration);
-  }
-}
-
-function expireMicroUnlock(unlockId) {
-  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
-  const unlockName = unlock ? unlock.name : unlockId.replace('_', ' ');
-  
-  state.activeMicroUnlocks = state.activeMicroUnlocks.filter(u => u.type !== unlockId);
-  
-  // Remove the visual effect class
-  const djScreen = el("djScreenOverlay");
-  if (djScreen) {
-    djScreen.classList.remove(`effect-${unlockId}`);
-  }
-  
-  updateMicroUnlocksUI();
-  toast(`${unlockName} expired`);
-  
-  // Hide the card if no more active unlocks
-  const card = el("activeMicroUnlocksCard");
-  if (card && state.activeMicroUnlocks.length === 0) {
-    card.classList.add("hidden");
-  }
-}
-
-function applyMicroUnlockEffect(unlockId) {
-  const djScreen = el("djScreenOverlay");
-  if (!djScreen) return;
-  
-  djScreen.classList.add(`effect-${unlockId}`);
-}
-
-function showMicroUnlockModal(unlockId) {
-  const unlock = MICRO_UNLOCKS.find(u => u.id === unlockId);
-  if (!unlock) return;
-  
-  const titleEl = el("microUnlockTitle");
-  const descEl = el("microUnlockDesc");
-  const btnEl = el("btnMicroUnlock");
-  
-  if (titleEl) titleEl.textContent = unlock.name;
-  if (descEl) {
-    const durationText = unlock.duration > 0 ? ` (${unlock.duration / 60000} minutes)` : '';
-    descEl.textContent = `Activate ${unlock.name}${durationText} for an epic peak moment!`;
-  }
-  if (btnEl) {
-    btnEl.onclick = () => activateMicroUnlock(unlockId);
-  }
-  
-  show("modalMicroUnlock");
-}
-
-function updateMicroUnlocksUI() {
-  const container = el("activeMicroUnlocks");
-  if (!container) return;
-  
-  container.innerHTML = '';
-  state.activeMicroUnlocks.forEach(unlock => {
-    const div = document.createElement('div');
-    div.className = 'micro-unlock-badge';
-    
-    if (unlock.endTime) {
-      const remaining = Math.max(0, unlock.endTime - Date.now());
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
-      div.innerHTML = `${unlock.name} <span class="timer">${mins}:${secs.toString().padStart(2, '0')}</span>`;
-    } else {
-      div.innerHTML = unlock.name;
-    }
-    
-    container.appendChild(div);
-  });
-}
-
-// 5. GUEST-GIFTED BOOSTS
-function sendGuestBoost(boostType) {
-  if (state.isHost) {
-    toast("You're the host!");
-    return;
-  }
-  
-  const boost = BOOSTS[boostType];
-  if (!boost) return;
-  
-  // Validate guest name
-  if (!state.name || state.name.trim() === '') {
-    toast("Please set your name first!");
-    return;
-  }
-  
-  // Simulate sending to host
-  send({ 
-    t: "GUEST_BOOST", 
-    boostType: boostType,
-    guestName: state.name
-  });
-  
-  toast(`Gift sent to host! Waiting for approval...`);
-  hide("modalGuestBoost");
-}
-
-function approveGuestBoost(boostIndex) {
-  if (!state.isHost) return;
-  
-  const boost = state.guestBoosts[boostIndex];
-  if (!boost || boost.approved) return;
-  
-  boost.approved = true;
-  applyGuestBoost(boost);
-  toast(`Boost from ${boost.from} activated!`);
-  updateGuestBoostsUI();
-}
-
-function applyGuestBoost(boost) {
-  switch(boost.type) {
-    case 'better_visuals':
-      // Enhance visuals temporarily
-      const djScreen = el("djScreenOverlay");
-      if (djScreen) djScreen.classList.add('boost-visuals');
-      break;
-    case 'extend_30min':
-      if (state.partyPassActive) {
-        state.partyPassEndTime += 30 * 60 * 1000;
-        updatePartyPassTimer();
-      }
-      break;
-    case 'unlock_shoutouts':
-      // Temporarily unlock shoutouts
-      toast("Shoutouts unlocked!");
-      break;
-  }
-}
-
-function updateGuestBoostsUI() {
-  const container = el("guestBoostsContainer");
-  if (!container) return;
-  
-  container.innerHTML = '';
-  const unapprovedBoosts = state.guestBoosts.filter(b => !b.approved);
-  
-  unapprovedBoosts.forEach((boost) => {
-    // Find the actual index in the original array
-    const actualIndex = state.guestBoosts.indexOf(boost);
-    
-    const div = document.createElement('div');
-    div.className = 'guest-boost-card';
-    div.innerHTML = `
-      <div class="boost-info">
-        <div class="boost-name">${boost.name}</div>
-        <div class="boost-from">Gifted by ${boost.from}</div>
-      </div>
-      <button class="btn primary" onclick="approveGuestBoost(${actualIndex})">Accept</button>
-    `;
-    container.appendChild(div);
-  });
-}
-
-// 6. PARTY MEMORIES / HIGHLIGHTS
-function captureHighlight() {
-  if (!state.isHost) {
-    toast("Only hosts can capture highlights");
-    return;
-  }
-  
-  const now = Date.now();
-  const highlight = {
-    timestamp: now,
-    filename: state.nowPlayingFilename || 'Unknown Track',
-    members: state.snapshot?.members?.length || 0
-  };
-  
-  state.partyHighlights.push(highlight);
-  localStorage.setItem(`highlights_${state.code}`, JSON.stringify(state.partyHighlights));
-  
-  toast("📸 Highlight captured!");
-  updateHighlightsUI();
-}
-
-function unlockPartyMemories() {
-  // Simulate purchase
-  toast("🎉 Party Memories unlocked! Download available after party.");
-  hide("modalPartyMemories");
-}
-
-function updateHighlightsUI() {
-  const container = el("highlightsContainer");
-  if (!container) return;
-  
-  const count = state.partyHighlights.length;
-  container.textContent = count > 0 ? `${count} highlight${count > 1 ? 's' : ''} captured` : 'No highlights yet';
-}
-
-// 7. DJ STATUS LEVELS
-function addDJXP(amount) {
-  state.djXP += amount;
-  
-  // Level up thresholds
-  let newLevel = 1;
-  
-  for (let i = 0; i < DJ_LEVEL_THRESHOLDS.length; i++) {
-    if (state.djXP >= DJ_LEVEL_THRESHOLDS[i]) {
-      newLevel = i + 1;
-    } else {
-      break;
-    }
-  }
-  
-  if (newLevel > state.djLevel) {
-    state.djLevel = newLevel;
-    toast(`🎉 Level Up! You're now DJ Level ${newLevel}!`);
-    showLevelUpReward(newLevel);
-  }
-  
-  localStorage.setItem('djLevel', state.djLevel.toString());
-  localStorage.setItem('djXP', state.djXP.toString());
-  updateDJLevelUI();
-}
-
-function showLevelUpReward(level) {
-  const rewards = {
-    2: "Unlocked: Custom DJ Name Colors",
-    3: "Unlocked: Priority Guest Messages",
-    5: "Unlocked: Exclusive DJ Pack",
-    7: "Unlocked: Advanced Analytics",
-    10: "Unlocked: Legend Status Badge"
-  };
-  
-  if (rewards[level]) {
-    setTimeout(() => toast(`🎁 ${rewards[level]}`), 1500);
-  }
-}
-
-function updateDJLevelUI() {
-  const levelEl = el("djLevel");
-  const xpEl = el("djXP");
-  
-  if (levelEl) levelEl.textContent = `Level ${state.djLevel}`;
-  if (xpEl) {
-    const currentThreshold = DJ_LEVEL_THRESHOLDS[state.djLevel - 1] || 0;
-    const nextThreshold = DJ_LEVEL_THRESHOLDS[state.djLevel] || 5500;
-    const progress = state.djXP - currentThreshold;
-    const needed = nextThreshold - currentThreshold;
-    xpEl.textContent = `${progress}/${needed} XP`;
-  }
-}
-
-// 8. LIMITED-TIME OFFERS
-function showLimitedOffer(offerType) {
-  const now = Date.now();
-  
-  // Check if offer already active
-  if (state.limitedOffers.find(o => o.type === offerType && o.endTime > now)) {
-    return;
-  }
-  
-  const offers = {
-    'first_party_50off': { 
-      name: 'First Party 50% Off', 
-      discount: 0.5,
-      endTime: now + 15 * 60 * 1000, // 15 minutes
-      originalPrice: '£9.99',
-      salePrice: '£4.99'
-    },
-    'flash_pack_bundle': {
-      name: 'Flash: All DJ Packs',
-      discount: 0.7,
-      endTime: now + 10 * 60 * 1000, // 10 minutes
-      originalPrice: '£7.96',
-      salePrice: '£2.99'
-    }
-  };
-  
-  const offer = offers[offerType];
-  if (!offer) return;
-  
-  state.limitedOffers.push({
-    type: offerType,
-    ...offer
-  });
-  
-  show("modalLimitedOffer");
-  updateLimitedOfferUI(offer);
-  
-  // Auto-hide after expiration
-  setTimeout(() => {
-    state.limitedOffers = state.limitedOffers.filter(o => o.type !== offerType);
-    hide("modalLimitedOffer");
-  }, offer.endTime - now);
-}
-
-function updateLimitedOfferUI(offer) {
-  const nameEl = el("offerName");
-  const priceEl = el("offerPrice");
-  const timerEl = el("offerTimer");
-  
-  if (nameEl) nameEl.textContent = offer.name;
-  if (priceEl) priceEl.innerHTML = `<span class="strikethrough">${offer.originalPrice}</span> ${offer.salePrice}`;
-  
-  if (timerEl) {
-    const updateTimer = () => {
-      const remaining = Math.max(0, offer.endTime - Date.now());
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
-      timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
-      
-      if (remaining > 0) {
-        setTimeout(updateTimer, 1000);
-      }
-    };
-    updateTimer();
-  }
-}
-
-function acceptLimitedOffer() {
-  toast("🎉 Offer claimed!");
-  hide("modalLimitedOffer");
-}
-
-// Add XP for various actions
-function rewardDJAction(action) {
-  if (!state.isHost) return;
-  
-  const xpRewards = {
-    'start_party': 10,
-    'play_track': 5,
-    'queue_track': 3,
-    'guest_reaction': 2,
-    'party_hour': 50,
-    'guest_message': 1
-  };
-  
-  const xp = xpRewards[action] || 0;
-  if (xp > 0) {
-    addDJXP(xp);
-  }
-}
-
 function renderRoom() {
   const wrap = el("members");
   wrap.innerHTML = "";
@@ -2254,56 +1633,6 @@ function attemptAddPhone() {
   toast("Open this link on another phone and tap Join");
 }
 
-// Additional monetization helper functions
-function upgradeToPro() {
-  // Simulate Pro upgrade
-  state.isPro = true;
-  state.partyPro = true;
-  send({ t: "SET_PRO", isPro: true });
-  
-  toast("🎉 Upgraded to Pro! Enjoy all features!");
-  hide("modalProUpgrade");
-  setPlanPill();
-  updateDJLevelUI();
-  updateDJPacksUI();
-}
-
-function showBuyPackModal(packId) {
-  const pack = DJ_PACKS.find(p => p.id === packId);
-  if (!pack) return;
-  
-  const descEl = el("buyPackDesc");
-  if (descEl) {
-    descEl.textContent = `${pack.name} - ${pack.price}`;
-  }
-  
-  const btnBuyPack = el("btnBuyPack");
-  if (btnBuyPack) {
-    btnBuyPack.onclick = () => buyDJPack(packId);
-  }
-  
-  show("modalBuyPack");
-}
-
-// Initialize DJ level and XP from localStorage
-function initializeDJStatus() {
-  const savedLevel = localStorage.getItem('djLevel');
-  const savedXP = localStorage.getItem('djXP');
-  const savedOwnedPacks = localStorage.getItem('ownedDJPacks');
-  
-  if (savedLevel) state.djLevel = parseInt(savedLevel, 10) || 1;
-  if (savedXP) state.djXP = parseInt(savedXP, 10) || 0;
-  if (savedOwnedPacks) {
-    try {
-      state.ownedDJPacks = JSON.parse(savedOwnedPacks);
-    } catch (e) {
-      state.ownedDJPacks = [];
-    }
-  }
-  
-  updateDJLevelUI();
-}
-
 (async function init(){
   // TODO: Enable real-time sync later in native app
   // For browser prototype, we skip WebSocket connection for Start Party to work instantly
@@ -2312,9 +1641,6 @@ function initializeDJStatus() {
   
   // Initialize music player
   initializeMusicPlayer();
-  
-  // Initialize DJ status and monetization features
-  initializeDJStatus();
 
   // Landing page navigation
   el("btnLandingStart").onclick = () => {
@@ -2418,7 +1744,7 @@ function initializeDJStatus() {
     try {
       btn.disabled = true;
       btn.textContent = "Joining...";
-      updateStatus("Connecting to party…");
+      updateStatus("Joining party…");
       
       // Apply guest anonymity (Feature 7)
       applyGuestAnonymity();
@@ -2426,70 +1752,43 @@ function initializeDJStatus() {
       state.isPro = el("togglePro").checked;
       console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
       
-      // Retry logic for party lookup with exponential backoff
-      let lastError = null;
-      let response = null;
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      for (let attempt = 1; attempt <= PARTY_LOOKUP_RETRIES; attempt++) {
-        try {
-          // Update status with retry count and exponential backoff info
-          if (attempt > 1) {
-            updateStatus(`Connecting to party… (attempt ${attempt}/${PARTY_LOOKUP_RETRIES})`);
-          } else {
-            updateStatus("Connecting to party…");
-          }
-          
-          // Create AbortController for timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-          
-          const endpoint = "POST /api/join-party";
-          updateDebug(`Endpoint: ${endpoint} (attempt ${attempt})`);
-          updateDebugPanel(endpoint, null);
-          
-          response = await fetch("/api/join-party", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              partyCode: code
-            }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          // If we get a response, break out of retry loop
-          break;
-        } catch (fetchError) {
-          lastError = fetchError;
-          console.log(`[Party] Join attempt ${attempt} failed:`, fetchError.message);
-          
-          // If this is not the last attempt and it's a network/timeout error, retry with exponential backoff
-          if (attempt < PARTY_LOOKUP_RETRIES) {
-            const backoffDelay = PARTY_LOOKUP_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-            console.log(`[Party] Retrying in ${backoffDelay}ms...`);
-            updateDebug(`Network error - retrying in ${backoffDelay}ms`);
-            await new Promise(resolve => setTimeout(resolve, backoffDelay));
-          }
-        }
-      }
+      const endpoint = "POST /api/join-party";
+      updateDebug(`Endpoint: ${endpoint}`);
+      updateDebugPanel(endpoint, null);
+      updateStatus("Calling server…");
       
-      // If all retries failed, throw error
-      if (!response && lastError) {
+      let response;
+      try {
+        response = await fetch("/api/join-party", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            partyCode: code
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        
         // Provide browser-only mode friendly error messages
         let errorMsg;
-        if (lastError.name === "AbortError") {
+        if (fetchError.name === "AbortError") {
           errorMsg = "Server not responding. Try again.";
-        } else if (lastError.message.includes("Failed to fetch")) {
+        } else if (fetchError.message.includes("Failed to fetch")) {
           errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
         } else {
-          errorMsg = lastError.message;
+          errorMsg = fetchError.message;
         }
         
-        const endpoint = "POST /api/join-party";
-        updateDebugPanel(endpoint, `${endpoint} (${lastError.name === "AbortError" ? "timeout" : "network error"})`);
+        updateDebugPanel(endpoint, `${endpoint} (${fetchError.name === "AbortError" ? "timeout" : "network error"})`);
         throw new Error(errorMsg);
       }
       
@@ -2498,36 +1797,14 @@ function initializeDJStatus() {
       // Check for 501 (Unsupported method) which happens with simple HTTP servers
       if (response.status === 501) {
         const errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
-        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, "Server doesn't support POST (browser-only mode)");
         throw new Error(errorMsg);
       }
       
-      // Check for 503 (Service Unavailable - Redis not ready)
-      if (response.status === 503) {
-        const errorData = await response.json().catch(() => ({ error: "Server not ready" }));
-        const errorMsg = errorData.error || "Server not ready - Redis unavailable";
-        const endpoint = "POST /api/join-party";
-        updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
-        updateDebug(`HTTP 503 - ${errorMsg}`);
-        throw new Error("Party expired or server still syncing. Ask host to restart party.");
-      }
-      
-      // Handle all error responses with exact backend message
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorMsg = errorData.error || `Server error: ${response.status}`;
-        const endpoint = "POST /api/join-party";
-        const statusMessage = `HTTP ${response.status}: ${errorMsg}`;
-        updateDebugPanel(endpoint, statusMessage);
-        updateDebug(`HTTP ${response.status} - ${errorMsg}`);
-        
-        // Provide actionable error message for 404
-        if (response.status === 404) {
-          throw new Error("Party expired or server still syncing. Ask host to restart party.");
-        }
-        
-        // For other errors, display exact backend message
+        updateDebugPanel(endpoint, errorMsg);
         throw new Error(errorMsg);
       }
       

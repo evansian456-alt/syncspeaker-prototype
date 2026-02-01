@@ -2304,6 +2304,158 @@ h2,h3{margin:0}
   font-weight: 500;
 }
 
+/* DJ Screen Crowd Energy */
+.dj-crowd-energy {
+  margin: 30px 0;
+  padding: 20px;
+  background: rgba(18,24,35,0.6);
+  border: 2px solid rgba(255,138,101,0.3);
+  border-radius: var(--radius-lg);
+}
+
+.dj-crowd-energy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.dj-crowd-energy-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #FF8A65;
+  margin: 0;
+  letter-spacing: 1px;
+}
+
+.dj-crowd-energy-value {
+  font-size: 32px;
+  font-weight: 800;
+  color: #FF8A65;
+  text-shadow: 0 0 20px rgba(255,138,101,0.5);
+}
+
+.dj-crowd-energy-meter {
+  position: relative;
+  height: 30px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 15px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255,138,101,0.2);
+}
+
+.dj-crowd-energy-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #FF8A65, #FFB74D);
+  border-radius: 15px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 20px rgba(255,138,101,0.5);
+}
+
+.dj-crowd-energy-peak {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 3px;
+  background: #FFF;
+  box-shadow: 0 0 10px #FFF;
+  transition: left 0.3s ease;
+  z-index: 2;
+}
+
+.dj-crowd-energy-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* DJ Screen Moments Section */
+.dj-moments-section {
+  margin: 30px 0;
+  padding: 20px;
+  background: rgba(18,24,35,0.6);
+  border: 2px solid rgba(90,169,255,0.3);
+  border-radius: var(--radius-lg);
+}
+
+.dj-moments-section h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brand);
+  margin: 0 0 15px 0;
+  letter-spacing: 1px;
+}
+
+.dj-moments-grid-view {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.btn-dj-moment-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 12px;
+  background: linear-gradient(135deg, rgba(90,169,255,0.2) 0%, rgba(139,124,255,0.2) 100%);
+  border: 2px solid rgba(90,169,255,0.3);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-dj-moment-view:hover {
+  background: linear-gradient(135deg, rgba(90,169,255,0.3) 0%, rgba(139,124,255,0.3) 100%);
+  border-color: rgba(90,169,255,0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(90,169,255,0.4);
+}
+
+.btn-dj-moment-view:active {
+  transform: translateY(0);
+}
+
+.btn-dj-moment-view.active {
+  background: linear-gradient(135deg, rgba(90,169,255,0.5) 0%, rgba(139,124,255,0.5) 100%);
+  border-color: var(--brand);
+  box-shadow: 0 0 30px rgba(90,169,255,0.6);
+}
+
+.dj-current-moment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(90,169,255,0.15);
+  border-radius: var(--radius-sm);
+  margin-top: 10px;
+}
+
+.current-moment-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.current-moment-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--brand);
+  text-shadow: 0 0 10px rgba(90,169,255,0.5);
+}
+
 /* DJ Controls */
 .dj-controls {
   display: flex;
@@ -2513,6 +2665,19 @@ h2,h3{margin:0}
   .dj-party-info {
     gap: 20px;
   }
+  
+  .dj-moments-grid-view {
+    gap: 10px;
+  }
+  
+  .btn-dj-moment-view {
+    padding: 14px 10px;
+    font-size: 11px;
+  }
+  
+  .dj-crowd-energy-value {
+    font-size: 24px;
+  }
 }
 
 
@@ -2721,315 +2886,6 @@ h2,h3{margin:0}
 
 .dj-message-emoji .dj-message-sender {
   margin-top: 8px;
-}
-
-/* ===== MONETIZATION EXPANSION STYLES ===== */
-
-/* DJ Status & Level */
-.dj-level-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.dj-level-badge {
-  background: var(--gradient-brand);
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.dj-xp {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-/* Monetization Actions */
-.monetization-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-top: 14px;
-}
-
-@media (max-width: 640px) {
-  .monetization-actions {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* DJ Packs Grid */
-.dj-packs-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  margin: 18px 0;
-}
-
-.dj-pack {
-  background: rgba(18, 24, 35, 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  text-align: center;
-  transition: var(--transition-base);
-}
-
-.dj-pack.active {
-  border-color: var(--brand);
-  box-shadow: var(--glow-brand);
-}
-
-.dj-pack:hover {
-  border-color: rgba(90, 169, 255, 0.6);
-}
-
-.pack-name {
-  font-weight: 700;
-  margin-bottom: 10px;
-  font-size: 14px;
-}
-
-.pack-preview {
-  height: 60px;
-  border-radius: var(--radius-sm);
-  margin-bottom: 10px;
-}
-
-.pack-btn {
-  width: 100%;
-  font-size: 13px;
-  padding: 8px;
-}
-
-@media (max-width: 640px) {
-  .dj-packs-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Micro-Unlocks */
-.micro-unlocks-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.micro-unlock-badge {
-  background: rgba(92, 255, 138, 0.15);
-  border: 1px solid rgba(92, 255, 138, 0.3);
-  padding: 8px 12px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.micro-unlock-badge .timer {
-  font-weight: 700;
-  color: var(--good);
-}
-
-/* Guest Boosts */
-.guest-boosts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.guest-boost-card {
-  background: rgba(18, 24, 35, 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.boost-info {
-  flex: 1;
-}
-
-.boost-name {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.boost-from {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.boost-options {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 18px 0;
-}
-
-.boost-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px;
-  text-align: left;
-}
-
-.boost-price {
-  font-weight: 700;
-  color: var(--brand);
-}
-
-/* Limited Offer Styles */
-.offer-price {
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--brand);
-  margin: 14px 0;
-  text-align: center;
-}
-
-.offer-price .strikethrough {
-  text-decoration: line-through;
-  color: var(--muted);
-  font-size: 20px;
-  margin-right: 8px;
-}
-
-.offer-timer {
-  font-size: 24px;
-  font-weight: 700;
-  text-align: center;
-  color: var(--danger);
-  margin-bottom: 18px;
-  font-family: 'Courier New', monospace;
-}
-
-/* Highlight Text */
-.highlight {
-  background: rgba(90, 169, 255, 0.15);
-  border-left: 3px solid var(--brand);
-  padding: 10px 14px;
-  margin: 14px 0;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-}
-
-/* Guest Boost Section */
-.guest-boost-section {
-  margin-top: 20px;
-}
-
-/* DJ Pack Visual Effects */
-.dj-screen-overlay.pack-active {
-  --pack-color-1: #FF1493;
-  --pack-color-2: #00FF00;
-  --pack-color-3: #00FFFF;
-}
-
-.dj-screen-overlay.pack-active .dj-main-visual {
-  background: radial-gradient(circle at 50% 50%, 
-    var(--pack-color-1) 0%, 
-    var(--pack-color-2) 50%, 
-    var(--pack-color-3) 100%);
-  opacity: 0.3;
-}
-
-/* Boost Effects */
-.dj-screen-overlay.boost-visuals {
-  animation: boostPulse 2s ease-in-out infinite;
-}
-
-@keyframes boostPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; transform: scale(1.02); }
-}
-
-/* Micro-Unlock Effects */
-.dj-screen-overlay.effect-ultra_drop {
-  filter: saturate(1.5) brightness(1.2);
-}
-
-.dj-screen-overlay.effect-festival_lights::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(45deg, 
-    rgba(255, 0, 0, 0.2) 0%,
-    rgba(0, 255, 0, 0.2) 25%,
-    rgba(0, 0, 255, 0.2) 50%,
-    rgba(255, 255, 0, 0.2) 75%,
-    rgba(255, 0, 255, 0.2) 100%
-  );
-  animation: festivalLights 2s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes festivalLights {
-  0% { opacity: 0.5; }
-  50% { opacity: 1; }
-  100% { opacity: 0.5; }
-}
-
-.dj-screen-overlay.effect-crowd_takeover {
-  border: 3px solid var(--brand);
-  box-shadow: 0 0 30px var(--brand);
-}
-
-/* Peak Moment Buttons */
-.dj-peak-moments {
-  margin: 20px 0;
-  padding: 18px;
-  background: rgba(18, 24, 35, 0.6);
-  border-radius: var(--radius);
-  border: 1px solid rgba(90, 169, 255, 0.2);
-}
-
-.dj-peak-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--brand);
-  margin-bottom: 12px;
-  letter-spacing: 1px;
-}
-
-.dj-peak-buttons {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.btn-peak-moment {
-  background: rgba(90, 169, 255, 0.15);
-  border: 1px solid rgba(90, 169, 255, 0.3);
-  color: var(--text);
-  padding: 12px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition-base);
-}
-
-.btn-peak-moment:hover {
-  background: rgba(90, 169, 255, 0.25);
-  border-color: var(--brand);
-  transform: translateY(-2px);
-}
-
-@media (max-width: 640px) {
-  .dj-peak-buttons {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ========================================
