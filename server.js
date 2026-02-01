@@ -130,6 +130,9 @@ app.get("/api/ping", (req, res) => {
 });
 
 // Debug endpoint to list active parties
+// WARNING: This endpoint is for debugging purposes only and should be
+// protected by authentication or disabled in production environments
+// to prevent abuse and information disclosure
 app.get("/api/debug/parties", async (req, res) => {
   try {
     const now = Date.now();
