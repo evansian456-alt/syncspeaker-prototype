@@ -46,6 +46,7 @@ const redis = redisConfig ? new Redis(redisConfig) : null;
 
 // Track Redis connection state
 let redisReady = false;
+let useFallbackMode = false;
 
 if (redis) {
   redis.on("connect", () => {
@@ -152,7 +153,6 @@ let nextHostId = 1;
 // Fallback storage for party metadata when Redis is unavailable
 // code -> { chatMode, createdAt, hostId, hostConnected, guestCount }
 const fallbackPartyStorage = new Map();
-let useFallbackMode = false;
 
 // Helper function to wrap promises with timeout
 function promiseWithTimeout(promise, timeoutMs, errorMessage) {
