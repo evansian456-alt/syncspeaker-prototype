@@ -1,8 +1,7 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
-const PARTY_LOOKUP_RETRIES = 3; // Number of retries for party lookup
-const PARTY_LOOKUP_404_RETRIES = 2; // Number of additional retries specifically for 404 errors
-const PARTY_LOOKUP_RETRY_DELAY_MS = 1500; // Delay between retries in milliseconds
+const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
+const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 
 // Music player state
 const musicState = {
@@ -1736,7 +1735,7 @@ function attemptAddPhone() {
     try {
       btn.disabled = true;
       btn.textContent = "Joining...";
-      updateStatus("Joining party…");
+      updateStatus("Connecting to party…");
       
       // Apply guest anonymity (Feature 7)
       applyGuestAnonymity();
@@ -1744,17 +1743,17 @@ function attemptAddPhone() {
       state.isPro = el("togglePro").checked;
       console.log("[UI] Joining party with:", { code, name: state.name, isPro: state.isPro });
       
-      // Retry logic for party lookup
+      // Retry logic for party lookup with exponential backoff
       let lastError = null;
       let response = null;
       
       for (let attempt = 1; attempt <= PARTY_LOOKUP_RETRIES; attempt++) {
         try {
-          // Update status with retry count
+          // Update status with retry count and exponential backoff info
           if (attempt > 1) {
-            updateStatus(`Looking for party… (attempt ${attempt}/${PARTY_LOOKUP_RETRIES})`);
+            updateStatus(`Connecting to party… (attempt ${attempt}/${PARTY_LOOKUP_RETRIES})`);
           } else {
-            updateStatus("Looking for party…");
+            updateStatus("Connecting to party…");
           }
           
           // Create AbortController for timeout
@@ -1784,10 +1783,12 @@ function attemptAddPhone() {
           lastError = fetchError;
           console.log(`[Party] Join attempt ${attempt} failed:`, fetchError.message);
           
-          // If this is not the last attempt and it's a network/timeout error, retry
+          // If this is not the last attempt and it's a network/timeout error, retry with exponential backoff
           if (attempt < PARTY_LOOKUP_RETRIES) {
-            console.log(`[Party] Retrying in ${PARTY_LOOKUP_RETRY_DELAY_MS}ms...`);
-            await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
+            const backoffDelay = PARTY_LOOKUP_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+            console.log(`[Party] Retrying in ${backoffDelay}ms...`);
+            updateDebug(`Network error - retrying in ${backoffDelay}ms`);
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
           }
         }
       }
@@ -1819,53 +1820,17 @@ function attemptAddPhone() {
         throw new Error(errorMsg);
       }
       
-      // Handle 404 (Party not found) with retry
-      if (response.status === 404) {
-        // Try additional retries for 404 errors
-        let retryResponse = null;
-        for (let retryAttempt = 1; retryAttempt <= PARTY_LOOKUP_404_RETRIES; retryAttempt++) {
-          updateStatus(`Party not found (HTTP 404), retrying… (${retryAttempt}/${PARTY_LOOKUP_404_RETRIES})`);
-          updateDebug(`HTTP 404 - Retry ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES} - Waiting ${PARTY_LOOKUP_RETRY_DELAY_MS}ms`);
-          console.log(`[Party] Party not found (404), retry attempt ${retryAttempt}/${PARTY_LOOKUP_404_RETRIES}`);
-          
-          await new Promise(resolve => setTimeout(resolve, PARTY_LOOKUP_RETRY_DELAY_MS));
-          
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-            
-            retryResponse = await fetch("/api/join-party", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                partyCode: code
-              }),
-              signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (retryResponse.ok) {
-              response = retryResponse;
-              updateDebug(`HTTP ${retryResponse.status} - Success on retry ${retryAttempt}`);
-              break;
-            } else if (retryResponse.status !== 404) {
-              // Different error, use this response
-              response = retryResponse;
-              updateDebug(`HTTP ${retryResponse.status} - Different error on retry`);
-              break;
-            } else {
-              updateDebug(`HTTP 404 - Still not found on retry ${retryAttempt}`);
-            }
-          } catch (retryError) {
-            console.log(`[Party] Retry attempt ${retryAttempt} failed:`, retryError.message);
-            updateDebug(`Retry ${retryAttempt} failed: ${retryError.name}`);
-          }
-        }
+      // Check for 503 (Service Unavailable - Redis not ready)
+      if (response.status === 503) {
+        const errorData = await response.json().catch(() => ({ error: "Server not ready" }));
+        const errorMsg = errorData.error || "Server not ready - Redis unavailable";
+        const endpoint = "POST /api/join-party";
+        updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
+        updateDebug(`HTTP 503 - ${errorMsg}`);
+        throw new Error("Party expired or server still syncing. Ask host to restart party.");
       }
       
+      // Handle all error responses with exact backend message
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorMsg = errorData.error || `Server error: ${response.status}`;
@@ -1873,7 +1838,14 @@ function attemptAddPhone() {
         const statusMessage = `HTTP ${response.status}: ${errorMsg}`;
         updateDebugPanel(endpoint, statusMessage);
         updateDebug(`HTTP ${response.status} - ${errorMsg}`);
-        throw new Error(statusMessage);
+        
+        // Provide actionable error message for 404
+        if (response.status === 404) {
+          throw new Error("Party expired or server still syncing. Ask host to restart party.");
+        }
+        
+        // For other errors, display exact backend message
+        throw new Error(errorMsg);
       }
       
       const data = await response.json();

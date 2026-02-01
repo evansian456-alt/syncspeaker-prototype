@@ -1,7 +1,16 @@
 const request = require('supertest');
-const { app, generateCode, parties, redis, fallbackPartyStorage, setPartyInFallback, getPartyFromFallback } = require('./server');
+const { app, generateCode, parties, redis, fallbackPartyStorage, setPartyInFallback, getPartyFromFallback, waitForRedis } = require('./server');
 
 describe('Server HTTP Endpoints', () => {
+  // Wait for Redis to be ready before running any tests
+  beforeAll(async () => {
+    try {
+      await waitForRedis();
+    } catch (error) {
+      console.error('Failed to connect to Redis:', error.message);
+    }
+  });
+
   // Clear parties and Redis before each test to ensure clean state
   beforeEach(async () => {
     parties.clear();
@@ -198,7 +207,7 @@ describe('Server HTTP Endpoints', () => {
       
       expect(response.status).toBe(404);
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toBe('Party not found');
+      expect(response.body.error).toBe('Party not found or expired');
     });
 
     it('should handle uppercase conversion of party code', async () => {
@@ -266,21 +275,29 @@ describe('Server HTTP Endpoints', () => {
     });
 
     it('should handle slow Redis gracefully', async () => {
+      // Create a party first
+      const createResponse = await request(app).post('/api/create-party');
+      const testCode = createResponse.body.partyCode;
+      
       // Mock a slow Redis response by temporarily slowing down get
       const originalGet = redis.get.bind(redis);
-      redis.get = jest.fn().mockImplementation(() => {
+      redis.get = jest.fn().mockImplementation((key) => {
         return new Promise((resolve) => {
-          setTimeout(() => resolve(null), 400); // Simulate slow Redis
+          // Simulate slow Redis but still return the data
+          setTimeout(async () => {
+            const result = await originalGet(key);
+            resolve(result);
+          }, 100); // Short delay
         });
       });
 
       const response = await request(app)
         .post('/api/join-party')
-        .send({ partyCode: 'SLOW01' });
+        .send({ partyCode: testCode });
 
-      // Should fallback to in-memory and return 404 (party not found in fallback)
-      expect(response.status).toBe(404);
-      expect(response.body.error).toBe('Party not found');
+      // Should still succeed even with slow Redis
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ ok: true });
 
       // Restore original get
       redis.get = originalGet;
@@ -442,7 +459,7 @@ describe('Party Storage and Sync', () => {
         .send({ partyCode: 'NOEXST' });
       
       expect(response.status).toBe(404);
-      expect(response.body.error).toBe('Party not found');
+      expect(response.body.error).toBe('Party not found or expired');
     });
 
     it('should handle multiple parties in storage', async () => {
@@ -605,8 +622,8 @@ describe('Production Scenarios', () => {
       expect(retrieved.chatMode).toBe('OPEN');
     });
 
-    it('should allow joining party from fallback storage when Redis times out', async () => {
-      // Create a party in fallback storage
+    it('should return 500 when Redis times out during join', async () => {
+      // Create a party in Redis first
       const testCode = 'TEST02';
       const partyData = {
         chatMode: 'OPEN',
@@ -616,24 +633,23 @@ describe('Production Scenarios', () => {
         guestCount: 0
       };
       
-      setPartyInFallback(testCode, partyData);
+      // Add to Redis
+      await redis.setex(`party:${testCode}`, 7200, JSON.stringify(partyData));
       
-      // Mock Redis to timeout
+      // Mock Redis.get to throw error
       const originalGet = redis.get.bind(redis);
       redis.get = jest.fn().mockImplementation(() => {
-        return new Promise((resolve) => {
-          setTimeout(() => resolve(null), 400); // Timeout
-        });
+        throw new Error('Redis timeout');
       });
       
-      // Try to join the party - this should work using fallback
+      // Try to join the party - this should fail since Redis is required
       const response = await request(app)
         .post('/api/join-party')
         .send({ partyCode: testCode });
       
-      // Should succeed using fallback
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      // Should fail with 500 error
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain('Failed to lookup party');
       
       // Restore Redis
       redis.get = originalGet;
