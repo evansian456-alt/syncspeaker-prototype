@@ -218,9 +218,9 @@ describe('Server HTTP Endpoints', () => {
         .post('/api/join-party')
         .send({ partyCode: 'SLOW01' });
 
-      // Should return timeout error
-      expect(response.status).toBe(503);
-      expect(response.body.error).toBeDefined();
+      // Should fallback to in-memory and return 404 (party not found in fallback)
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Party not found');
 
       // Restore original get
       redis.get = originalGet;
@@ -514,8 +514,8 @@ describe('Production Scenarios', () => {
       expect(response.status).toBe(200);
       expect(response.body.redis).toBeDefined();
       expect(typeof response.body.redis).toBe('string');
-      // In test environment with mock, status could be various states
-      expect(['connected', 'ready', 'connect', 'connecting', 'unknown']).toContain(response.body.redis);
+      // In test environment with mock, status could be various states including fallback
+      expect(['ready', 'fallback', 'error']).toContain(response.body.redis);
     });
   });
 });
