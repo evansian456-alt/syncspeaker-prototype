@@ -101,9 +101,7 @@ app.get("/", (req, res) => {
 app.get("/health", async (req, res) => {
   let redisStatus;
   
-  if (!redis) {
-    redisStatus = "fallback";
-  } else if (redisConnectionError || !redisReady) {
+  if (!redis || redisConnectionError || !redisReady) {
     redisStatus = "fallback";
   } else if (redis.status === "ready" && redisReady) {
     redisStatus = "ready";
@@ -213,7 +211,6 @@ function getPartyFromFallback(code) {
 
 function setPartyInFallback(code, partyData) {
   fallbackPartyStorage.set(code, partyData);
-  return true;
 }
 
 function deletePartyFromFallback(code) {

@@ -1,5 +1,5 @@
 const request = require('supertest');
-const { app, generateCode, parties, redis } = require('./server');
+const { app, generateCode, parties, redis, fallbackPartyStorage, setPartyInFallback, getPartyFromFallback } = require('./server');
 
 describe('Server HTTP Endpoints', () => {
   // Clear parties and Redis before each test to ensure clean state
@@ -520,8 +520,6 @@ describe('Production Scenarios', () => {
   });
 
   describe('Redis Fallback Mode', () => {
-    const { fallbackPartyStorage, setPartyInFallback, getPartyFromFallback, redis } = require('./server');
-
     beforeEach(() => {
       // Clear fallback storage before each test
       fallbackPartyStorage.clear();
