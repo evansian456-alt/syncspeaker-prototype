@@ -206,7 +206,7 @@ app.get("/api/debug/parties", async (req, res) => {
       });
     }
     
-    // Sort by age (newest first)
+    // Sort by age (oldest first)
     parties_list.sort((a, b) => a.ageMs - b.ageMs);
     
     res.json({
@@ -750,8 +750,7 @@ async function handleCreate(ws, msg) {
   // This ensures party is persisted before guests try to join
   try {
     await setPartyInRedis(code, partyData);
-    const storageBackend = "redis";
-    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: ${storageBackend}, totalParties: ${parties.size + 1}`);
+    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
   } catch (err) {
     console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
     ws.send(JSON.stringify({ 
@@ -788,7 +787,6 @@ async function handleJoin(ws, msg) {
   // First check Redis for party existence
   const partyData = await getPartyFromRedis(code);
   const storeReadResult = partyData ? "found" : "not_found";
-  const storageBackend = "redis";
   
   // Then check local memory
   let party = parties.get(code);
@@ -812,7 +810,7 @@ async function handleJoin(ws, msg) {
     const totalParties = parties.size;
     const localPartyExists = parties.has(code);
     const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
-    console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: ${storageBackend}`);
+    console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
     ws.send(JSON.stringify({ t: "ERROR", message: "Party not found" }));
     return;
   }
@@ -857,7 +855,7 @@ async function handleJoin(ws, msg) {
     console.error(`[WS] Error fetching party for guest count update:`, err.message);
   });
   
-  console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: ${storageBackend}`);
+  console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
   
   ws.send(JSON.stringify({ t: "JOINED", code }));
   broadcastRoomState(code);
