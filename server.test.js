@@ -62,6 +62,50 @@ describe('Server HTTP Endpoints', () => {
     });
   });
 
+  describe('GET /api/debug/parties', () => {
+    it('should return list of parties', async () => {
+      const response = await request(app).get('/api/debug/parties');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('totalParties');
+      expect(response.body).toHaveProperty('parties');
+      expect(response.body).toHaveProperty('instanceId');
+      expect(response.body).toHaveProperty('redisReady');
+      expect(Array.isArray(response.body.parties)).toBe(true);
+    });
+
+    it('should include created parties in the list', async () => {
+      // Create a party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Get debug info
+      const response = await request(app).get('/api/debug/parties');
+      expect(response.status).toBe(200);
+      
+      // Should include the party we just created
+      const party = response.body.parties.find(p => p.code === partyCode);
+      expect(party).toBeDefined();
+      expect(party).toHaveProperty('code', partyCode);
+      expect(party).toHaveProperty('ageMs');
+      expect(party).toHaveProperty('createdAt');
+    });
+
+    it('should show party age in minutes', async () => {
+      // Create a party
+      await request(app).post('/api/create-party');
+      
+      // Get debug info
+      const response = await request(app).get('/api/debug/parties');
+      expect(response.status).toBe(200);
+      
+      // All parties should have ageMinutes
+      response.body.parties.forEach(party => {
+        expect(party).toHaveProperty('ageMinutes');
+        expect(typeof party.ageMinutes).toBe('number');
+      });
+    });
+  });
+
   describe('POST /api/create-party', () => {
     it('should create a new party and return party code', async () => {
       const response = await request(app).post('/api/create-party');
@@ -203,6 +247,22 @@ describe('Server HTTP Endpoints', () => {
       
       expect(response.status).toBe(404);
       expect(duration).toBeLessThan(500);
+    });
+
+    it('should allow joining a party immediately after creation (no race condition)', async () => {
+      // Create a party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const newPartyCode = createResponse.body.partyCode;
+      
+      // Immediately try to join (this tests the fix for async Redis writes)
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: newPartyCode });
+      
+      // Should succeed without 404
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body).toEqual({ ok: true });
     });
 
     it('should handle slow Redis gracefully', async () => {
