@@ -1,7 +1,6 @@
 const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
-const PARTY_LOOKUP_404_RETRIES = 0; // No additional 404-specific retries (already included in main retries)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 
 // Music player state

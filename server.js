@@ -332,16 +332,7 @@ app.post("/api/create-party", async (req, res) => {
     let code;
     let attempts = 0;
     do {
-      code = generateCode();
-      
-      // Normalize party code (already uppercase from generateCode, but explicit)
-      code = code.toUpperCase().trim();
-      
-      // Validate length
-      if (code.length !== 6) {
-        console.error(`[HTTP] Generated invalid party code length: ${code.length}`);
-        continue;
-      }
+      code = generateCode(); // Already generates 6-character uppercase code
       
       // Check for existing party in Redis (single source of truth)
       const existing = await getPartyFromRedis(code);
@@ -515,6 +506,17 @@ app.post("/api/join-party", async (req, res) => {
 app.get("/api/party/:code/debug", async (req, res) => {
   const timestamp = new Date().toISOString();
   const code = req.params.code.toUpperCase().trim();
+  
+  // Validate party code length
+  if (code.length !== 6) {
+    return res.json({
+      exists: false,
+      ttlSeconds: -1,
+      redisConnected: redis && redisReady,
+      instanceId: INSTANCE_ID,
+      error: "Invalid party code length"
+    });
+  }
   
   console.log(`[HTTP] GET /api/party/${code}/debug at ${timestamp}, instanceId: ${INSTANCE_ID}`);
   
