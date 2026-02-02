@@ -187,15 +187,17 @@ npm run test:coverage
 ### Test Coverage
 
 Current test coverage:
-- **56 tests** covering:
-  - HTTP endpoints (health check, ping, create party, join party)
+- **111 tests** covering:
+  - HTTP endpoints (health check, ping, create party, join party, leave party, end party, party state)
   - Static file serving
   - Server-side utilities (party code generation)
   - Client-side utilities (HTML escaping, file size formatting, hashing)
+  - Party management (guest join/leave, party end, expiry handling)
+  - Multi-instance Redis sync
 
 Tests are located in:
-- `server.test.js` - HTTP endpoint tests (26 tests)
-- `utils.test.js` - Utility function tests (30 tests)
+- `server.test.js` - HTTP endpoint tests (85 tests)
+- `utils.test.js` - Utility function tests (26 tests)
 
 ## API Endpoints
 
@@ -230,9 +232,175 @@ Response: { "partyCode": "ABC123", "hostId": 1 }
 ### POST /api/join-party
 Join an existing party
 ```json
+Request: { 
+  "partyCode": "ABC123",
+  "nickname": "Guest1" // optional
+}
+Response: { 
+  "ok": true,
+  "guestId": "guest-1",
+  "nickname": "Guest1",
+  "partyCode": "ABC123"
+}
+```
+
+Error responses:
+- `400` - Party code required or invalid length
+- `404` - Party not found or expired
+- `410` - Party has ended or expired
+- `503` - Server not ready (Redis unavailable)
+
+### GET /api/party
+Get current party state with guests
+```json
+Request: GET /api/party?code=ABC123
+
+Response: {
+  "exists": true,
+  "partyCode": "ABC123",
+  "status": "active",
+  "expiresAt": 1234567890000,
+  "timeRemainingMs": 7200000,
+  "guestCount": 2,
+  "guests": [
+    {
+      "guestId": "guest-1",
+      "nickname": "Guest1",
+      "joinedAt": 1234567890000
+    }
+  ],
+  "chatMode": "OPEN",
+  "createdAt": 1234567890000
+}
+```
+
+Query parameters:
+- `code` - Party code (required)
+- `t` - Cache buster timestamp (optional, recommended)
+
+Status values:
+- `"active"` - Party is active and accepting guests
+- `"ended"` - Party was ended by host
+- `"expired"` - Party TTL expired (2 hours)
+
+### POST /api/leave-party
+Remove guest from party
+```json
+Request: {
+  "partyCode": "ABC123",
+  "guestId": "guest-1"
+}
+Response: {
+  "ok": true,
+  "guestCount": 1
+}
+```
+
+### POST /api/end-party
+End party (host only)
+```json
 Request: { "partyCode": "ABC123" }
 Response: { "ok": true }
 ```
+
+After ending, the party status is set to "ended" and remains accessible for 5 minutes before being deleted.
+
+## How to Test with Two Phones
+
+This guide will help you verify that multi-device sync works correctly.
+
+### Prerequisites
+1. Both phones must be on the same network as the server, OR
+2. Server must be deployed to Railway with a public URL
+
+### Testing Steps
+
+#### Option 1: Local Network (Development)
+1. **Start the server** on your computer:
+   ```bash
+   npm start
+   ```
+   Note the local IP address (e.g., `http://192.168.1.100:8080`)
+
+2. **Phone 1 (Host)**:
+   - Open browser and navigate to `http://[your-ip]:8080`
+   - Click "Start Party"
+   - Note the 6-character party code displayed
+   - You should see "Waiting for guests..."
+
+3. **Phone 2 (Guest)**:
+   - Open browser and navigate to `http://[your-ip]:8080`
+   - Click "Join Party"
+   - Enter the party code from Phone 1
+   - Click "Join party"
+
+4. **Verification**:
+   - **Phone 2** should show "Joined Party" screen with party code and guest count
+   - **Phone 1** should update within 1-3 seconds showing "1 guest joined"
+   - Both phones should show time remaining countdown
+
+#### Option 2: Railway Deployment (Production)
+1. **Deploy to Railway** (see Production Deployment section above)
+2. **Phone 1 (Host)**:
+   - Open `https://your-app.railway.app`
+   - Click "Start Party"
+   - Note the party code
+
+3. **Phone 2 (Guest)**:
+   - Open `https://your-app.railway.app`
+   - Click "Join Party"
+   - Enter the party code
+   - Click "Join party"
+
+4. **Verification**:
+   - Same as Option 1 above
+
+### What Success Looks Like
+
+✅ **Guest Join Flow**:
+- Guest enters code → clicks Join → sees "Joined Party" screen (not stuck on "Joining...")
+- Guest screen shows: party code, guest count, time remaining
+- Host sees guest count update from "Waiting for guests..." to "1 guest joined" within 1-3 seconds
+
+✅ **Polling Updates**:
+- When a second guest joins, both phones update guest count
+- Time remaining counts down on both phones
+- Updates happen every 2 seconds
+
+✅ **Leave/End Flow**:
+- Guest clicks "Leave Party" → returns to landing page
+- Host sees guest count decrement within 1-3 seconds
+- Host clicks "Leave" → party ends for everyone
+- All guests see "Party has ended" and return to landing page
+
+### Viewing Railway Logs
+
+To confirm joins are working on Railway:
+1. Go to Railway dashboard → your app service
+2. Click "Deployments" tab → Latest deployment → "View Logs"
+3. Look for log entries like:
+   ```
+   [HTTP] POST /api/create-party at [timestamp]
+   [HTTP] Party created: ABC123, hostId: 1
+   [HTTP] POST /api/join-party at [timestamp]
+   [HTTP] Party joined: ABC123, guestId: guest-1, guestCount: 1
+   ```
+
+### Troubleshooting
+
+**Guest stuck on "Joining..."**:
+- ✅ Fixed! Guest now transitions immediately to "Joined Party" screen
+- Check browser console for errors
+
+**Host doesn't see guest join**:
+- Check if polling is working (should see GET /api/party requests in Network tab)
+- Verify Redis is connected (check /health endpoint)
+- Check Railway logs for join-party success
+
+**"Party not found" error**:
+- Party may have expired (2 hour TTL)
+- Host may have ended the party
+- Check party code is correct (case-insensitive, 6 characters)
 
 ## WebSocket API
 
