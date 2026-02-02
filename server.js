@@ -974,6 +974,110 @@ app.get("/api/party", async (req, res) => {
   }
 });
 
+// GET /api/party-state - Enhanced party state endpoint with playback info for polling
+app.get("/api/party-state", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.query.code ? req.query.code.trim().toUpperCase() : null;
+  
+  if (!code) {
+    return res.status(400).json({ 
+      error: "Party code is required",
+      exists: false 
+    });
+  }
+  
+  // Validate party code length
+  if (code.length !== 6) {
+    return res.status(400).json({ 
+      error: "Party code must be 6 characters",
+      exists: false 
+    });
+  }
+  
+  console.log(`[HTTP] GET /api/party-state?code=${code} at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  
+  // Determine storage backend
+  const useRedis = redis && redisReady;
+  const storageBackend = useRedis ? 'redis' : 'fallback';
+  
+  try {
+    // Read from Redis or fallback storage
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[HTTP] Redis error for party ${code}, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      console.log(`[HTTP] Party not found: ${code}, storageBackend: ${storageBackend}`);
+      return res.json({
+        exists: false,
+        status: "expired",
+        partyCode: code
+      });
+    }
+    
+    // Check if party has expired
+    const now = Date.now();
+    let status = partyData.status || "active";
+    let timeRemainingMs = 0;
+    
+    if (partyData.expiresAt) {
+      timeRemainingMs = Math.max(0, partyData.expiresAt - now);
+      if (timeRemainingMs === 0 && status === "active") {
+        status = "expired";
+      }
+    } else {
+      // Legacy support for parties without expiresAt
+      timeRemainingMs = Math.max(0, (partyData.createdAt + PARTY_TTL_MS) - now);
+    }
+    
+    // Get current track info from in-memory party state (if WebSocket connected)
+    const party = parties.get(code);
+    const currentTrack = party?.currentTrack || null;
+    const djMessages = party?.djMessages || [];
+    
+    console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || 'none'}`);
+    
+    // Return enhanced party state with playback info
+    res.json({
+      exists: true,
+      partyCode: code,
+      status,
+      expiresAt: partyData.expiresAt || (partyData.createdAt + PARTY_TTL_MS),
+      timeRemainingMs,
+      guestCount: partyData.guestCount || 0,
+      guests: partyData.guests || [],
+      chatMode: partyData.chatMode || "OPEN",
+      createdAt: partyData.createdAt,
+      serverTime: now,
+      // Playback state
+      currentTrack: currentTrack ? {
+        url: currentTrack.url,
+        filename: currentTrack.filename,
+        startAtServerMs: currentTrack.startAtServerMs,
+        startPosition: currentTrack.startPosition
+      } : null,
+      // DJ auto-messages
+      djMessages: djMessages
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error fetching party state ${code}:`, error);
+    res.status(500).json({ 
+      error: "Failed to fetch party state",
+      details: error.message,
+      exists: false
+    });
+  }
+});
+
 // POST /api/leave-party - Remove guest from party
 app.post("/api/leave-party", async (req, res) => {
   const timestamp = new Date().toISOString();
@@ -1475,6 +1579,47 @@ function handleMessage(ws, msg) {
   }
 }
 
+// Helper function to add and broadcast DJ auto-generated messages
+function addDjMessage(code, message, type = "system") {
+  const party = parties.get(code);
+  if (!party) return;
+  
+  const djMessage = {
+    id: Date.now(),
+    message,
+    type, // "system", "prompt", "warning"
+    timestamp: Date.now()
+  };
+  
+  // Initialize djMessages array if not exists
+  if (!party.djMessages) {
+    party.djMessages = [];
+  }
+  
+  party.djMessages.push(djMessage);
+  
+  // Keep only last 20 messages
+  if (party.djMessages.length > 20) {
+    party.djMessages = party.djMessages.slice(-20);
+  }
+  
+  console.log(`[DJ Message] ${code}: ${message}`);
+  
+  // Broadcast to all party members
+  const broadcastMsg = JSON.stringify({ 
+    t: "DJ_MESSAGE", 
+    message,
+    type,
+    timestamp: djMessage.timestamp
+  });
+  
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(broadcastMsg);
+    }
+  });
+}
+
 async function handleCreate(ws, msg) {
   const client = clients.get(ws);
   if (!client) return;
@@ -1560,13 +1705,24 @@ async function handleCreate(ws, msg) {
     members: [member],
     chatMode: "OPEN",
     createdAt,
-    hostId
+    hostId,
+    djMessages: [], // Array of DJ auto-generated messages
+    currentTrack: null // Current playing track info
   });
   
   client.party = code;
   
   ws.send(JSON.stringify({ t: "CREATED", code }));
   broadcastRoomState(code);
+  
+  // Send welcome DJ message to host
+  addDjMessage(code, "🎧 Party started! Share your code with friends.", "system");
+  
+  // Schedule party timeout warning (30 minutes before expiry = 90 minutes after creation)
+  const warningDelay = PARTY_TTL_MS - (30 * 60 * 1000); // 90 minutes
+  setTimeout(() => {
+    addDjMessage(code, "⏰ Party ending in 30 minutes!", "warning");
+  }, warningDelay);
 }
 
 async function handleJoin(ws, msg) {
@@ -1653,6 +1809,17 @@ async function handleJoin(ws, msg) {
   
   ws.send(JSON.stringify({ t: "JOINED", code }));
   broadcastRoomState(code);
+  
+  // Send welcome DJ message for first guest
+  if (guestCount === 1) {
+    addDjMessage(code, `👋 ${name} joined the party!`, "system");
+    // Encourage interaction after a few seconds
+    setTimeout(() => {
+      addDjMessage(code, "💬 Drop an emoji or message!", "prompt");
+    }, 5000);
+  } else {
+    addDjMessage(code, `👋 ${name} joined! ${guestCount} guests in the party.`, "system");
+  }
 }
 
 function handleKick(ws, msg) {
@@ -1803,8 +1970,27 @@ function handleHostPlay(ws, msg) {
   
   console.log(`[Party] Host playing in party ${client.party}`);
   
-  // Broadcast to all guests (not host)
-  const message = JSON.stringify({ t: "PLAY" });
+  // Store track info in party state if provided
+  if (msg.trackUrl || msg.filename) {
+    party.currentTrack = {
+      url: msg.trackUrl || null,
+      filename: msg.filename || "Unknown Track",
+      startAtServerMs: Date.now(), // Server timestamp for sync
+      startPosition: msg.startPosition || 0 // Position in seconds
+    };
+    
+    console.log(`[Party] Track info: ${party.currentTrack.filename}, url: ${party.currentTrack.url ? 'provided' : 'local-only'}`);
+  }
+  
+  // Broadcast to all guests (not host) with track info
+  const message = JSON.stringify({ 
+    t: "PLAY",
+    trackUrl: party.currentTrack?.url || null,
+    filename: party.currentTrack?.filename || null,
+    startAtServerMs: party.currentTrack?.startAtServerMs || Date.now(),
+    startPosition: party.currentTrack?.startPosition || 0
+  });
+  
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);

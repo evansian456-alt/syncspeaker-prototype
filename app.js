@@ -48,6 +48,9 @@ const state = {
   visualMode: "idle", // playing, paused, idle
   connected: false,
   guestVolume: 80,
+  guestAudioElement: null, // Audio element for guest playback
+  guestAudioReady: false, // Flag if guest audio is loaded and ready
+  guestNeedsTap: false, // Flag if guest needs to tap to play
   // Crowd Energy state
   crowdEnergy: 0, // 0-100
   crowdEnergyPeak: 0,
@@ -333,6 +336,14 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PLAYING");
       updateGuestVisualMode("playing");
+      
+      // Handle guest audio playback
+      if (msg.trackUrl) {
+        handleGuestAudioPlayback(msg.trackUrl, msg.filename, msg.startAtServerMs, msg.startPosition);
+      } else {
+        // No track URL provided - show message
+        toast("Host is playing locally - no audio sync available");
+      }
     }
     updateDebugState();
     return;
@@ -344,6 +355,11 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PAUSED");
       updateGuestVisualMode("paused");
+      
+      // Pause guest audio if playing
+      if (state.guestAudioElement && !state.guestAudioElement.paused) {
+        state.guestAudioElement.pause();
+      }
     }
     updateDebugState();
     return;
@@ -386,6 +402,12 @@ function handleServer(msg) {
     if (state.isHost) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
     }
+    return;
+  }
+  
+  // DJ auto-generated messages
+  if (msg.t === "DJ_MESSAGE") {
+    displayDjMessage(msg.message, msg.type);
     return;
   }
   
@@ -986,6 +1008,141 @@ function updateGuestVisualMode(mode) {
   updateDebugState();
 }
 
+// Handle guest audio playback with sync
+function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosition = 0) {
+  console.log("[Guest Audio] Received track:", filename, "URL:", trackUrl);
+  
+  if (!trackUrl) {
+    toast("⚠️ Host playing local file - no audio available");
+    state.guestNeedsTap = false;
+    return;
+  }
+  
+  // Create or reuse audio element
+  if (!state.guestAudioElement) {
+    state.guestAudioElement = new Audio();
+    state.guestAudioElement.volume = state.guestVolume / 100;
+    
+    // Add event listeners
+    state.guestAudioElement.addEventListener('loadeddata', () => {
+      console.log("[Guest Audio] Audio loaded and ready");
+      state.guestAudioReady = true;
+    });
+    
+    state.guestAudioElement.addEventListener('error', (e) => {
+      console.error("[Guest Audio] Error loading audio:", e);
+      toast("❌ Failed to load audio track");
+      state.guestNeedsTap = false;
+    });
+  }
+  
+  // Set source
+  state.guestAudioElement.src = trackUrl;
+  state.guestAudioReady = false;
+  state.guestNeedsTap = true;
+  
+  // Show "Tap to Play" prompt
+  showGuestTapToPlay(filename);
+  
+  // Calculate sync position
+  const serverDelay = Date.now() - startAtServerMs;
+  const syncPosition = startPosition + (serverDelay / 1000);
+  
+  // Store sync info for when user taps
+  state.guestAudioElement.dataset.syncPosition = syncPosition.toString();
+  
+  console.log("[Guest Audio] Ready to play. Server delay:", serverDelay, "ms, Sync position:", syncPosition.toFixed(2), "s");
+}
+
+// Show "Tap to Play" button for guest
+function showGuestTapToPlay(filename) {
+  // Create overlay if it doesn't exist
+  let overlay = el("guestTapOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "guestTapOverlay";
+    overlay.className = "guest-tap-overlay";
+    overlay.innerHTML = `
+      <div class="guest-tap-content">
+        <div class="guest-tap-icon">🎵</div>
+        <div class="guest-tap-title">Track Started!</div>
+        <div class="guest-tap-filename"></div>
+        <button class="btn btn-primary guest-tap-button">Tap to Play Audio</button>
+        <div class="guest-tap-note">Browser requires user interaction to play audio</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    
+    // Add click handler
+    const tapBtn = overlay.querySelector(".guest-tap-button");
+    tapBtn.onclick = () => {
+      playGuestAudio();
+    };
+  }
+  
+  // Update filename
+  const filenameEl = overlay.querySelector(".guest-tap-filename");
+  if (filenameEl) {
+    filenameEl.textContent = filename || "Unknown Track";
+  }
+  
+  overlay.style.display = "flex";
+}
+
+// Play guest audio with sync
+function playGuestAudio() {
+  if (!state.guestAudioElement || !state.guestAudioElement.src) {
+    toast("No audio loaded");
+    return;
+  }
+  
+  const syncPosition = parseFloat(state.guestAudioElement.dataset.syncPosition || "0");
+  state.guestAudioElement.currentTime = syncPosition;
+  
+  state.guestAudioElement.play()
+    .then(() => {
+      console.log("[Guest Audio] Playing from position:", syncPosition.toFixed(2), "s");
+      toast("🎵 Audio synced and playing!");
+      state.guestNeedsTap = false;
+      
+      // Hide tap overlay
+      const overlay = el("guestTapOverlay");
+      if (overlay) {
+        overlay.style.display = "none";
+      }
+    })
+    .catch((error) => {
+      console.error("[Guest Audio] Play failed:", error);
+      toast("❌ Could not play audio. Please try again.");
+    });
+}
+
+// Display DJ auto-generated message
+function displayDjMessage(message, type = "system") {
+  console.log("[DJ Message]", type, ":", message);
+  
+  // Show as toast with appropriate styling
+  let icon = "🎧";
+  if (type === "warning") icon = "⏰";
+  if (type === "prompt") icon = "💬";
+  
+  toast(`${icon} ${message}`, type === "warning" ? 8000 : 5000);
+  
+  // Also display in party view if exists
+  const djMessagesContainer = el("djMessagesContainer");
+  if (djMessagesContainer) {
+    const msgEl = document.createElement("div");
+    msgEl.className = `dj-message dj-message-${type}`;
+    msgEl.textContent = message;
+    djMessagesContainer.appendChild(msgEl);
+    
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+      msgEl.remove();
+    }, 10000);
+  }
+}
+
 function setupGuestVolumeControl() {
   const sliderEl = el("guestVolumeSlider");
   const valueEl = el("guestVolumeValue");
@@ -1527,7 +1684,12 @@ function playQueuedTrack() {
         
         // Broadcast to guests
         if (state.isHost && state.ws) {
-          send({ t: "HOST_PLAY" });
+          send({ 
+            t: "HOST_PLAY",
+            trackUrl: null, // Local file - no public URL
+            filename: musicState.selectedFile.name,
+            startPosition: 0
+          });
         }
         
         // Update back to DJ button visibility
@@ -2469,7 +2631,15 @@ function attemptAddPhone() {
           
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
-            send({ t: "HOST_PLAY" });
+            // Note: For guest audio sync, host needs to provide a public HTTPS URL
+            // Local files/blob URLs cannot be accessed by guests
+            const trackUrl = null; // TODO: Implement track URL input or upload
+            send({ 
+              t: "HOST_PLAY",
+              trackUrl: trackUrl,
+              filename: musicState.selectedFile ? musicState.selectedFile.name : "Unknown",
+              startPosition: audioEl.currentTime
+            });
           }
           
           // Update back to DJ button visibility
@@ -2517,7 +2687,12 @@ function attemptAddPhone() {
       
       // Broadcast PLAY to guests even in simulated mode
       if (state.isHost && state.ws) {
-        send({ t: "HOST_PLAY" });
+        send({ 
+          t: "HOST_PLAY",
+          trackUrl: null, // Simulated mode - no track URL
+          filename: "Simulated Track",
+          startPosition: 0
+        });
       }
       
       // Update back to DJ button visibility
