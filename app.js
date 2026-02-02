@@ -72,7 +72,8 @@ const state = {
   partyTheme: "neon", // neon, dark-rave, festival, minimal
   // Guest counter for anonymous names
   nextGuestNumber: 1,
-  guestNickname: null
+  guestNickname: null,
+  lastDjMessageTimestamp: 0 // Track last DJ message to avoid duplicates
 };
 
 // Client-side party code generator for offline fallback
@@ -548,10 +549,10 @@ function showParty() {
   }
 }
 
-// Start polling party status for host to get updates on guest joins
+// Start polling party status for updates (both host and guest)
 function startPartyStatusPolling() {
-  // Only poll for hosts and when not in offline mode
-  if (!state.isHost || state.offlineMode) {
+  // Don't poll in offline mode
+  if (state.offlineMode) {
     return;
   }
   
@@ -564,9 +565,9 @@ function startPartyStatusPolling() {
   // Reset polling flag
   state.partyStatusPollingInProgress = false;
   
-  console.log("[Polling] Starting party status polling");
+  console.log(`[Polling] Starting party status polling (${state.isHost ? 'host' : 'guest'} mode)`);
   
-  // Poll every 2 seconds (changed from 3)
+  // Poll every 2 seconds
   state.partyStatusPollingInterval = setInterval(async () => {
     // Skip if previous poll is still in progress
     if (state.partyStatusPollingInProgress) {
@@ -575,8 +576,8 @@ function startPartyStatusPolling() {
     
     state.partyStatusPollingInProgress = true;
     try {
-      if (!state.code || !state.isHost) {
-        // Stop polling if no longer host or no party code
+      if (!state.code) {
+        // Stop polling if no party code
         stopPartyStatusPolling();
         return;
       }
@@ -585,9 +586,9 @@ function startPartyStatusPolling() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      // Use new GET /api/party endpoint with cache buster
+      // Use /api/party-state for enhanced info including playback state
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -596,7 +597,7 @@ function startPartyStatusPolling() {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.warn("[Polling] Failed to fetch party status:", response.status);
+        console.warn("[Polling] Failed to fetch party state:", response.status);
         return;
       }
       
@@ -628,7 +629,6 @@ function startPartyStatusPolling() {
             isHost: false
           }));
           // Add host to members if not already there
-          // Note: For guests, we don't have host info from API, so we just add a placeholder
           if (!state.snapshot.members.some(m => m.isHost)) {
             state.snapshot.members.unshift({
               id: 'host',
@@ -639,12 +639,41 @@ function startPartyStatusPolling() {
           }
         }
         
-        // Log when guests join or leave
-        if (newGuestCount !== previousGuestCount) {
+        // Log when guests join or leave (host only)
+        if (state.isHost && newGuestCount !== previousGuestCount) {
           console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
           if (newGuestCount > previousGuestCount) {
             toast(`🎉 Guest joined (${newGuestCount} total)`);
           }
+        }
+        
+        // Guest-specific: Handle playback state updates from polling
+        if (!state.isHost && data.currentTrack) {
+          const track = data.currentTrack;
+          
+          // Check if this is a new track or track start
+          if (track.filename !== state.nowPlayingFilename) {
+            console.log("[Polling] New track detected:", track.filename);
+            state.nowPlayingFilename = track.filename;
+            updateGuestNowPlaying(track.filename);
+            
+            // If track has URL, prepare guest audio
+            if (track.url) {
+              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+            }
+          }
+        }
+        
+        // Check for DJ messages
+        if (data.djMessages && data.djMessages.length > 0) {
+          // Only show new messages (check timestamp)
+          const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          data.djMessages.forEach(msg => {
+            if (msg.timestamp > lastMessageTimestamp) {
+              displayDjMessage(msg.message, msg.type);
+              state.lastDjMessageTimestamp = msg.timestamp;
+            }
+          });
         }
         
         // Update host guest count display
@@ -728,9 +757,9 @@ function startGuestPartyStatusPolling() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      // Use new GET /api/party endpoint with cache buster
+      // Use enhanced /api/party-state endpoint with cache buster
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -739,7 +768,7 @@ function startGuestPartyStatusPolling() {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.warn("[Polling] Failed to fetch party status:", response.status);
+        console.warn("[Polling] Failed to fetch party state:", response.status);
         return;
       }
       
@@ -765,6 +794,38 @@ function startGuestPartyStatusPolling() {
         // Log when guests join or leave
         if (newGuestCount !== previousGuestCount) {
           console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
+        }
+        
+        // Handle playback state updates from polling (fallback if WebSocket not available)
+        if (data.currentTrack) {
+          const track = data.currentTrack;
+          
+          // Check if this is a new track or track start
+          if (track.filename !== state.nowPlayingFilename) {
+            console.log("[Polling] New track detected:", track.filename);
+            state.nowPlayingFilename = track.filename;
+            updateGuestNowPlaying(track.filename);
+            
+            // If track has URL, prepare guest audio
+            if (track.url) {
+              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+            } else {
+              // No URL - host playing local file
+              toast("🎵 Host is playing: " + track.filename);
+            }
+          }
+        }
+        
+        // Check for DJ messages
+        if (data.djMessages && data.djMessages.length > 0) {
+          // Only show new messages (check timestamp)
+          const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          data.djMessages.forEach(msg => {
+            if (msg.timestamp > lastMessageTimestamp) {
+              displayDjMessage(msg.message, msg.type);
+              state.lastDjMessageTimestamp = msg.timestamp;
+            }
+          });
         }
         
         // Check for expired/ended status
@@ -1684,9 +1745,13 @@ function playQueuedTrack() {
         
         // Broadcast to guests
         if (state.isHost && state.ws) {
+          // Get track URL from input if provided
+          const trackUrlInput = el("trackUrlInput");
+          const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+          
           send({ 
             t: "HOST_PLAY",
-            trackUrl: null, // Local file - no public URL
+            trackUrl: trackUrl,
             filename: musicState.selectedFile.name,
             startPosition: 0
           });
@@ -2631,15 +2696,20 @@ function attemptAddPhone() {
           
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
-            // Note: For guest audio sync, host needs to provide a public HTTPS URL
-            // Local files/blob URLs cannot be accessed by guests
-            const trackUrl = null; // TODO: Implement track URL input or upload
+            // Get track URL from input if provided
+            const trackUrlInput = el("trackUrlInput");
+            const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+            
             send({ 
               t: "HOST_PLAY",
               trackUrl: trackUrl,
               filename: musicState.selectedFile ? musicState.selectedFile.name : "Unknown",
               startPosition: audioEl.currentTime
             });
+            
+            if (!trackUrl) {
+              console.log("[Music] No track URL provided - guests won't hear audio");
+            }
           }
           
           // Update back to DJ button visibility

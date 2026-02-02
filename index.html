@@ -245,6 +245,18 @@
               Pick any audio file from your phone (MP3, WAV, M4A, etc). We don't provide music.
             </div>
             <div class="music-warning hidden" id="musicWarning"></div>
+            
+            <!-- Track URL for Multi-Device Sync -->
+            <div class="track-url-section" style="margin-top: 16px; padding: 12px; background: rgba(90, 169, 255, 0.1); border-radius: 8px; border: 1px solid rgba(90, 169, 255, 0.2);">
+              <h5 style="margin: 0 0 8px 0; font-size: 14px; color: rgba(255, 255, 255, 0.9);">🌐 Multi-Device Audio Sync (Optional)</h5>
+              <div class="tiny muted" style="margin-bottom: 8px;">
+                For guests to hear audio, provide a public HTTPS URL to your track:
+              </div>
+              <input type="text" id="trackUrlInput" class="input" placeholder="https://example.com/track.mp3" style="font-size: 13px;" />
+              <div class="tiny muted" style="margin-top: 6px; font-style: italic; color: rgba(255, 255, 255, 0.6);">
+                💡 Without a URL, guests see track info but won't hear audio. Try: SoundCloud, Dropbox public links, or your own server.
+              </div>
+            </div>
           </div>
 
           <button type="button" class="btn primary" id="btnCreate">Start party</button>
