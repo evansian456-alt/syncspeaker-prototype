@@ -105,9 +105,60 @@ git push origin copilot/implement-upgrade-ux-flows
 - Main branch features preserved
 - PR #26 upgrade flow features integrated
 
+## PR #47: Add comprehensive feature verification testing
+
+**Branch**: `copilot/check-all-features`
+**Status**: ⏳ Pending Resolution
+
+**Resolved Files** (in `pr47/` directory):
+- `package.json` - Merged version (includes jsdom + ioredis dependencies)
+- `.gitignore` - Merged version (includes .env)
+
+**Files to use from main**:
+- `server.js`, `app.js`, `index.html`, `server.test.js` - Use main's versions (more recent features)
+- `README.md`, `PR_SUMMARY.md`, `TEST_PLAN.md` - Use main's versions
+
+**Unique files to preserve from PR**:
+- `ALL_FEATURES_VERIFIED.md` - Feature verification documentation
+- `VERIFICATION_SUMMARY.txt` - Quick verification summary
+- `feature-verification.test.js` - 26 new tests for feature verification
+
+### How to Resolve PR #47
+
+```bash
+git checkout copilot/check-all-features
+git merge origin/main --allow-unrelated-histories --no-commit
+
+# Use resolved files
+cp resolved-files/pr47/package.json .
+cp resolved-files/pr47/.gitignore .
+
+# Use main's version for other files
+git checkout --theirs server.js app.js index.html server.test.js
+git checkout --theirs README.md PR_SUMMARY.md TEST_PLAN.md package-lock.json
+
+# Keep PR's unique files (they don't conflict)
+# - ALL_FEATURES_VERIFIED.md
+# - VERIFICATION_SUMMARY.txt  
+# - feature-verification.test.js
+
+git add .
+git commit -m "Merge main to resolve conflicts - preserve verification tests"
+git push origin copilot/check-all-features
+```
+
+## PR #41 & #40: Monetization Features
+
+**Status**: ⚠️ Requires Manual Resolution
+
+Both PRs add extensive monetization features and have significant conflicts with main. These require careful manual resolution to avoid losing functionality from either branch.
+
+See `PR_CONFLICTS_ANALYSIS.md` in the root directory for detailed analysis and resolution strategies.
+
 ## Notes
 
 - Resolution strategy: `-X theirs` (prefer main) with selective integration of PR features
 - All "both added" conflicts resolved by merging
 - Main branch features preserved
 - Critical PR-specific features (like EVENT constants) integrated
+- For PRs #41 and #40: Extensive manual resolution required due to feature overlap

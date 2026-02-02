@@ -1,0 +1,41 @@
+{
+  "name": "syncspeaker-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ioredis": "^5.9.2",
+    "nanoid": "^3.3.11",
+    "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "ioredis-mock": "^8.13.1",
+    "jest": "^30.2.0",
+    "jsdom": "^27.4.0",
+    "supertest": "^7.2.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "server.js"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ],
+    "transform": {},
+    "transformIgnorePatterns": [
+      "node_modules/(?!(nanoid)/)"
+    ],
+    "setupFilesAfterEnv": ["./jest.setup.js"]
+  }
+}
