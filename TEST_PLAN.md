@@ -1305,6 +1305,165 @@ If Redis cannot be fixed immediately:
 
 ---
 
+## Railway Cross-Instance Testing (2 Phones)
+
+### Purpose
+Verify that party creation and joining works reliably across multiple devices and server instances on Railway, with Redis properly configured.
+
+### Prerequisites
+- Railway deployment is live
+- Redis is configured and running (REDIS_URL or REDIS_PUBLIC_URL set)
+- Two physical phones available (or one phone + one laptop)
+- Devices can be on same Wi-Fi OR different networks (cellular/hotspot)
+
+### Test E: Redis Health Check
+**Purpose:** Verify Redis is ready before testing cross-device features
+
+**Steps:**
+1. Open browser on any device
+2. Navigate to: `https://[your-railway-url]/api/health`
+3. Check the response JSON
+
+**Expected Results:**
+- ✅ `ok: true` (server is ready)
+- ✅ `redis.connected: true` (Redis is available)
+- ✅ `redis.status: "ready"` (Redis is ready)
+- ✅ `instanceId` is present (shows which server instance)
+- ✅ `environment: "production"` (Railway deployment)
+- ✅ HTTP status: `200`
+
+**If Health Check Fails:**
+- If `ok: false` → Server not ready, Redis may be starting up
+- If `redis.connected: false` → Redis configuration issue
+- If HTTP `503` → Server explicitly not ready
+- Wait 30-60 seconds and retry health check before proceeding
+- Check `/api/debug/redis` for more details
+
+### Test F: Redis Debug Endpoint
+**Purpose:** Verify Redis connection details
+
+**Steps:**
+1. Navigate to: `https://[your-railway-url]/api/debug/redis`
+2. Review the JSON response
+
+**Expected Results:**
+- ✅ `status: "ready"`
+- ✅ `redisReady: true`
+- ✅ `configSource: "REDIS_URL"` or `"REDIS_PUBLIC_URL"`
+- ✅ `urlScheme: "rediss"` (TLS enabled) or `"redis"`
+- ✅ `useTls: true` (if using rediss://)
+- ✅ No `connectionError` field (or `null`)
+
+**If Redis Not Ready:**
+- Check Railway logs for Redis connection errors
+- Verify REDIS_URL or REDIS_PUBLIC_URL is set in Railway variables
+- Ensure Redis service is running in Railway
+
+### Test G: Same Network Party Join (Wi-Fi)
+**Purpose:** Verify cross-device join on same network
+
+**Steps:**
+1. **Phone A (Host):**
+   - Navigate to `https://[your-railway-url]`
+   - Click "Start a Party"
+   - Note the 6-character party code displayed
+   - **IMPORTANT:** Only proceed if party code is shown (not an error message)
+
+2. **Phone B (Guest):**
+   - Navigate to `https://[your-railway-url]`
+   - Enter the exact party code from Phone A
+   - Click "Join Party"
+
+**Expected Results:**
+- ✅ Phone A shows party code immediately after creation
+- ✅ Phone B shows "Joining party..." status
+- ✅ Phone B successfully joins within 5 seconds
+- ✅ No "404 - Party not found" error
+- ✅ No "503 - Server not ready" error
+- ✅ Phone A shows "1 guest connected" (if WebSocket is enabled)
+- ✅ Both phones show the same party code
+
+**If Join Fails:**
+- Check Phone B browser console for exact error
+- Verify party code was entered correctly (case-insensitive)
+- Check `/api/debug/party/[CODE]` to see if party exists in Redis
+- Check `/api/health` to verify Redis connection
+
+### Test H: Different Network Party Join (Mobile Hotspot)
+**Purpose:** Verify cross-device join when devices use different networks
+
+**Steps:**
+1. **Phone A (Host):**
+   - Enable mobile hotspot OR use cellular data
+   - Navigate to `https://[your-railway-url]`
+   - Create a party
+   - Note the party code
+
+2. **Phone B (Guest):**
+   - Connect to Phone A's hotspot OR use different Wi-Fi/cellular
+   - Navigate to `https://[your-railway-url]`
+   - Join using the party code
+
+**Expected Results:**
+- ✅ Guest joins successfully even on different network
+- ✅ No 404 errors (party persisted in Redis, not just local memory)
+- ✅ Both phones communicate through Railway server
+- ✅ Party exists in Redis (verify with `/api/debug/party/[CODE]`)
+
+**If Join Fails:**
+- This indicates Redis is not properly persisting parties
+- Check `/api/debug/party/[CODE]` - should show `existsInRedis: true`
+- If `existsInRedis: false`, there's a Redis write issue
+- Check Railway logs for Redis write errors
+
+### Test I: Party Verification Across Instances
+**Purpose:** Verify party exists in Redis and can be accessed from any instance
+
+**Steps:**
+1. Create a party on Phone A (get party code)
+2. On Phone B (or laptop), navigate to: `https://[your-railway-url]/api/debug/party/[CODE]`
+3. Review the JSON response
+
+**Expected Results:**
+- ✅ `existsInRedis: true` (party is in Redis, not just local memory)
+- ✅ `existsLocally: true` or `false` (depends on which instance handled the request)
+- ✅ `redisStatus: "ready"`
+- ✅ `instanceId` is present
+- ✅ `createdAt` timestamp is present
+- ✅ `hostId` matches the host
+- ✅ HTTP status: `200`
+
+**If Party Not Found:**
+- If `existsInRedis: false` but party was just created → Redis write failed
+- If `redisStatus: "unavailable"` → Redis connection issue
+- If HTTP `404` → Party doesn't exist or expired (2 hour TTL)
+- Check server logs for party creation errors
+
+### Test J: 404 Debug Info for Missing Parties
+**Purpose:** Verify 404 responses include helpful debug information
+
+**Steps:**
+1. Try to join a party with code "FAKE99" (a code that doesn't exist)
+2. Observe the error response
+
+**Expected Results:**
+- ✅ HTTP status: `404`
+- ✅ Response includes:
+  - `error: "Party not found or expired"`
+  - `partyCode: "FAKE99"`
+  - `instanceId` (shows which instance handled request)
+  - `redisReady: true` or `false`
+  - `redisStatus` (e.g., "ready", "connecting")
+  - `checkedKey: "party:FAKE99"` (shows which Redis key was checked)
+  - `timestamp` (ISO 8601 format)
+
+**Why This Matters:**
+- Debug info helps diagnose cross-instance issues
+- Can determine if problem is Redis connectivity vs party truly not existing
+- Shows which instance handled the request (useful for multi-instance debugging)
+
+---
+
 ## Known Limitations
 - Browser prototype, not production app
 - WebSocket sync not tested (offline mode)
