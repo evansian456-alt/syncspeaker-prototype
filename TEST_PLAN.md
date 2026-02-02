@@ -865,6 +865,46 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 - [ ] Multi-instance: party created on instance 1 is discoverable on instance 2 ✅
 - [ ] Health endpoint shows instanceId and Redis status ✅
 
+### Guest Join Party Bug Fix Tests (NEW)
+- [ ] **Wi-Fi Join Success**: Guest on Wi-Fi network can join party created by host on Wi-Fi
+  - Host creates party on Wi-Fi → receives valid code
+  - Guest on Wi-Fi enters code within 5 seconds
+  - Expected: Guest joins successfully, no 404 or 503 errors
+  
+- [ ] **Hotspot Join Success**: Guest on mobile hotspot can join party created by host on hotspot
+  - Host creates party on mobile hotspot → receives valid code
+  - Guest on same mobile hotspot enters code within 5 seconds
+  - Expected: Guest joins successfully, no 404 or 503 errors
+  
+- [ ] **Immediate Join**: Guest joins immediately after party creation (< 2 seconds)
+  - Host creates party and shares code
+  - Guest enters code within 2 seconds
+  - Expected: Guest joins successfully, party exists in Redis
+  
+- [ ] **Delayed Join**: Guest joins 30+ seconds after party creation
+  - Host creates party and waits 30 seconds
+  - Guest enters code after 30 seconds
+  - Expected: Guest joins successfully, party still exists in Redis
+  
+- [ ] **Wrong Code Returns 404**: Entering invalid/non-existent party code returns clear 404 error
+  - Guest enters random 6-character code that doesn't exist
+  - Expected: Clear "Party not found" message, HTTP 404 status
+  
+- [ ] **Code Normalization**: Party codes normalized (uppercase + trim) on both create and join
+  - Host creates party with lowercase code (if entered manually)
+  - Guest enters code with extra spaces or mixed case
+  - Expected: Codes match after normalization, join succeeds
+  
+- [ ] **Debug Endpoint**: GET `/api/debug/party/:code` returns correct status
+  - Create party with code "ABC123"
+  - GET `/api/debug/party/ABC123`
+  - Expected: Returns {existsInRedis: true, redisStatus: "ready", instanceId, createdAt}
+  
+- [ ] **Server Logs**: Join failures include instanceId + Redis status in logs
+  - Attempt to join non-existent party
+  - Check server logs
+  - Expected: Logs include instanceId, redisStatus, and clear rejection reason
+
 ### Debug & Observability
 - [ ] Debug endpoint `/api/party/:code` works ✅
 - [ ] Debug endpoint shows instanceId ✅

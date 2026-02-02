@@ -225,6 +225,58 @@ app.get("/api/debug/parties", async (req, res) => {
   }
 });
 
+// Debug endpoint to check a specific party's status
+// GET /api/debug/party/:code - Returns party existence and status info
+app.get("/api/debug/party/:code", async (req, res) => {
+  try {
+    const code = req.params.code.trim().toUpperCase();
+    const now = Date.now();
+    
+    // Get Redis status
+    let redisStatus;
+    if (!redis || redisConnectionError || !redisReady) {
+      redisStatus = "unavailable";
+    } else if (redis.status === "ready" && redisReady) {
+      redisStatus = "ready";
+    } else {
+      redisStatus = "error";
+    }
+    
+    // Check if party exists in Redis
+    let existsInRedis = false;
+    let redisData = null;
+    if (redis && redisReady) {
+      try {
+        redisData = await getPartyFromRedis(code);
+        existsInRedis = !!redisData;
+      } catch (error) {
+        console.error(`[debug/party] Redis error for ${code}:`, error.message);
+      }
+    }
+    
+    // Check local memory
+    const existsLocally = parties.has(code);
+    const localParty = parties.get(code);
+    
+    res.json({
+      code,
+      existsInRedis,
+      existsLocally,
+      redisStatus,
+      instanceId: INSTANCE_ID,
+      createdAt: redisData?.createdAt || localParty?.createdAt || null,
+      ageMs: redisData?.createdAt ? now - redisData.createdAt : null,
+      hostId: redisData?.hostId || localParty?.hostId || null,
+      guestCount: redisData?.guestCount || 0,
+      chatMode: redisData?.chatMode || localParty?.chatMode || null,
+      timestamp: now
+    });
+  } catch (error) {
+    console.error("[debug/party] Error:", error);
+    res.status(500).json({ error: "Failed to get party info", details: error.message });
+  }
+});
+
 // Generate party codes (6 chars, uppercase letters/numbers)
 const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
 
@@ -425,7 +477,8 @@ app.post("/api/join-party", async (req, res) => {
     
     // Redis is REQUIRED - no fallback mode for party lookup
     if (!redis || !redisReady) {
-      console.error(`[join-party] Redis not ready for party: ${code}`);
+      const redisStatusMsg = !redis ? "not_configured" : "not_ready";
+      console.error(`[join-party] Redis ${redisStatusMsg} for party: ${code}, instanceId: ${INSTANCE_ID}, redisStatus: ${redisStatusMsg}, timestamp: ${timestamp}`);
       return res.status(503).json({ 
         error: "Server not ready - Redis unavailable. Please try again in a moment." 
       });
@@ -448,8 +501,9 @@ app.post("/api/join-party", async (req, res) => {
     if (!partyData) {
       const totalParties = parties.size;
       const localPartyExists = parties.has(code);
-      const rejectionReason = `Party ${code} not found in Redis. Local parties count: ${totalParties}, exists locally: ${localPartyExists}`;
-      console.log(`[HTTP] Party join rejected: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storageBackend: redis`);
+      const redisStatusMsg = redisReady ? "ready" : "not_ready";
+      const rejectionReason = `Party ${code} not found in Redis. Local parties count: ${totalParties}, exists locally: ${localPartyExists}, redisStatus: ${redisStatusMsg}`;
+      console.log(`[HTTP] Party join rejected: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storageBackend: redis, redisStatus: ${redisStatusMsg}`);
       console.log("[join-party] end (party not found)");
       return res.status(404).json({ error: "Party not found or expired" });
     }

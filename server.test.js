@@ -115,6 +115,151 @@ describe('Server HTTP Endpoints', () => {
     });
   });
 
+  describe('GET /api/debug/party/:code', () => {
+    it('should return party info for existing party', async () => {
+      // Create a party first
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Get debug info for that specific party
+      const response = await request(app).get(`/api/debug/party/${partyCode}`);
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('code', partyCode);
+      expect(response.body).toHaveProperty('existsInRedis', true);
+      expect(response.body).toHaveProperty('existsLocally', true);
+      expect(response.body).toHaveProperty('redisStatus');
+      expect(response.body).toHaveProperty('instanceId');
+      expect(response.body).toHaveProperty('createdAt');
+      expect(response.body.createdAt).toBeGreaterThan(0);
+    });
+
+    it('should return not found for non-existent party', async () => {
+      const response = await request(app).get('/api/debug/party/NOTFOUND');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('code', 'NOTFOUND');
+      expect(response.body).toHaveProperty('existsInRedis', false);
+      expect(response.body).toHaveProperty('existsLocally', false);
+      expect(response.body).toHaveProperty('redisStatus');
+      expect(response.body).toHaveProperty('instanceId');
+    });
+
+    it('should normalize party code (uppercase)', async () => {
+      // Create a party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Query with lowercase code
+      const response = await request(app).get(`/api/debug/party/${partyCode.toLowerCase()}`);
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('code', partyCode); // Should be uppercase in response
+      expect(response.body).toHaveProperty('existsInRedis', true);
+    });
+
+    it('should include ageMs for existing party', async () => {
+      // Create a party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Wait a bit
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Get debug info
+      const response = await request(app).get(`/api/debug/party/${partyCode}`);
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('ageMs');
+      expect(response.body.ageMs).toBeGreaterThan(50);
+    });
+  });
+
+  describe('Guest Join Party Bug Fix', () => {
+    it('should allow guest to join immediately after party creation', async () => {
+      // Host creates party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Guest joins immediately (< 2 seconds)
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body).toHaveProperty('ok', true);
+    });
+
+    it('should allow guest to join after short delay', async () => {
+      // Host creates party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Wait 1 second (simulating short delay)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Guest joins after delay
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body).toHaveProperty('ok', true);
+    });
+
+    it('should return 404 for wrong/non-existent party code', async () => {
+      // Guest tries to join non-existent party
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: 'WRONG1' });
+      
+      expect(joinResponse.status).toBe(404);
+      expect(joinResponse.body).toHaveProperty('error');
+      expect(joinResponse.body.error).toContain('not found');
+    });
+
+    it('should normalize party code on join (uppercase + trim)', async () => {
+      // Host creates party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Guest joins with lowercase and extra spaces
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode: `  ${partyCode.toLowerCase()}  ` });
+      
+      expect(joinResponse.status).toBe(200);
+      expect(joinResponse.body).toHaveProperty('ok', true);
+    });
+
+    it('should persist party to Redis before responding', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Immediately check if party exists in Redis via debug endpoint
+      const debugResponse = await request(app).get(`/api/debug/party/${partyCode}`);
+      expect(debugResponse.status).toBe(200);
+      expect(debugResponse.body).toHaveProperty('existsInRedis', true);
+      expect(debugResponse.body).toHaveProperty('createdAt');
+    });
+
+    it('should include instanceId and redisStatus in debug endpoint', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      expect(createResponse.status).toBe(200);
+      const partyCode = createResponse.body.partyCode;
+      
+      // Check debug endpoint
+      const debugResponse = await request(app).get(`/api/debug/party/${partyCode}`);
+      expect(debugResponse.status).toBe(200);
+      expect(debugResponse.body).toHaveProperty('instanceId');
+      expect(debugResponse.body).toHaveProperty('redisStatus');
+      expect(typeof debugResponse.body.instanceId).toBe('string');
+      expect(typeof debugResponse.body.redisStatus).toBe('string');
+    });
+  });
+
   describe('POST /api/create-party', () => {
     it('should create a new party and return party code', async () => {
       const response = await request(app).post('/api/create-party');
