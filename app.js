@@ -544,7 +544,7 @@ function startPartyStatusPolling() {
   
   console.log("[Polling] Starting party status polling");
   
-  // Poll every 3 seconds
+  // Poll every 2 seconds (changed from 3)
   state.partyStatusPollingInterval = setInterval(async () => {
     // Skip if previous poll is still in progress
     if (state.partyStatusPollingInProgress) {
@@ -563,8 +563,13 @@ function startPartyStatusPolling() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      const response = await fetch(`/api/party/${state.code}/members`, {
-        signal: controller.signal
+      // Use new GET /api/party endpoint with cache buster
+      const cacheBuster = Date.now();
+      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-store'
+        }
       });
       clearTimeout(timeoutId);
       
@@ -575,35 +580,82 @@ function startPartyStatusPolling() {
       
       const data = await response.json();
       
-      if (data.exists && data.snapshot) {
-        // Update snapshot with new member data
-        const previousMemberCount = state.snapshot?.members?.length || 0;
-        const newMemberCount = data.snapshot.members.length;
+      if (data.exists) {
+        // Update party state
+        const previousGuestCount = state.snapshot?.guestCount || 0;
+        const newGuestCount = data.guestCount || 0;
         
-        // Selectively merge only members and chatMode to preserve other snapshot properties
+        // Initialize snapshot if needed
         if (!state.snapshot) {
-          state.snapshot = {};
+          state.snapshot = { members: [] };
         }
-        state.snapshot.members = data.snapshot.members;
-        state.snapshot.chatMode = data.snapshot.chatMode;
         
-        // Log when members join or leave
-        if (newMemberCount !== previousMemberCount) {
-          console.log(`[Polling] Member count changed: ${previousMemberCount} → ${newMemberCount}`);
+        // Update snapshot with party data
+        state.snapshot.guestCount = newGuestCount;
+        state.snapshot.chatMode = data.chatMode;
+        state.snapshot.status = data.status;
+        state.snapshot.expiresAt = data.expiresAt;
+        state.snapshot.timeRemainingMs = data.timeRemainingMs;
+        
+        // Convert guests array to members format for compatibility
+        if (data.guests) {
+          state.snapshot.members = data.guests.map((guest, index) => ({
+            id: guest.guestId,
+            name: guest.nickname,
+            isPro: false,
+            isHost: false
+          }));
+          // Add host to members if not already there
+          if (!state.snapshot.members.some(m => m.isHost)) {
+            state.snapshot.members.unshift({
+              id: 'host',
+              name: state.name || 'Host',
+              isPro: state.isPro,
+              isHost: true
+            });
+          }
+        }
+        
+        // Log when guests join or leave
+        if (newGuestCount !== previousGuestCount) {
+          console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
+          if (newGuestCount > previousGuestCount) {
+            toast(`🎉 Guest joined (${newGuestCount} total)`);
+          }
+        }
+        
+        // Update host guest count display
+        const guestCountEl = el("partyGuestCount");
+        if (guestCountEl) {
+          if (newGuestCount === 0) {
+            guestCountEl.textContent = "Waiting for guests...";
+          } else {
+            guestCountEl.textContent = `${newGuestCount} guest${newGuestCount !== 1 ? 's' : ''} joined`;
+          }
+        }
+        
+        // Check for expired/ended status
+        if (data.status === "expired" || data.status === "ended") {
+          console.log(`[Polling] Party ${data.status}, stopping polling`);
+          stopPartyStatusPolling();
+          showPartyEnded(data.status);
+          return;
         }
         
         // Re-render room to show updated member list
         renderRoom();
-      } else if (!data.exists) {
+        updatePartyTimeRemaining(data.timeRemainingMs);
+      } else {
         console.log("[Polling] Party no longer exists, stopping polling");
         stopPartyStatusPolling();
+        showPartyEnded("expired");
       }
     } catch (error) {
       console.error("[Polling] Error fetching party status:", error);
     } finally {
       state.partyStatusPollingInProgress = false;
     }
-  }, PARTY_STATUS_POLL_INTERVAL_MS);
+  }, 2000); // 2 seconds interval
 }
 
 // Stop polling party status
@@ -616,6 +668,165 @@ function stopPartyStatusPolling() {
   }
 }
 
+// Start polling party status for guests
+function startGuestPartyStatusPolling() {
+  // Only poll for guests
+  if (state.isHost) {
+    return;
+  }
+  
+  // Clear any existing polling interval
+  if (state.partyStatusPollingInterval) {
+    clearInterval(state.partyStatusPollingInterval);
+    state.partyStatusPollingInterval = null;
+  }
+  
+  // Reset polling flag
+  state.partyStatusPollingInProgress = false;
+  
+  console.log("[Polling] Starting guest party status polling");
+  
+  // Poll every 2 seconds
+  state.partyStatusPollingInterval = setInterval(async () => {
+    // Skip if previous poll is still in progress
+    if (state.partyStatusPollingInProgress) {
+      return;
+    }
+    
+    state.partyStatusPollingInProgress = true;
+    try {
+      if (!state.code || state.isHost) {
+        // Stop polling if no party code or became host
+        stopPartyStatusPolling();
+        return;
+      }
+      
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      // Use new GET /api/party endpoint with cache buster
+      const cacheBuster = Date.now();
+      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-store'
+        }
+      });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.warn("[Polling] Failed to fetch party status:", response.status);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.exists) {
+        // Update party state for guest
+        const previousGuestCount = state.snapshot?.guestCount || 0;
+        const newGuestCount = data.guestCount || 0;
+        
+        // Initialize snapshot if needed
+        if (!state.snapshot) {
+          state.snapshot = { members: [] };
+        }
+        
+        // Update snapshot with party data
+        state.snapshot.guestCount = newGuestCount;
+        state.snapshot.chatMode = data.chatMode;
+        state.snapshot.status = data.status;
+        state.snapshot.expiresAt = data.expiresAt;
+        state.snapshot.timeRemainingMs = data.timeRemainingMs;
+        
+        // Log when guests join or leave
+        if (newGuestCount !== previousGuestCount) {
+          console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
+        }
+        
+        // Check for expired/ended status
+        if (data.status === "expired" || data.status === "ended") {
+          console.log(`[Polling] Party ${data.status}, stopping polling`);
+          stopPartyStatusPolling();
+          showPartyEnded(data.status);
+          return;
+        }
+        
+        // Update guest UI
+        updateGuestPartyInfo(data);
+      } else {
+        console.log("[Polling] Party no longer exists, stopping polling");
+        stopPartyStatusPolling();
+        showPartyEnded("expired");
+      }
+    } catch (error) {
+      console.error("[Polling] Error fetching party status:", error);
+    } finally {
+      state.partyStatusPollingInProgress = false;
+    }
+  }, 2000); // 2 seconds interval
+}
+
+// Update guest party info UI
+function updateGuestPartyInfo(partyData) {
+  // Update guest count display
+  const guestCountEl = el("guestPartyGuestCount");
+  if (guestCountEl) {
+    guestCountEl.textContent = `${partyData.guestCount || 0} guest${partyData.guestCount !== 1 ? 's' : ''}`;
+  }
+  
+  // Update time remaining
+  if (partyData.timeRemainingMs) {
+    updatePartyTimeRemaining(partyData.timeRemainingMs);
+  }
+  
+  // Update status if needed
+  updateGuestPartyStatus();
+}
+
+// Show party ended/expired screen
+function showPartyEnded(status) {
+  const message = status === "expired" ? "Party has expired" : "Party has ended";
+  toast(`⏰ ${message}`);
+  
+  // Show message in UI
+  const partyMetaEl = el("partyMeta");
+  if (partyMetaEl) {
+    partyMetaEl.textContent = message;
+    partyMetaEl.style.color = "var(--danger, #ff5a6a)";
+  }
+  
+  // For guests, show on their screen too
+  const guestPartyStatusEl = el("guestPartyStatusText");
+  if (guestPartyStatusEl && !state.isHost) {
+    guestPartyStatusEl.textContent = message;
+  }
+  
+  // Could navigate back to landing after a delay
+  setTimeout(() => {
+    showLanding();
+  }, 3000);
+}
+
+// Update party time remaining display
+function updatePartyTimeRemaining(timeRemainingMs) {
+  // Update host view
+  const hostTimerEl = el("partyTimeRemaining");
+  if (hostTimerEl && state.isHost) {
+    const minutes = Math.floor(timeRemainingMs / 60000);
+    const seconds = Math.floor((timeRemainingMs % 60000) / 1000);
+    hostTimerEl.textContent = `${minutes}m ${seconds}s remaining`;
+  }
+  
+  // Update guest view
+  const guestTimerEl = el("guestTimeRemaining");
+  if (guestTimerEl && !state.isHost) {
+    const minutes = Math.floor(timeRemainingMs / 60000);
+    const seconds = Math.floor((timeRemainingMs % 60000) / 1000);
+    guestTimerEl.textContent = `${minutes}m ${seconds}s remaining`;
+  }
+}
+
 function showGuest() {
   hide("viewLanding"); 
   hide("viewHome"); 
@@ -623,7 +834,7 @@ function showGuest() {
   show("viewGuest");
   
   // Update guest meta
-  el("guestMeta").textContent = `You: ${state.name}`;
+  el("guestMeta").textContent = `You: ${state.guestNickname || state.name}`;
   
   // Update party code
   el("guestPartyCode").textContent = state.code || "------";
@@ -645,6 +856,9 @@ function showGuest() {
   
   setPlanPill();
   updateDebugState();
+  
+  // Start polling for guests to get party updates
+  startGuestPartyStatusPolling();
 }
 
 function updateGuestConnectionStatus() {

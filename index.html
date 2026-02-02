@@ -373,6 +373,10 @@
             <button class="btn" id="btnCopy">Copy</button>
           </div>
           <div class="tiny muted">Share code with friends.</div>
+          <div class="party-info-footer">
+            <div class="tiny muted" id="partyGuestCount">Waiting for guests...</div>
+            <div class="tiny muted" id="partyTimeRemaining"></div>
+          </div>
         </div>
 
         <div class="box">
@@ -639,6 +643,20 @@
           <span class="party-status-icon">✨</span>
           <span class="party-status-text" id="guestPartyStatusText">Free Plan</span>
           <span class="party-status-timer hidden" id="guestPartyPassTimer"></span>
+        </div>
+      </div>
+
+      <!-- Party Info: Guest Count and Time Remaining -->
+      <div class="glass-card guest-party-info">
+        <div class="row space">
+          <div>
+            <div class="lbl">Guests</div>
+            <div class="party-info-value" id="guestPartyGuestCount">0 guests</div>
+          </div>
+          <div>
+            <div class="lbl">Time Left</div>
+            <div class="party-info-value" id="guestTimeRemaining">Loading...</div>
+          </div>
         </div>
       </div>
 
