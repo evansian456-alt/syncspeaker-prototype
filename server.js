@@ -48,6 +48,7 @@ console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'
 let redisConfig;
 let redisConnectionError = null;
 let redisConfigSource = null;
+let usesTls = false; // Track if using TLS for later reference
 
 if (process.env.REDIS_URL) {
   // Railway/production: Use REDIS_URL
@@ -55,16 +56,23 @@ if (process.env.REDIS_URL) {
   redisConfigSource = 'REDIS_URL';
   
   // Check if URL uses TLS (rediss://)
-  const usesTls = redisUrl.startsWith('rediss://');
+  usesTls = redisUrl.startsWith('rediss://');
   
   if (usesTls) {
     // Parse URL to extract components for TLS configuration
     // ioredis can handle rediss:// URLs, but we need to ensure TLS is configured
+    
+    // Security Note: Railway Redis and many managed Redis services use self-signed certificates.
+    // For production deployments, you can enable strict TLS verification by setting:
+    // REDIS_TLS_REJECT_UNAUTHORIZED=true
+    // Default is 'false' to work with Railway and similar services out-of-the-box.
+    const rejectUnauthorized = process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'true';
+    
     redisConfig = {
       // ioredis will parse the URL automatically
       // but we explicitly set TLS options for Railway compatibility
       tls: {
-        rejectUnauthorized: false, // Railway Redis uses self-signed certs
+        rejectUnauthorized: rejectUnauthorized,
       },
       retryStrategy(times) {
         const delay = Math.min(times * 50, 2000);
@@ -76,6 +84,7 @@ if (process.env.REDIS_URL) {
       connectTimeout: 10000,
     };
     console.log(`[Startup] Redis config: Using REDIS_URL with TLS (rediss://)`);
+    console.log(`[Startup] TLS certificate verification: ${rejectUnauthorized ? 'ENABLED (strict)' : 'DISABLED (Railway-compatible)'}`);
   } else {
     // Standard redis:// URL
     redisConfig = redisUrl;
@@ -120,7 +129,7 @@ let redis = null;
 if (redisConfig) {
   try {
     // For rediss:// URLs with object config, we need to parse the URL
-    if (typeof redisConfig === 'object' && process.env.REDIS_URL && process.env.REDIS_URL.startsWith('rediss://')) {
+    if (typeof redisConfig === 'object' && usesTls) {
       redis = new Redis(process.env.REDIS_URL, redisConfig);
       console.log(`[Startup] Redis client created with TLS from URL + options`);
     } else {

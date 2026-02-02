@@ -1960,7 +1960,7 @@ function attemptAddPhone() {
         // Provide actionable error message with retry guidance
         let userMessage = "⏳ Party service is starting up. ";
         if (errorMsg.includes("Redis")) {
-          userMessage += "Server is connecting to party database. Please wait 10-30 seconds and try again.";
+          userMessage += "Server is connecting to party database. Please wait 10-20 seconds and try again.";
         } else {
           userMessage += "Please wait a moment and try again.";
         }
