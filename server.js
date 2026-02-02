@@ -790,14 +790,14 @@ async function startServer() {
     
     // Explicitly confirm critical routes
     const criticalRoutes = [
-      'POST /api/create-party',
-      'POST /api/join-party'
+      { method: 'POST', path: '/api/create-party' },
+      { method: 'POST', path: '/api/join-party' }
     ];
     
     console.log("\n✓ Critical Routes Verified:");
-    criticalRoutes.forEach(routeStr => {
-      const isRegistered = routes.some(r => `${r.methods} ${r.path}` === routeStr);
-      console.log(`   ${isRegistered ? '✓' : '✗'} ${routeStr}`);
+    criticalRoutes.forEach(({ method, path }) => {
+      const isRegistered = routes.some(r => r.methods === method && r.path === path);
+      console.log(`   ${isRegistered ? '✓' : '✗'} ${method} ${path}`);
     });
     console.log("");
   });
