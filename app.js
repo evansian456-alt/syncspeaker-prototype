@@ -2,6 +2,7 @@ const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
+const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 
 // Music player state
 const musicState = {
@@ -35,6 +36,8 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
+  partyStatusPollingInterval: null, // Interval for polling party status
+  partyStatusPollingInProgress: false, // Flag to prevent overlapping polling requests
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   // Guest-specific state
@@ -420,6 +423,9 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
+  // Stop party status polling
+  stopPartyStatusPolling();
+  
   setPlanPill();
   updateDebugState();
 }
@@ -448,6 +454,9 @@ function showLanding() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Stop party status polling
+  stopPartyStatusPolling();
   
   setPlanPill();
   updateDebugState();
@@ -511,6 +520,99 @@ function showParty() {
     if (hostGiftSection && !state.partyPassActive && !state.partyPro) {
       hostGiftSection.classList.remove("hidden");
     }
+    
+    // Start polling for party status updates (guest joins)
+    startPartyStatusPolling();
+  }
+}
+
+// Start polling party status for host to get updates on guest joins
+function startPartyStatusPolling() {
+  // Only poll for hosts and when not in offline mode
+  if (!state.isHost || state.offlineMode) {
+    return;
+  }
+  
+  // Clear any existing polling interval
+  if (state.partyStatusPollingInterval) {
+    clearInterval(state.partyStatusPollingInterval);
+    state.partyStatusPollingInterval = null;
+  }
+  
+  // Reset polling flag
+  state.partyStatusPollingInProgress = false;
+  
+  console.log("[Polling] Starting party status polling");
+  
+  // Poll every 3 seconds
+  state.partyStatusPollingInterval = setInterval(async () => {
+    // Skip if previous poll is still in progress
+    if (state.partyStatusPollingInProgress) {
+      return;
+    }
+    
+    state.partyStatusPollingInProgress = true;
+    try {
+      if (!state.code || !state.isHost) {
+        // Stop polling if no longer host or no party code
+        stopPartyStatusPolling();
+        return;
+      }
+      
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const response = await fetch(`/api/party/${state.code}/members`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.warn("[Polling] Failed to fetch party status:", response.status);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.exists && data.snapshot) {
+        // Update snapshot with new member data
+        const previousMemberCount = state.snapshot?.members?.length || 0;
+        const newMemberCount = data.snapshot.members.length;
+        
+        // Selectively merge only members and chatMode to preserve other snapshot properties
+        if (!state.snapshot) {
+          state.snapshot = {};
+        }
+        state.snapshot.members = data.snapshot.members;
+        state.snapshot.chatMode = data.snapshot.chatMode;
+        
+        // Log when members join or leave
+        if (newMemberCount !== previousMemberCount) {
+          console.log(`[Polling] Member count changed: ${previousMemberCount} → ${newMemberCount}`);
+        }
+        
+        // Re-render room to show updated member list
+        renderRoom();
+      } else if (!data.exists) {
+        console.log("[Polling] Party no longer exists, stopping polling");
+        stopPartyStatusPolling();
+      }
+    } catch (error) {
+      console.error("[Polling] Error fetching party status:", error);
+    } finally {
+      state.partyStatusPollingInProgress = false;
+    }
+  }, PARTY_STATUS_POLL_INTERVAL_MS);
+}
+
+// Stop polling party status
+function stopPartyStatusPolling() {
+  if (state.partyStatusPollingInterval) {
+    console.log("[Polling] Stopping party status polling");
+    clearInterval(state.partyStatusPollingInterval);
+    state.partyStatusPollingInterval = null;
+    state.partyStatusPollingInProgress = false;
   }
 }
 
