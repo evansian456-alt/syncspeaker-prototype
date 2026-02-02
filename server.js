@@ -3,6 +3,7 @@ const path = require("path");
 const WebSocket = require("ws");
 const { customAlphabet } = require("nanoid");
 const Redis = require("ioredis");
+const { URL } = require("url");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -10,6 +11,33 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
+
+// Helper function to classify Redis error types
+function getRedisErrorType(errorMessage) {
+  if (!errorMessage) return 'unknown';
+  
+  if (errorMessage.includes('ECONNREFUSED')) return 'connection_refused';
+  if (errorMessage.includes('ETIMEDOUT')) return 'timeout';
+  if (errorMessage.includes('ENOTFOUND')) return 'host_not_found';
+  if (errorMessage.includes('authentication') || errorMessage.includes('NOAUTH')) return 'auth_failed';
+  if (errorMessage.includes('TLS') || errorMessage.includes('SSL')) return 'tls_error';
+  
+  return 'unknown';
+}
+
+// Helper function to sanitize Redis URL (hide password)
+function sanitizeRedisUrl(redisUrl) {
+  try {
+    const url = new URL(redisUrl);
+    if (url.password) {
+      url.password = '***';
+    }
+    return url.toString();
+  } catch (err) {
+    // If URL parsing fails, fall back to simple regex
+    return redisUrl.replace(/:[^:@]+@/, ':***@');
+  }
+}
 
 // Detect production mode - Railway sets NODE_ENV or we can detect by presence of RAILWAY_ENVIRONMENT
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
@@ -55,7 +83,7 @@ if (process.env.REDIS_URL) {
   }
   
   // Log sanitized connection info (hide password)
-  const sanitizedUrl = redisUrl.replace(/:[^:@]+@/, ':***@');
+  const sanitizedUrl = sanitizeRedisUrl(redisUrl);
   console.log(`[Startup] Redis URL (sanitized): ${sanitizedUrl}`);
 } else if (process.env.REDIS_HOST || process.env.NODE_ENV === 'test') {
   // Development/test: Use individual Redis settings or test environment
@@ -249,12 +277,7 @@ app.get("/health", async (req, res) => {
   // Include error details if Redis has issues
   if (redisConnectionError) {
     health.redisError = redisConnectionError;
-    health.redisErrorType = redisConnectionError.includes('ECONNREFUSED') ? 'connection_refused' :
-                            redisConnectionError.includes('ETIMEDOUT') ? 'timeout' :
-                            redisConnectionError.includes('ENOTFOUND') ? 'host_not_found' :
-                            redisConnectionError.includes('authentication') || redisConnectionError.includes('NOAUTH') ? 'auth_failed' :
-                            redisConnectionError.includes('TLS') || redisConnectionError.includes('SSL') ? 'tls_error' :
-                            'unknown';
+    health.redisErrorType = getRedisErrorType(redisConnectionError);
   }
   
   res.json(health);
@@ -286,12 +309,7 @@ app.get("/api/health", async (req, res) => {
   
   // Add detailed error type if Redis has issues
   if (redisConnectionError) {
-    health.redis.errorType = redisConnectionError.includes('ECONNREFUSED') ? 'connection_refused' :
-                             redisConnectionError.includes('ETIMEDOUT') ? 'timeout' :
-                             redisConnectionError.includes('ENOTFOUND') ? 'host_not_found' :
-                             redisConnectionError.includes('authentication') || redisConnectionError.includes('NOAUTH') ? 'auth_failed' :
-                             redisConnectionError.includes('TLS') || redisConnectionError.includes('SSL') ? 'tls_error' :
-                             'unknown';
+    health.redis.errorType = getRedisErrorType(redisConnectionError);
   }
   
   // Return 503 if not ready (production mode without Redis)
