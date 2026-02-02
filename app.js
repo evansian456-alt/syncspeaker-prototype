@@ -475,6 +475,9 @@ function showLanding() {
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
   
+  // Cleanup guest audio element
+  cleanupGuestAudio();
+  
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -673,12 +676,17 @@ function startPartyStatusPolling() {
         if (data.djMessages && data.djMessages.length > 0) {
           // Only show new messages (check timestamp)
           const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          let maxTimestamp = lastMessageTimestamp;
+          
           data.djMessages.forEach(msg => {
             if (msg.timestamp > lastMessageTimestamp) {
               displayDjMessage(msg.message, msg.type);
-              state.lastDjMessageTimestamp = msg.timestamp;
+              maxTimestamp = Math.max(maxTimestamp, msg.timestamp);
             }
           });
+          
+          // Update timestamp once after loop
+          state.lastDjMessageTimestamp = maxTimestamp;
         }
         
         // Update host guest count display
@@ -825,12 +833,17 @@ function startGuestPartyStatusPolling() {
         if (data.djMessages && data.djMessages.length > 0) {
           // Only show new messages (check timestamp)
           const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          let maxTimestamp = lastMessageTimestamp;
+          
           data.djMessages.forEach(msg => {
             if (msg.timestamp > lastMessageTimestamp) {
               displayDjMessage(msg.message, msg.type);
-              state.lastDjMessageTimestamp = msg.timestamp;
+              maxTimestamp = Math.max(maxTimestamp, msg.timestamp);
             }
           });
+          
+          // Update timestamp once after loop
+          state.lastDjMessageTimestamp = maxTimestamp;
         }
         
         // Check for expired/ended status
@@ -1181,6 +1194,31 @@ function playGuestAudio() {
       console.error("[Guest Audio] Play failed:", error);
       toast("❌ Could not play audio. Please try again.");
     });
+}
+
+// Cleanup guest audio element
+function cleanupGuestAudio() {
+  if (state.guestAudioElement) {
+    // Pause audio if playing
+    if (!state.guestAudioElement.paused) {
+      state.guestAudioElement.pause();
+    }
+    
+    // Clear source to free memory
+    state.guestAudioElement.src = "";
+    state.guestAudioElement.load(); // Force release
+    
+    // Remove element
+    state.guestAudioElement = null;
+    state.guestAudioReady = false;
+    state.guestNeedsTap = false;
+  }
+  
+  // Hide tap overlay if visible
+  const overlay = el("guestTapOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
 }
 
 // Display DJ auto-generated message
@@ -1565,9 +1603,13 @@ function addDebugLog(message) {
   
   debugLogsEl.appendChild(logEntry);
   
-  // Keep only last 20 logs
-  while (debugLogsEl.children.length > 20) {
-    debugLogsEl.removeChild(debugLogsEl.firstChild);
+  // Keep only last 20 logs - remove old ones efficiently
+  const children = debugLogsEl.children;
+  if (children.length > 20) {
+    const toRemove = children.length - 20;
+    for (let i = 0; i < toRemove; i++) {
+      debugLogsEl.removeChild(children[0]);
+    }
   }
   
   // Scroll to bottom

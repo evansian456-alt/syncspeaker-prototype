@@ -1707,7 +1707,8 @@ async function handleCreate(ws, msg) {
     createdAt,
     hostId,
     djMessages: [], // Array of DJ auto-generated messages
-    currentTrack: null // Current playing track info
+    currentTrack: null, // Current playing track info
+    timeoutWarningTimer: null // Timer for timeout warning
   });
   
   client.party = code;
@@ -1720,9 +1721,12 @@ async function handleCreate(ws, msg) {
   
   // Schedule party timeout warning (30 minutes before expiry = 90 minutes after creation)
   const warningDelay = PARTY_TTL_MS - (30 * 60 * 1000); // 90 minutes
-  setTimeout(() => {
-    addDjMessage(code, "⏰ Party ending in 30 minutes!", "warning");
-  }, warningDelay);
+  const party = parties.get(code);
+  if (party) {
+    party.timeoutWarningTimer = setTimeout(() => {
+      addDjMessage(code, "⏰ Party ending in 30 minutes!", "warning");
+    }, warningDelay);
+  }
 }
 
 async function handleJoin(ws, msg) {
@@ -1895,6 +1899,13 @@ function handleDisconnect(ws) {
   if (member?.isHost) {
     // Host left, end the party
     console.log(`[Party] Host left, ending party ${client.party}, instanceId: ${INSTANCE_ID}`);
+    
+    // Clear timeout warning timer
+    if (party.timeoutWarningTimer) {
+      clearTimeout(party.timeoutWarningTimer);
+      party.timeoutWarningTimer = null;
+    }
+    
     party.members.forEach(m => {
       if (m.ws !== ws && m.ws.readyState === WebSocket.OPEN) {
         m.ws.send(JSON.stringify({ t: "ENDED" }));
