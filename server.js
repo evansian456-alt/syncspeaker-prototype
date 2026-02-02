@@ -507,7 +507,6 @@ app.get("/api/debug/redis", (req, res) => {
     
     // Get sanitized Redis URL scheme (redis:// or rediss://)
     let urlScheme = 'none';
-    const redisUrl = process.env.REDIS_URL || process.env.REDIS_PUBLIC_URL;
     if (redisUrl) {
       try {
         const url = new URL(redisUrl);
