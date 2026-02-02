@@ -326,7 +326,7 @@ Use this checklist to verify all features are working correctly before deploymen
   - [ ] User can retry with different code
   
 - [ ] **Expired Party**
-  - [ ] Join party that expired (after 2 hours)
+  - [ ] Join party that expired (after party TTL duration)
   - [ ] "Party not found or expired" error appears
   - [ ] User is redirected appropriately
   
@@ -373,7 +373,7 @@ Use this checklist to verify all features are working correctly before deploymen
 ### Performance Testing
 
 - [ ] **Load Testing**
-  - [ ] Test with maximum guests (10 for Pro)
+  - [ ] Test with maximum guests (per plan limit)
   - [ ] All guests receive updates
   - [ ] No significant lag or delays
   - [ ] Server remains responsive
