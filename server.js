@@ -646,7 +646,10 @@ app.post("/api/create-party", async (req, res) => {
       createdAt,
       hostId,
       hostConnected: false,
-      guestCount: 0
+      guestCount: 0,
+      guests: [], // Array of { guestId, nickname, joinedAt }
+      status: "active", // "active", "ended", "expired"
+      expiresAt: createdAt + PARTY_TTL_MS
     };
     
     // Write to storage backend (Redis or fallback)
@@ -704,7 +707,7 @@ app.post("/api/join-party", async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/join-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
     
-    const { partyCode } = req.body;
+    const { partyCode, nickname } = req.body;
     
     if (!partyCode) {
       console.log("[join-party] end (missing party code)");
@@ -720,7 +723,11 @@ app.post("/api/join-party", async (req, res) => {
       return res.status(400).json({ error: "Party code must be 6 characters" });
     }
     
-    console.log(`[join-party] Attempting to join party: ${code}, timestamp: ${timestamp}`);
+    // Generate guest ID and use provided nickname or generate default
+    const guestId = `guest-${nextClientId++}`;
+    const guestNickname = nickname || `Guest ${nextClientId}`;
+    
+    console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
     
     // Determine storage backend: prefer Redis, fallback to local storage if Redis unavailable
     const useRedis = redis && redisReady;
@@ -765,6 +772,53 @@ app.post("/api/join-party", async (req, res) => {
       return res.status(404).json({ error: "Party not found or expired" });
     }
     
+    // Check if party has expired or ended
+    if (partyData.status === "ended") {
+      console.log(`[join-party] Party ${code} has ended`);
+      return res.status(410).json({ error: "Party has ended" });
+    }
+    
+    const now = Date.now();
+    if (partyData.expiresAt && now > partyData.expiresAt) {
+      console.log(`[join-party] Party ${code} has expired`);
+      partyData.status = "expired";
+      return res.status(410).json({ error: "Party has expired" });
+    }
+    
+    // Add guest to party
+    if (!partyData.guests) {
+      partyData.guests = [];
+    }
+    
+    // Check if guest already exists (by guestId) and update, otherwise add new
+    const existingGuestIndex = partyData.guests.findIndex(g => g.guestId === guestId);
+    if (existingGuestIndex >= 0) {
+      // Update existing guest
+      partyData.guests[existingGuestIndex].nickname = guestNickname;
+      partyData.guests[existingGuestIndex].joinedAt = now;
+    } else {
+      // Add new guest
+      partyData.guests.push({
+        guestId,
+        nickname: guestNickname,
+        joinedAt: now
+      });
+    }
+    
+    partyData.guestCount = partyData.guests.length;
+    
+    // Save updated party data
+    if (useRedis) {
+      try {
+        await setPartyInRedis(code, partyData);
+      } catch (error) {
+        console.warn(`[join-party] Redis write failed for ${code}, using fallback: ${error.message}`);
+        setPartyInFallback(code, partyData);
+      }
+    } else {
+      setPartyInFallback(code, partyData);
+    }
+    
     // Get local party reference (non-blocking)
     const localParty = parties.get(code);
     
@@ -773,10 +827,15 @@ app.post("/api/join-party", async (req, res) => {
     const totalParties = parties.size;
     const duration = Date.now() - startTime;
     
-    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms, storageBackend: ${storageBackend}`);
+    console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, guestId: ${guestId}, exists: true, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms, storageBackend: ${storageBackend}`);
     
-    // Always respond with success
-    res.json({ ok: true });
+    // Respond with success and guest info
+    res.json({ 
+      ok: true,
+      guestId,
+      nickname: guestNickname,
+      partyCode: code
+    });
     console.log("[join-party] end (success)");
     
     // Fire-and-forget: Update local state asynchronously (non-blocking)
@@ -810,6 +869,106 @@ app.post("/api/join-party", async (req, res) => {
         details: error.message 
       });
     }
+  }
+});
+
+// GET /api/party - Get party state (supports query parameter ?code=XXX)
+app.get("/api/party", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.query.code ? req.query.code.trim().toUpperCase() : null;
+  
+  if (!code) {
+    return res.status(400).json({ 
+      error: "Party code is required",
+      exists: false 
+    });
+  }
+  
+  // Validate party code length
+  if (code.length !== 6) {
+    return res.status(400).json({ 
+      error: "Party code must be 6 characters",
+      exists: false 
+    });
+  }
+  
+  console.log(`[HTTP] GET /api/party?code=${code} at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  
+  // Determine storage backend
+  const useRedis = redis && redisReady;
+  const storageBackend = useRedis ? 'redis' : 'fallback';
+  
+  try {
+    // Read from Redis or fallback storage
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[HTTP] Redis error for party ${code}, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      console.log(`[HTTP] Party not found: ${code}, storageBackend: ${storageBackend}`);
+      return res.json({
+        exists: false,
+        status: "expired",
+        partyCode: code
+      });
+    }
+    
+    // Check if party has expired
+    const now = Date.now();
+    let status = partyData.status || "active";
+    let timeRemainingMs = 0;
+    
+    if (partyData.expiresAt) {
+      timeRemainingMs = Math.max(0, partyData.expiresAt - now);
+      if (timeRemainingMs === 0 && status === "active") {
+        status = "expired";
+        partyData.status = "expired";
+        // Update status in storage
+        if (useRedis) {
+          try {
+            await setPartyInRedis(code, partyData);
+          } catch (err) {
+            console.warn(`[HTTP] Failed to update expired status in Redis: ${err.message}`);
+          }
+        } else {
+          setPartyInFallback(code, partyData);
+        }
+      }
+    } else {
+      // Legacy support for parties without expiresAt
+      timeRemainingMs = Math.max(0, (partyData.createdAt + PARTY_TTL_MS) - now);
+    }
+    
+    console.log(`[HTTP] Party found: ${code}, status: ${status}, guestCount: ${partyData.guestCount || 0}, timeRemainingMs: ${timeRemainingMs}`);
+    
+    // Return full party state
+    res.json({
+      exists: true,
+      partyCode: code,
+      status,
+      expiresAt: partyData.expiresAt || (partyData.createdAt + PARTY_TTL_MS),
+      timeRemainingMs,
+      guestCount: partyData.guestCount || 0,
+      guests: partyData.guests || [],
+      chatMode: partyData.chatMode || "OPEN",
+      createdAt: partyData.createdAt
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error fetching party ${code}:`, error);
+    res.status(500).json({ 
+      error: "Failed to fetch party state",
+      details: error.message,
+      exists: false
+    });
   }
 });
 

@@ -384,7 +384,10 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('guestId');
+      expect(response.body).toHaveProperty('nickname');
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should return 400 if party code is missing', async () => {
@@ -413,7 +416,8 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode: partyCode.toLowerCase() });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should trim whitespace from party code', async () => {
@@ -422,7 +426,8 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode: `  ${partyCode}  ` });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should return JSON content type', async () => {
@@ -468,7 +473,8 @@ describe('Server HTTP Endpoints', () => {
       
       // Should succeed without 404
       expect(joinResponse.status).toBe(200);
-      expect(joinResponse.body).toEqual({ ok: true });
+      expect(joinResponse.body).toHaveProperty('ok', true);
+      expect(joinResponse.body).toHaveProperty('partyCode', newPartyCode);
     });
 
     it('should handle slow Redis gracefully', async () => {
@@ -494,7 +500,8 @@ describe('Server HTTP Endpoints', () => {
 
       // Should still succeed even with slow Redis
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', testCode);
 
       // Restore original get
       redis.get = originalGet;
@@ -707,7 +714,8 @@ describe('Party Storage and Sync', () => {
         .send({ partyCode });
       
       expect(joinResponse.status).toBe(200);
-      expect(joinResponse.body).toEqual({ ok: true });
+      expect(joinResponse.body).toHaveProperty('ok', true);
+      expect(joinResponse.body).toHaveProperty('partyCode', partyCode);
     });
   });
 });

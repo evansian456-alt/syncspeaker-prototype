@@ -2001,7 +2001,8 @@ function attemptAddPhone() {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              partyCode: code
+              partyCode: code,
+              nickname: state.guestNickname || state.name || "Guest"
             }),
             signal: controller.signal
           });
@@ -2090,12 +2091,32 @@ function attemptAddPhone() {
       console.log("[API] Join response:", data);
       updateDebugPanel(endpoint, null); // Clear error on success
       
-      updateStatus(`Joining party ${code}…`);
+      // Store guest info
+      if (data.guestId) {
+        state.clientId = data.guestId;
+      }
+      if (data.nickname) {
+        state.guestNickname = data.nickname;
+      }
       
-      // Now connect via WebSocket and join the party
-      send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
+      // Set state for joined party
+      state.code = code;
+      state.isHost = false;
+      state.connected = true;
       
-      // The WebSocket handler will call showParty() when JOINED message is received
+      updateStatus(`✓ Joined party ${code}`);
+      
+      // Transition to guest view immediately (HTTP-based join)
+      showGuest();
+      toast(`Joined party ${code}`);
+      
+      // Try to connect via WebSocket for real-time updates (optional fallback)
+      try {
+        send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
+      } catch (wsError) {
+        console.warn("[Party] WebSocket not available, using polling only:", wsError);
+      }
+      
       // Clear status after a short delay
       setTimeout(() => {
         if (statusEl) statusEl.classList.add("hidden");
