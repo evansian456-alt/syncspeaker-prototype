@@ -384,7 +384,10 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('guestId');
+      expect(response.body).toHaveProperty('nickname');
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should return 400 if party code is missing', async () => {
@@ -413,7 +416,8 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode: partyCode.toLowerCase() });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should trim whitespace from party code', async () => {
@@ -422,7 +426,8 @@ describe('Server HTTP Endpoints', () => {
         .send({ partyCode: `  ${partyCode}  ` });
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', partyCode);
     });
 
     it('should return JSON content type', async () => {
@@ -468,7 +473,8 @@ describe('Server HTTP Endpoints', () => {
       
       // Should succeed without 404
       expect(joinResponse.status).toBe(200);
-      expect(joinResponse.body).toEqual({ ok: true });
+      expect(joinResponse.body).toHaveProperty('ok', true);
+      expect(joinResponse.body).toHaveProperty('partyCode', newPartyCode);
     });
 
     it('should handle slow Redis gracefully', async () => {
@@ -494,7 +500,8 @@ describe('Server HTTP Endpoints', () => {
 
       // Should still succeed even with slow Redis
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ ok: true });
+      expect(response.body).toHaveProperty('ok', true);
+      expect(response.body).toHaveProperty('partyCode', testCode);
 
       // Restore original get
       redis.get = originalGet;
@@ -707,7 +714,8 @@ describe('Party Storage and Sync', () => {
         .send({ partyCode });
       
       expect(joinResponse.status).toBe(200);
-      expect(joinResponse.body).toEqual({ ok: true });
+      expect(joinResponse.body).toHaveProperty('ok', true);
+      expect(joinResponse.body).toHaveProperty('partyCode', partyCode);
     });
   });
 });
@@ -878,6 +886,175 @@ describe('Production Scenarios', () => {
       
       // Restore Redis
       redis.get = originalGet;
+    });
+  });
+});
+
+// Tests for new endpoints (Phase 3)
+describe('Party Management Endpoints', () => {
+  beforeAll(async () => {
+    try {
+      await waitForRedis();
+    } catch (error) {
+      console.error('Failed to connect to Redis:', error.message);
+    }
+  });
+
+  beforeEach(async () => {
+    parties.clear();
+    await redis.flushall();
+  });
+
+  describe('POST /api/leave-party', () => {
+    it('should remove guest from party', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Join party as guest
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode, nickname: 'TestGuest' });
+      
+      expect(joinResponse.status).toBe(200);
+      const guestId = joinResponse.body.guestId;
+      
+      // Leave party
+      const leaveResponse = await request(app)
+        .post('/api/leave-party')
+        .send({ partyCode, guestId });
+      
+      expect(leaveResponse.status).toBe(200);
+      expect(leaveResponse.body.ok).toBe(true);
+      expect(leaveResponse.body.guestCount).toBe(0);
+    });
+
+    it('should return 400 if party code is missing', async () => {
+      const response = await request(app)
+        .post('/api/leave-party')
+        .send({ guestId: 'guest-1' });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Party code is required');
+    });
+
+    it('should return 400 if guest ID is missing', async () => {
+      const response = await request(app)
+        .post('/api/leave-party')
+        .send({ partyCode: 'ABC123' });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Guest ID is required');
+    });
+
+    it('should return 404 if party does not exist', async () => {
+      const response = await request(app)
+        .post('/api/leave-party')
+        .send({ partyCode: 'NOEXST', guestId: 'guest-1' });
+      
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Party not found or expired');
+    });
+  });
+
+  describe('POST /api/end-party', () => {
+    it('should mark party as ended', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // End party
+      const endResponse = await request(app)
+        .post('/api/end-party')
+        .send({ partyCode });
+      
+      expect(endResponse.status).toBe(200);
+      expect(endResponse.body.ok).toBe(true);
+      
+      // Verify party is marked as ended
+      const { getPartyFromRedis } = require('./server');
+      const partyData = await getPartyFromRedis(partyCode);
+      expect(partyData.status).toBe('ended');
+      expect(partyData.endedAt).toBeDefined();
+    });
+
+    it('should return 400 if party code is missing', async () => {
+      const response = await request(app)
+        .post('/api/end-party')
+        .send({});
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Party code is required');
+    });
+
+    it('should return 404 if party does not exist', async () => {
+      const response = await request(app)
+        .post('/api/end-party')
+        .send({ partyCode: 'NOEXST' });
+      
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Party not found or expired');
+    });
+
+    it('should prevent joining ended party', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // End party
+      await request(app)
+        .post('/api/end-party')
+        .send({ partyCode });
+      
+      // Try to join ended party
+      const joinResponse = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(joinResponse.status).toBe(410);
+      expect(joinResponse.body.error).toBe('Party has ended');
+    });
+  });
+
+  describe('GET /api/party', () => {
+    it('should return party state with guests', async () => {
+      // Create party
+      const createResponse = await request(app).post('/api/create-party');
+      const partyCode = createResponse.body.partyCode;
+      
+      // Join as guest
+      await request(app)
+        .post('/api/join-party')
+        .send({ partyCode, nickname: 'Guest1' });
+      
+      // Get party state
+      const response = await request(app)
+        .get(`/api/party?code=${partyCode}`);
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(true);
+      expect(response.body.partyCode).toBe(partyCode);
+      expect(response.body.guestCount).toBe(1);
+      expect(response.body.guests).toHaveLength(1);
+      expect(response.body.guests[0].nickname).toBe('Guest1');
+      expect(response.body.status).toBe('active');
+      expect(response.body.timeRemainingMs).toBeGreaterThan(0);
+    });
+
+    it('should return 400 if code is missing', async () => {
+      const response = await request(app).get('/api/party');
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Party code is required');
+    });
+
+    it('should return exists: false for non-existent party', async () => {
+      const response = await request(app)
+        .get('/api/party?code=NOEXST');
+      
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(false);
+      expect(response.body.status).toBe('expired');
     });
   });
 });
