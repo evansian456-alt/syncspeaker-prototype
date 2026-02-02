@@ -2,6 +2,7 @@ const FREE_LIMIT = 2;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
+const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 
 // Music player state
 const musicState = {
@@ -36,6 +37,7 @@ const state = {
   partyPassEndTime: null,
   partyPassTimerInterval: null,
   partyStatusPollingInterval: null, // Interval for polling party status
+  partyStatusPollingInProgress: false, // Flag to prevent overlapping polling requests
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   // Guest-specific state
@@ -537,18 +539,19 @@ function startPartyStatusPolling() {
     state.partyStatusPollingInterval = null;
   }
   
-  console.log("[Polling] Starting party status polling");
+  // Reset polling flag
+  state.partyStatusPollingInProgress = false;
   
-  let pollingInProgress = false;
+  console.log("[Polling] Starting party status polling");
   
   // Poll every 3 seconds
   state.partyStatusPollingInterval = setInterval(async () => {
     // Skip if previous poll is still in progress
-    if (pollingInProgress) {
+    if (state.partyStatusPollingInProgress) {
       return;
     }
     
-    pollingInProgress = true;
+    state.partyStatusPollingInProgress = true;
     try {
       if (!state.code || !state.isHost) {
         // Stop polling if no longer host or no party code
@@ -569,11 +572,12 @@ function startPartyStatusPolling() {
         const previousMemberCount = state.snapshot?.members?.length || 0;
         const newMemberCount = data.snapshot.members.length;
         
-        // Merge with existing snapshot to preserve other properties
-        state.snapshot = {
-          ...state.snapshot,
-          ...data.snapshot
-        };
+        // Selectively merge only members and chatMode to preserve other snapshot properties
+        if (!state.snapshot) {
+          state.snapshot = {};
+        }
+        state.snapshot.members = data.snapshot.members;
+        state.snapshot.chatMode = data.snapshot.chatMode;
         
         // Log when members join or leave
         if (newMemberCount !== previousMemberCount) {
@@ -589,9 +593,9 @@ function startPartyStatusPolling() {
     } catch (error) {
       console.error("[Polling] Error fetching party status:", error);
     } finally {
-      pollingInProgress = false;
+      state.partyStatusPollingInProgress = false;
     }
-  }, 3000); // Poll every 3 seconds
+  }, PARTY_STATUS_POLL_INTERVAL_MS);
 }
 
 // Stop polling party status
@@ -600,6 +604,7 @@ function stopPartyStatusPolling() {
     console.log("[Polling] Stopping party status polling");
     clearInterval(state.partyStatusPollingInterval);
     state.partyStatusPollingInterval = null;
+    state.partyStatusPollingInProgress = false;
   }
 }
 
