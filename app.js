@@ -1647,7 +1647,7 @@ function attemptAddPhone() {
   el("btnCreate").onclick = async () => {
     console.log("[UI] Start party button clicked");
     const btn = el("btnCreate");
-    const statusEl = el("createStatus");
+    const statusEl = el("partyStatus");
     const messageEl = el("createStatusMessage");
     
     // Prevent multiple clicks - check if button is already disabled
