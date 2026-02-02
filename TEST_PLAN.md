@@ -1139,6 +1139,172 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 
 ---
 
+## Debugging Guide: Production Issues
+
+### Redis Connection Issues
+
+If guests can't join parties with errors like "404 - Party not found" or "503 - Server not ready", follow these steps:
+
+#### Step 1: Check Server Health
+Navigate to: `https://[your-railway-url]/api/health`
+
+**Expected Response (Healthy):**
+```json
+{
+  "ok": true,
+  "instanceId": "server-abc123",
+  "redis": {
+    "connected": true,
+    "status": "ready",
+    "mode": "required",
+    "configSource": "REDIS_URL"
+  },
+  "version": "0.1.0-party-fix",
+  "environment": "production"
+}
+```
+
+**Problem Indicators:**
+
+1. **Redis Not Connected**
+   ```json
+   {
+     "ok": false,
+     "redis": {
+       "connected": false,
+       "status": "ECONNREFUSED",
+       "errorType": "connection_refused"
+     }
+   }
+   ```
+   **Solution**: Check Railway Redis plugin is installed and running. Verify REDIS_URL environment variable is set.
+
+2. **Redis TLS Error**
+   ```json
+   {
+     "redis": {
+       "status": "TLS error",
+       "errorType": "tls_error"
+     }
+   }
+   ```
+   **Solution**: Ensure Railway Redis URL starts with `rediss://` (note the double 's'). Server auto-detects TLS from URL.
+
+3. **Redis Host Not Found**
+   ```json
+   {
+     "redis": {
+       "errorType": "host_not_found"
+     }
+   }
+   ```
+   **Solution**: Verify REDIS_URL hostname is correct. Check Railway Redis plugin configuration.
+
+4. **Redis Authentication Failed**
+   ```json
+   {
+     "redis": {
+       "errorType": "auth_failed"
+     }
+   }
+   ```
+   **Solution**: Verify Redis password in REDIS_URL is correct.
+
+#### Step 2: Check Server Logs in Railway
+
+1. Go to Railway dashboard
+2. Select your service
+3. Click "Deployments" → Click latest deployment
+4. Click "View Logs"
+
+**Look for these startup messages:**
+
+✅ **Healthy Startup:**
+```
+[Startup] Running in PRODUCTION mode, instanceId: server-abc123
+[Startup] Redis config: Using REDIS_URL with TLS (rediss://)
+[Startup] Redis URL (sanitized): rediss://default:***@red-xyz.railway.internal:6379
+[Startup] Redis client created with TLS from URL + options
+✅ Redis READY (instance: server-abc123, source: REDIS_URL)
+   → Multi-device party sync enabled
+```
+
+❌ **Problem Indicators:**
+```
+[Redis] Error [ECONNREFUSED] (instance: server-abc123): (no message)
+   → Redis server not reachable. Check REDIS_URL or REDIS_HOST.
+⚠️  Redis unavailable — using fallback mode (instance: server-abc123)
+```
+
+#### Step 3: Verify Railway Redis Configuration
+
+1. In Railway dashboard, go to your app service
+2. Click "Variables" tab
+3. **Required Variables:**
+   - `REDIS_URL` - Should be auto-set by Railway Redis plugin
+   - Should start with `rediss://` for TLS
+
+4. If `REDIS_URL` is missing:
+   - Go to "Plugins" in Railway project
+   - Click "New Plugin" → Select "Redis"
+   - Railway will auto-add `REDIS_URL` to your service
+
+#### Step 4: Test Party Creation and Lookup
+
+1. **Create Party**:
+   ```bash
+   curl -X POST https://[railway-url]/api/create-party \
+     -H "Content-Type: application/json"
+   ```
+   
+   Expected: Party code returned (e.g., "ABC123")
+
+2. **Check Party Exists**:
+   Navigate to: `https://[railway-url]/api/party/[code]/debug`
+   
+   Expected:
+   ```json
+   {
+     "exists": true,
+     "ttlSeconds": 7200,
+     "redisConnected": true,
+     "instanceId": "server-abc123"
+   }
+   ```
+
+3. **List All Parties**:
+   Navigate to: `https://[railway-url]/api/debug/parties`
+   
+   Verify your party appears in the list with `source: "redis"` or `source: "both"`
+
+#### Common Error Messages and Solutions
+
+**Error**: "❌ Party not found. Check the code or ask the host to create a new party."
+- **Cause**: Party expired (2 hour TTL) or code is incorrect
+- **Solution**: Host creates a new party, ensure correct code is entered
+
+**Error**: "⏳ Party service is starting up. Server is connecting to party database. Please wait 10-30 seconds and try again."
+- **Cause**: Redis is still connecting during server startup
+- **Solution**: Wait 10-30 seconds, then retry. If persists, check Redis logs.
+
+**Error**: "Server not responding. Try again."
+- **Cause**: Network timeout or server unreachable
+- **Solution**: Check Railway service is running, verify URL is correct
+
+#### Emergency Fallback Mode
+
+If Redis cannot be fixed immediately:
+- Server runs in fallback mode (in-memory storage)
+- Parties only work on single server instance
+- Multi-device join may fail if Railway load balances across instances
+- Best for local development, not production
+
+**To enable fallback mode:**
+- Remove REDIS_URL variable (not recommended for production)
+- Set `NODE_ENV=development` to allow fallback
+
+---
+
 ## Known Limitations
 - Browser prototype, not production app
 - WebSocket sync not tested (offline mode)

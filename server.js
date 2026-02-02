@@ -3,6 +3,7 @@ const path = require("path");
 const WebSocket = require("ws");
 const { customAlphabet } = require("nanoid");
 const Redis = require("ioredis");
+const { URL } = require("url");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -10,6 +11,33 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
+
+// Helper function to classify Redis error types
+function getRedisErrorType(errorMessage) {
+  if (!errorMessage) return 'unknown';
+  
+  if (errorMessage.includes('ECONNREFUSED')) return 'connection_refused';
+  if (errorMessage.includes('ETIMEDOUT')) return 'timeout';
+  if (errorMessage.includes('ENOTFOUND')) return 'host_not_found';
+  if (errorMessage.includes('authentication') || errorMessage.includes('NOAUTH')) return 'auth_failed';
+  if (errorMessage.includes('TLS') || errorMessage.includes('SSL')) return 'tls_error';
+  
+  return 'unknown';
+}
+
+// Helper function to sanitize Redis URL (hide password)
+function sanitizeRedisUrl(redisUrl) {
+  try {
+    const url = new URL(redisUrl);
+    if (url.password) {
+      url.password = '***';
+    }
+    return url.toString();
+  } catch (err) {
+    // If URL parsing fails, fall back to simple regex
+    return redisUrl.replace(/:[^:@]+@/, ':***@');
+  }
+}
 
 // Detect production mode - Railway sets NODE_ENV or we can detect by presence of RAILWAY_ENVIRONMENT
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
@@ -19,12 +47,56 @@ console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'
 // This ensures we fail loudly if Redis is not properly configured
 let redisConfig;
 let redisConnectionError = null;
+let redisConfigSource = null;
+let usesTls = false; // Track if using TLS for later reference
 
 if (process.env.REDIS_URL) {
   // Railway/production: Use REDIS_URL
-  redisConfig = process.env.REDIS_URL;
+  const redisUrl = process.env.REDIS_URL;
+  redisConfigSource = 'REDIS_URL';
+  
+  // Check if URL uses TLS (rediss://)
+  usesTls = redisUrl.startsWith('rediss://');
+  
+  if (usesTls) {
+    // Parse URL to extract components for TLS configuration
+    // ioredis can handle rediss:// URLs, but we need to ensure TLS is configured
+    
+    // Security Note: Railway Redis and many managed Redis services use self-signed certificates.
+    // For production deployments, you can enable strict TLS verification by setting:
+    // REDIS_TLS_REJECT_UNAUTHORIZED=true
+    // Default is 'false' to work with Railway and similar services out-of-the-box.
+    const rejectUnauthorized = process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'true';
+    
+    redisConfig = {
+      // ioredis will parse the URL automatically
+      // but we explicitly set TLS options for Railway compatibility
+      tls: {
+        rejectUnauthorized: rejectUnauthorized,
+      },
+      retryStrategy(times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      lazyConnect: false,
+      connectTimeout: 10000,
+    };
+    console.log(`[Startup] Redis config: Using REDIS_URL with TLS (rediss://)`);
+    console.log(`[Startup] TLS certificate verification: ${rejectUnauthorized ? 'ENABLED (strict)' : 'DISABLED (Railway-compatible)'}`);
+  } else {
+    // Standard redis:// URL
+    redisConfig = redisUrl;
+    console.log(`[Startup] Redis config: Using REDIS_URL without TLS (redis://)`);
+  }
+  
+  // Log sanitized connection info (hide password)
+  const sanitizedUrl = sanitizeRedisUrl(redisUrl);
+  console.log(`[Startup] Redis URL (sanitized): ${sanitizedUrl}`);
 } else if (process.env.REDIS_HOST || process.env.NODE_ENV === 'test') {
   // Development/test: Use individual Redis settings or test environment
+  redisConfigSource = process.env.NODE_ENV === 'test' ? 'test_mode' : 'REDIS_HOST';
   redisConfig = {
     host: process.env.REDIS_HOST || "localhost",
     port: process.env.REDIS_PORT || 6379,
@@ -37,8 +109,10 @@ if (process.env.REDIS_URL) {
     enableReadyCheck: true,
     lazyConnect: false
   };
+  console.log(`[Startup] Redis config: Using REDIS_HOST=${redisConfig.host}:${redisConfig.port}`);
 } else {
   // No Redis configuration found - this is a critical error in production
+  redisConfigSource = 'none';
   console.error("❌ CRITICAL: Redis configuration missing!");
   console.error("   Set REDIS_URL environment variable for production.");
   console.error("   For development, set REDIS_HOST (defaults to localhost).");
@@ -51,7 +125,22 @@ if (process.env.REDIS_URL) {
 }
 
 // Redis client setup
-const redis = redisConfig ? new Redis(redisConfig) : null;
+let redis = null;
+if (redisConfig) {
+  try {
+    // For rediss:// URLs with object config, we need to parse the URL
+    if (typeof redisConfig === 'object' && usesTls) {
+      redis = new Redis(process.env.REDIS_URL, redisConfig);
+      console.log(`[Startup] Redis client created with TLS from URL + options`);
+    } else {
+      redis = new Redis(redisConfig);
+      console.log(`[Startup] Redis client created from config (source: ${redisConfigSource})`);
+    }
+  } catch (err) {
+    console.error(`[Startup] Failed to create Redis client:`, err.message);
+    redisConnectionError = err.message;
+  }
+}
 
 // Track Redis connection state
 let redisReady = false;
@@ -59,13 +148,28 @@ let useFallbackMode = false;
 
 if (redis) {
   redis.on("connect", () => {
-    console.log(`[Redis] Connected to Redis server (instance: ${INSTANCE_ID})`);
+    console.log(`[Redis] TCP connection established (instance: ${INSTANCE_ID}, source: ${redisConfigSource})`);
     redisConnectionError = null;
   });
 
   redis.on("error", (err) => {
-    console.error(`[Redis] Error (instance: ${INSTANCE_ID}):`, err.message);
-    redisConnectionError = err.message;
+    const errorType = err.code || err.name || 'unknown';
+    console.error(`[Redis] Error [${errorType}] (instance: ${INSTANCE_ID}):`, err.message || '(no message)');
+    
+    // Provide actionable error messages for common issues - check err.code
+    if (err.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED')) {
+      console.error(`   → Redis server not reachable. Check REDIS_URL or REDIS_HOST.`);
+    } else if (err.code === 'ETIMEDOUT' || err.message.includes('ETIMEDOUT')) {
+      console.error(`   → Connection timeout. Check network/firewall settings.`);
+    } else if (err.code === 'ENOTFOUND' || err.message.includes('ENOTFOUND')) {
+      console.error(`   → Redis host not found. Verify REDIS_URL hostname.`);
+    } else if (err.message.includes('authentication') || err.message.includes('NOAUTH')) {
+      console.error(`   → Authentication failed. Check Redis password in REDIS_URL.`);
+    } else if (err.message.includes('TLS') || err.message.includes('SSL')) {
+      console.error(`   → TLS/SSL error. Ensure rediss:// URL is used for TLS connections.`);
+    }
+    
+    redisConnectionError = err.message || err.code || 'Unknown error';
     redisReady = false;
     if (!useFallbackMode) {
       console.warn(`⚠️  Redis unavailable — using fallback mode (instance: ${INSTANCE_ID})`);
@@ -74,7 +178,8 @@ if (redis) {
   });
 
   redis.on("ready", () => {
-    console.log(`✓ Redis connected (instance: ${INSTANCE_ID})`);
+    console.log(`✅ Redis READY (instance: ${INSTANCE_ID}, source: ${redisConfigSource})`);
+    console.log(`   → Multi-device party sync enabled`);
     redisReady = true;
     redisConnectionError = null;
     useFallbackMode = false;
@@ -84,8 +189,13 @@ if (redis) {
     console.warn(`⚠️  [Redis] Connection closed (instance: ${INSTANCE_ID})`);
     redisReady = false;
   });
+  
+  redis.on("reconnecting", (delay) => {
+    console.log(`[Redis] Reconnecting in ${delay}ms (instance: ${INSTANCE_ID})...`);
+  });
 } else {
-  console.warn("⚠️  Redis unavailable — using fallback mode");
+  console.warn("⚠️  Redis client not created — using fallback mode");
+  console.warn(`   → Parties stored in memory only (single-instance mode)`);
   useFallbackMode = true;
 }
 
@@ -169,12 +279,14 @@ app.get("/health", async (req, res) => {
     status: "ok", 
     instanceId: INSTANCE_ID,
     redis: redisStatus,
-    version: APP_VERSION
+    version: APP_VERSION,
+    configSource: redisConfigSource // Show where Redis config came from
   };
   
   // Include error details if Redis has issues
   if (redisConnectionError) {
     health.redisError = redisConnectionError;
+    health.redisErrorType = getRedisErrorType(redisConnectionError);
   }
   
   res.json(health);
@@ -196,12 +308,18 @@ app.get("/api/health", async (req, res) => {
     redis: {
       connected: redisConnected,
       status: redisConnected ? 'ready' : (redisConnectionError || 'not_connected'),
-      mode: IS_PRODUCTION ? 'required' : 'optional'
+      mode: IS_PRODUCTION ? 'required' : 'optional',
+      configSource: redisConfigSource
     },
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
     environment: IS_PRODUCTION ? 'production' : 'development'
   };
+  
+  // Add detailed error type if Redis has issues
+  if (redisConnectionError) {
+    health.redis.errorType = getRedisErrorType(redisConnectionError);
+  }
   
   // Return 503 if not ready (production mode without Redis)
   const statusCode = isReady ? 200 : 503;
