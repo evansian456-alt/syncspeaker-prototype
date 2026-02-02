@@ -11,6 +11,10 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
+// Detect production mode - Railway sets NODE_ENV or we can detect by presence of RAILWAY_ENVIRONMENT
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
+console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'} mode, instanceId: ${INSTANCE_ID}`);
+
 // Redis configuration check - REDIS_URL is REQUIRED in production
 // This ensures we fail loudly if Redis is not properly configured
 let redisConfig;
@@ -39,6 +43,11 @@ if (process.env.REDIS_URL) {
   console.error("   Set REDIS_URL environment variable for production.");
   console.error("   For development, set REDIS_HOST (defaults to localhost).");
   redisConnectionError = "missing";
+  
+  if (IS_PRODUCTION) {
+    console.error("❌ FATAL: Cannot run in production mode without Redis!");
+    console.error("   Server will start but mark as NOT READY");
+  }
 }
 
 // Redis client setup
@@ -169,6 +178,34 @@ app.get("/health", async (req, res) => {
   }
   
   res.json(health);
+});
+
+// API health endpoint with full spec - returns ok: true/false based on readiness
+// In production mode, server is NOT ready if Redis is unavailable
+// In development mode, server is always ready (uses fallback storage)
+app.get("/api/health", async (req, res) => {
+  const redisConnected = !!(redis && redisReady && !redisConnectionError);
+  
+  // In production, we require Redis to be ready
+  // In development, we allow fallback mode
+  const isReady = IS_PRODUCTION ? redisConnected : true;
+  
+  const health = {
+    ok: isReady,
+    instanceId: INSTANCE_ID,
+    redis: {
+      connected: redisConnected,
+      status: redisConnected ? 'ready' : (redisConnectionError || 'not_connected'),
+      mode: IS_PRODUCTION ? 'required' : 'optional'
+    },
+    timestamp: new Date().toISOString(),
+    version: APP_VERSION,
+    environment: IS_PRODUCTION ? 'production' : 'development'
+  };
+  
+  // Return 503 if not ready (production mode without Redis)
+  const statusCode = isReady ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // Simple ping endpoint for testing client->server
@@ -439,6 +476,16 @@ app.post("/api/create-party", async (req, res) => {
   const useRedis = redis && redisReady;
   const storageBackend = useRedis ? 'redis' : 'fallback';
   
+  // In production mode, Redis is required - return 503 if not available
+  if (IS_PRODUCTION && !useRedis) {
+    console.error(`[HTTP] Redis required in production but not available, instanceId: ${INSTANCE_ID}`);
+    return res.status(503).json({ 
+      error: "Server not ready - Redis unavailable",
+      details: "Multi-device party sync requires Redis. Please try again in a moment.",
+      instanceId: INSTANCE_ID
+    });
+  }
+  
   if (!useRedis) {
     console.warn(`[HTTP] Redis not ready, using fallback storage for party creation, instanceId: ${INSTANCE_ID}`);
   }
@@ -560,6 +607,16 @@ app.post("/api/join-party", async (req, res) => {
     // Determine storage backend: prefer Redis, fallback to local storage if Redis unavailable
     const useRedis = redis && redisReady;
     const storageBackend = useRedis ? 'redis' : 'fallback';
+    
+    // In production mode, Redis is required - return 503 if not available
+    if (IS_PRODUCTION && !useRedis) {
+      console.error(`[join-party] Redis required in production but not available, instanceId: ${INSTANCE_ID}`);
+      return res.status(503).json({ 
+        error: "Server not ready - Redis unavailable",
+        details: "Multi-device party sync requires Redis. Please try again in a moment.",
+        instanceId: INSTANCE_ID
+      });
+    }
     
     if (!useRedis) {
       console.warn(`[join-party] Redis not ready, using fallback storage for party lookup, instanceId: ${INSTANCE_ID}`);

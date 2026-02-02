@@ -47,6 +47,58 @@ describe('Server HTTP Endpoints', () => {
     });
   });
 
+  describe('GET /api/health', () => {
+    it('should return health status with ok field', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body).toHaveProperty('ok');
+      expect(typeof response.body.ok).toBe('boolean');
+    });
+
+    it('should include instanceId', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body.instanceId).toBeDefined();
+      expect(typeof response.body.instanceId).toBe('string');
+    });
+
+    it('should include redis connection info', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body.redis).toBeDefined();
+      expect(response.body.redis).toHaveProperty('connected');
+      expect(typeof response.body.redis.connected).toBe('boolean');
+    });
+
+    it('should include timestamp', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body.timestamp).toBeDefined();
+      expect(typeof response.body.timestamp).toBe('string');
+    });
+
+    it('should include version', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body.version).toBeDefined();
+      expect(typeof response.body.version).toBe('string');
+    });
+
+    it('should include environment', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body.environment).toBeDefined();
+      expect(['production', 'development']).toContain(response.body.environment);
+    });
+
+    it('should return 200 when ready (test mode)', async () => {
+      const response = await request(app).get('/api/health');
+      // In test mode, should be ready even without Redis (uses fallback storage)
+      // Note: Production mode cannot be tested here because IS_PRODUCTION is set at module load time
+      // Production mode behavior (503 when Redis unavailable) is validated in manual testing
+      expect(response.status).toBe(200);
+    });
+
+    it('should return JSON content type', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.headers['content-type']).toMatch(/json/);
+    });
+  });
+
   describe('GET /api/ping', () => {
     it('should return pong message', async () => {
       const response = await request(app).get('/api/ping');
