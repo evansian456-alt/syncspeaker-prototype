@@ -539,8 +539,16 @@ function startPartyStatusPolling() {
   
   console.log("[Polling] Starting party status polling");
   
+  let pollingInProgress = false;
+  
   // Poll every 3 seconds
   state.partyStatusPollingInterval = setInterval(async () => {
+    // Skip if previous poll is still in progress
+    if (pollingInProgress) {
+      return;
+    }
+    
+    pollingInProgress = true;
     try {
       if (!state.code || !state.isHost) {
         // Stop polling if no longer host or no party code
@@ -561,7 +569,11 @@ function startPartyStatusPolling() {
         const previousMemberCount = state.snapshot?.members?.length || 0;
         const newMemberCount = data.snapshot.members.length;
         
-        state.snapshot = data.snapshot;
+        // Merge with existing snapshot to preserve other properties
+        state.snapshot = {
+          ...state.snapshot,
+          ...data.snapshot
+        };
         
         // Log when members join or leave
         if (newMemberCount !== previousMemberCount) {
@@ -576,6 +588,8 @@ function startPartyStatusPolling() {
       }
     } catch (error) {
       console.error("[Polling] Error fetching party status:", error);
+    } finally {
+      pollingInProgress = false;
     }
   }, 3000); // Poll every 3 seconds
 }
