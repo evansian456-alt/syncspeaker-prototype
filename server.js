@@ -92,6 +92,53 @@ app.use((req, res, next) => {
 // Serve static files from the repo root
 app.use(express.static(__dirname));
 
+// Helper function to extract registered routes from Express app
+// Returns: Array of objects with {path: string, methods: string} properties
+// Note: Uses Express internal _router property - may break in future Express versions
+// Includes guard checks to gracefully handle API changes; returns empty array if unavailable
+function getRegisteredRoutes() {
+  const routes = [];
+  
+  // Guard check for Express internal API
+  if (!app._router || !app._router.stack) {
+    console.warn('[getRegisteredRoutes] Warning: Express _router not available');
+    return routes;
+  }
+  
+  // Extract routes from Express app
+  app._router.stack.forEach((middleware) => {
+    // Guard check for middleware existence
+    if (!middleware) return;
+    
+    if (middleware.route) {
+      // Routes registered directly on the app
+      const methods = Object.keys(middleware.route.methods)
+        .map(m => m.toUpperCase())
+        .join(', ');
+      routes.push({
+        path: middleware.route.path,
+        methods: methods
+      });
+    } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+      // Router middleware
+      middleware.handle.stack.forEach((handler) => {
+        // Guard check for handler existence
+        if (!handler || !handler.route) return;
+        
+        const methods = Object.keys(handler.route.methods)
+          .map(m => m.toUpperCase())
+          .join(', ');
+        routes.push({
+          path: handler.route.path,
+          methods: methods
+        });
+      });
+    }
+  });
+  
+  return routes;
+}
+
 // Route for serving index.html at root "/"
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -625,7 +672,26 @@ let cleanupInterval;
 let server;
 let wss;
 
-function startServer() {
+async function startServer() {
+  console.log("🚀 Server booting...");
+  console.log(`   Instance ID: ${INSTANCE_ID}`);
+  console.log(`   Port: ${PORT}`);
+  console.log(`   Version: ${APP_VERSION}`);
+  
+  // Wait for Redis to be ready (with timeout)
+  if (redis) {
+    console.log("⏳ Waiting for Redis connection...");
+    try {
+      await waitForRedis(10000); // 10 second timeout
+      console.log("✅ Redis connected and ready");
+    } catch (err) {
+      console.warn(`⚠️  Redis connection timeout: ${err.message}`);
+      console.warn("   Server will continue in fallback mode - parties will be stored locally");
+    }
+  } else {
+    console.warn("⚠️  Redis not configured - using fallback mode");
+  }
+  
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Instance ID: ${INSTANCE_ID}`);
