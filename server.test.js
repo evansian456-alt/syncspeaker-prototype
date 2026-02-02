@@ -87,7 +87,9 @@ describe('Server HTTP Endpoints', () => {
 
     it('should return 200 when ready (test mode)', async () => {
       const response = await request(app).get('/api/health');
-      // In test mode, should be ready even without Redis
+      // In test mode, should be ready even without Redis (uses fallback storage)
+      // Note: Production mode cannot be tested here because IS_PRODUCTION is set at module load time
+      // Production mode behavior (503 when Redis unavailable) is validated in manual testing
       expect(response.status).toBe(200);
     });
 

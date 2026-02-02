@@ -97,16 +97,17 @@ async function checkServerHealth() {
     console.log("[Health] Server health check:", health);
     
     // Return health info with ok status
+    // If ok field is missing, assume false for safety (server may be outdated)
     return {
-      ok: health.ok !== false, // Default to true if not specified
+      ok: health.ok === true,
       redis: health.redis?.connected || false,
       instanceId: health.instanceId,
-      error: health.ok === false ? (health.redis?.status || "Server not ready") : null
+      error: health.ok !== true ? (health.redis?.status || "Server not ready") : null
     };
   } catch (error) {
     console.error("[Health] Health check failed:", error);
-    // If health check fails, we can't determine server state
-    // Allow operation to proceed but it may fail
+    // If health check fails, server is not reachable
+    // Return ok: false so caller knows not to proceed with operations
     return {
       ok: false,
       redis: false,
