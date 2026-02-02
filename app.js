@@ -606,11 +606,12 @@ function startPartyStatusPolling() {
             isHost: false
           }));
           // Add host to members if not already there
+          // Note: For guests, we don't have host info from API, so we just add a placeholder
           if (!state.snapshot.members.some(m => m.isHost)) {
             state.snapshot.members.unshift({
               id: 'host',
-              name: state.name || 'Host',
-              isPro: state.isPro,
+              name: 'Host',
+              isPro: false,
               isHost: true
             });
           }

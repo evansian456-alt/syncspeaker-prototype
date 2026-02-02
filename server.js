@@ -724,8 +724,10 @@ app.post("/api/join-party", async (req, res) => {
     }
     
     // Generate guest ID and use provided nickname or generate default
-    const guestId = `guest-${nextClientId++}`;
-    const guestNickname = nickname || `Guest ${nextClientId}`;
+    const guestNumber = nextClientId;
+    const guestId = `guest-${nextClientId}`;
+    nextClientId++;
+    const guestNickname = nickname || `Guest ${guestNumber}`;
     
     console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
     
