@@ -105,6 +105,9 @@ function getRegisteredRoutes() {
   
   // Extract routes from Express app
   app._router.stack.forEach((middleware) => {
+    // Guard check for middleware existence
+    if (!middleware) return;
+    
     if (middleware.route) {
       // Routes registered directly on the app
       const methods = Object.keys(middleware.route.methods)
@@ -117,15 +120,16 @@ function getRegisteredRoutes() {
     } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
       // Router middleware
       middleware.handle.stack.forEach((handler) => {
-        if (handler.route) {
-          const methods = Object.keys(handler.route.methods)
-            .map(m => m.toUpperCase())
-            .join(', ');
-          routes.push({
-            path: handler.route.path,
-            methods: methods
-          });
-        }
+        // Guard check for handler existence
+        if (!handler || !handler.route) return;
+        
+        const methods = Object.keys(handler.route.methods)
+          .map(m => m.toUpperCase())
+          .join(', ');
+        routes.push({
+          path: handler.route.path,
+          methods: methods
+        });
       });
     }
   });
@@ -796,7 +800,7 @@ async function startServer() {
     
     console.log("\n✓ Critical Routes Verified:");
     criticalRoutes.forEach(({ method, path }) => {
-      const isRegistered = routes.some(r => r.methods === method && r.path === path);
+      const isRegistered = routes.some(r => r.methods.includes(method) && r.path === path);
       console.log(`   ${isRegistered ? '✓' : '✗'} ${method} ${path}`);
     });
     console.log("");
