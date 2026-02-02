@@ -559,7 +559,15 @@ function startPartyStatusPolling() {
         return;
       }
       
-      const response = await fetch(`/api/party/${state.code}/members`);
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const response = await fetch(`/api/party/${state.code}/members`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
         console.warn("[Polling] Failed to fetch party status:", response.status);
         return;
