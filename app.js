@@ -35,6 +35,7 @@ const state = {
   partyPassActive: false,
   partyPassEndTime: null,
   partyPassTimerInterval: null,
+  partyStatusPollingInterval: null, // Interval for polling party status
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   // Guest-specific state
@@ -420,6 +421,9 @@ function showHome() {
   state.partyPassActive = false;
   state.partyPassEndTime = null;
   
+  // Stop party status polling
+  stopPartyStatusPolling();
+  
   setPlanPill();
   updateDebugState();
 }
@@ -448,6 +452,9 @@ function showLanding() {
   }
   state.partyPassActive = false;
   state.partyPassEndTime = null;
+  
+  // Stop party status polling
+  stopPartyStatusPolling();
   
   setPlanPill();
   updateDebugState();
@@ -511,6 +518,74 @@ function showParty() {
     if (hostGiftSection && !state.partyPassActive && !state.partyPro) {
       hostGiftSection.classList.remove("hidden");
     }
+    
+    // Start polling for party status updates (guest joins)
+    startPartyStatusPolling();
+  }
+}
+
+// Start polling party status for host to get updates on guest joins
+function startPartyStatusPolling() {
+  // Only poll for hosts and when not in offline mode
+  if (!state.isHost || state.offlineMode) {
+    return;
+  }
+  
+  // Clear any existing polling interval
+  if (state.partyStatusPollingInterval) {
+    clearInterval(state.partyStatusPollingInterval);
+    state.partyStatusPollingInterval = null;
+  }
+  
+  console.log("[Polling] Starting party status polling");
+  
+  // Poll every 3 seconds
+  state.partyStatusPollingInterval = setInterval(async () => {
+    try {
+      if (!state.code || !state.isHost) {
+        // Stop polling if no longer host or no party code
+        stopPartyStatusPolling();
+        return;
+      }
+      
+      const response = await fetch(`/api/party/${state.code}/members`);
+      if (!response.ok) {
+        console.warn("[Polling] Failed to fetch party status:", response.status);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.exists && data.snapshot) {
+        // Update snapshot with new member data
+        const previousMemberCount = state.snapshot?.members?.length || 0;
+        const newMemberCount = data.snapshot.members.length;
+        
+        state.snapshot = data.snapshot;
+        
+        // Log when members join or leave
+        if (newMemberCount !== previousMemberCount) {
+          console.log(`[Polling] Member count changed: ${previousMemberCount} → ${newMemberCount}`);
+        }
+        
+        // Re-render room to show updated member list
+        renderRoom();
+      } else if (!data.exists) {
+        console.log("[Polling] Party no longer exists, stopping polling");
+        stopPartyStatusPolling();
+      }
+    } catch (error) {
+      console.error("[Polling] Error fetching party status:", error);
+    }
+  }, 3000); // Poll every 3 seconds
+}
+
+// Stop polling party status
+function stopPartyStatusPolling() {
+  if (state.partyStatusPollingInterval) {
+    console.log("[Polling] Stopping party status polling");
+    clearInterval(state.partyStatusPollingInterval);
+    state.partyStatusPollingInterval = null;
   }
 }
 

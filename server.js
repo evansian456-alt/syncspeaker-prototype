@@ -907,6 +907,63 @@ app.get("/api/party/:code", async (req, res) => {
   });
 });
 
+// GET /api/party/:code/members - Get party members for polling
+app.get("/api/party/:code/members", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code.toUpperCase().trim();
+  
+  console.log(`[HTTP] GET /api/party/${code}/members at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  
+  // Check local WebSocket party state first
+  const localParty = parties.get(code);
+  
+  if (localParty) {
+    // Return current members from WebSocket state
+    const snapshot = {
+      members: localParty.members.map(m => ({
+        id: m.id,
+        name: m.name,
+        isPro: m.isPro || false,
+        isHost: m.isHost
+      })),
+      chatMode: localParty.chatMode || "OPEN"
+    };
+    
+    console.log(`[HTTP] Party members found locally: ${code}, memberCount: ${snapshot.members.length}`);
+    return res.json({ exists: true, snapshot });
+  }
+  
+  // If not in local state, check Redis/fallback
+  const usingFallback = !redis || !redisReady;
+  let partyData;
+  
+  try {
+    if (usingFallback) {
+      partyData = getPartyFromFallback(code);
+    } else {
+      partyData = await getPartyFromRedis(code);
+    }
+  } catch (error) {
+    console.warn(`[HTTP] Error reading party ${code}, trying fallback:`, error.message);
+    partyData = getPartyFromFallback(code);
+  }
+  
+  if (!partyData) {
+    console.log(`[HTTP] Party not found: ${code}`);
+    return res.json({ exists: false });
+  }
+  
+  // Party exists but no WebSocket connections yet - return empty members list
+  console.log(`[HTTP] Party exists but no active connections: ${code}`);
+  res.json({
+    exists: true,
+    snapshot: {
+      members: [],
+      chatMode: partyData.chatMode || "OPEN"
+    }
+  });
+});
+
 // Cleanup expired parties (Redis TTL handles expiration automatically)
 // This function now only cleans up local WebSocket state for expired parties
 function cleanupExpiredParties() {
