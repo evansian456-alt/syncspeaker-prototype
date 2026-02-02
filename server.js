@@ -39,8 +39,9 @@ function sanitizeRedisUrl(redisUrl) {
   }
 }
 
-// Detect production mode - Railway sets NODE_ENV or we can detect by presence of RAILWAY_ENVIRONMENT
-const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
+// Detect production mode - Railway sets NODE_ENV or RAILWAY_ENVIRONMENT
+// DO NOT treat REDIS_URL presence as production by itself
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
 console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'} mode, instanceId: ${INSTANCE_ID}`);
 
 // Redis configuration check - REDIS_URL is REQUIRED in production
@@ -50,10 +51,12 @@ let redisConnectionError = null;
 let redisConfigSource = null;
 let usesTls = false; // Track if using TLS for later reference
 
-if (process.env.REDIS_URL) {
-  // Railway/production: Use REDIS_URL
-  const redisUrl = process.env.REDIS_URL;
-  redisConfigSource = 'REDIS_URL';
+// Try REDIS_URL first, then REDIS_PUBLIC_URL as fallback
+const redisUrl = process.env.REDIS_URL || process.env.REDIS_PUBLIC_URL;
+
+if (redisUrl) {
+  // Railway/production: Use REDIS_URL or REDIS_PUBLIC_URL
+  redisConfigSource = process.env.REDIS_URL ? 'REDIS_URL' : 'REDIS_PUBLIC_URL';
   
   // Check if URL uses TLS (rediss://)
   usesTls = redisUrl.startsWith('rediss://');
@@ -83,12 +86,12 @@ if (process.env.REDIS_URL) {
       lazyConnect: false,
       connectTimeout: 10000,
     };
-    console.log(`[Startup] Redis config: Using REDIS_URL with TLS (rediss://)`);
+    console.log(`[Startup] Redis config: Using ${redisConfigSource} with TLS (rediss://)`);
     console.log(`[Startup] TLS certificate verification: ${rejectUnauthorized ? 'ENABLED (strict)' : 'DISABLED (Railway-compatible)'}`);
   } else {
     // Standard redis:// URL
     redisConfig = redisUrl;
-    console.log(`[Startup] Redis config: Using REDIS_URL without TLS (redis://)`);
+    console.log(`[Startup] Redis config: Using ${redisConfigSource} without TLS (redis://)`);
   }
   
   // Log sanitized connection info (hide password)
@@ -114,7 +117,7 @@ if (process.env.REDIS_URL) {
   // No Redis configuration found - this is a critical error in production
   redisConfigSource = 'none';
   console.error("❌ CRITICAL: Redis configuration missing!");
-  console.error("   Set REDIS_URL environment variable for production.");
+  console.error("   Set REDIS_URL or REDIS_PUBLIC_URL environment variable for production.");
   console.error("   For development, set REDIS_HOST (defaults to localhost).");
   redisConnectionError = "missing";
   
@@ -130,7 +133,7 @@ if (redisConfig) {
   try {
     // For rediss:// URLs with object config, we need to parse the URL
     if (typeof redisConfig === 'object' && usesTls) {
-      redis = new Redis(process.env.REDIS_URL, redisConfig);
+      redis = new Redis(redisUrl, redisConfig);
       console.log(`[Startup] Redis client created with TLS from URL + options`);
     } else {
       redis = new Redis(redisConfig);
@@ -496,6 +499,40 @@ app.get("/api/debug/party/:code", async (req, res) => {
   }
 });
 
+// GET /api/debug/redis - Returns Redis connection status and configuration info
+app.get("/api/debug/redis", (req, res) => {
+  try {
+    // Get Redis status
+    const status = redis ? redis.status : 'not_created';
+    
+    // Get sanitized Redis URL scheme (redis:// or rediss://)
+    let urlScheme = 'none';
+    const redisUrl = process.env.REDIS_URL || process.env.REDIS_PUBLIC_URL;
+    if (redisUrl) {
+      try {
+        const url = new URL(redisUrl);
+        urlScheme = url.protocol.replace(':', '');
+      } catch (err) {
+        urlScheme = 'invalid_url';
+      }
+    }
+    
+    res.json({
+      status: status,
+      redisReady: redisReady,
+      configSource: redisConfigSource,
+      urlScheme: urlScheme,
+      instanceId: INSTANCE_ID,
+      useTls: usesTls,
+      connectionError: redisConnectionError,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("[debug/redis] Error:", error);
+    res.status(500).json({ error: "Failed to get Redis info", details: error.message });
+  }
+});
+
 // Generate party codes (6 chars, uppercase letters/numbers)
 const generateCode = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
 
@@ -658,12 +695,34 @@ app.post("/api/create-party", async (req, res) => {
         // Verify Redis write succeeded by reading back
         const verification = await getPartyFromRedis(code);
         if (!verification) {
-          console.error(`[HTTP] Party write verification failed for ${code}, falling back to local storage`);
-          setPartyInFallback(code, partyData);
+          console.error(`[HTTP] Party write verification failed for ${code}`);
+          if (IS_PRODUCTION) {
+            // In production, fail loudly if Redis write verification fails
+            return res.status(500).json({
+              error: "Failed to create party - Redis write verification failed",
+              details: "Party creation requires Redis persistence in production mode",
+              instanceId: INSTANCE_ID
+            });
+          } else {
+            // In development, fall back to local storage
+            console.warn(`[HTTP] Using fallback storage in development mode`);
+            setPartyInFallback(code, partyData);
+          }
         }
       } catch (error) {
-        console.warn(`[HTTP] Redis write failed for ${code}, using fallback: ${error.message}`);
-        setPartyInFallback(code, partyData);
+        console.error(`[HTTP] Redis write failed for ${code}: ${error.message}`);
+        if (IS_PRODUCTION) {
+          // In production, fail loudly if Redis write fails
+          return res.status(500).json({
+            error: "Failed to create party - Redis unavailable",
+            details: error.message,
+            instanceId: INSTANCE_ID
+          });
+        } else {
+          // In development, fall back to local storage
+          console.warn(`[HTTP] Using fallback storage in development mode`);
+          setPartyInFallback(code, partyData);
+        }
       }
     } else {
       setPartyInFallback(code, partyData);
@@ -743,11 +802,27 @@ app.post("/api/join-party", async (req, res) => {
     // Read from Redis or fallback storage
     let partyData;
     if (useRedis) {
+      // In production, only check Redis (not fallback)
       try {
         partyData = await getPartyFromRedis(code);
       } catch (error) {
-        console.warn(`[join-party] Redis error for party ${code}, trying fallback: ${error.message}`);
-        partyData = getPartyFromFallback(code);
+        console.error(`[join-party] Redis error for party ${code}: ${error.message}`);
+        if (IS_PRODUCTION) {
+          // In production, Redis errors should not fall back
+          return res.status(503).json({
+            error: "Redis error during party lookup",
+            details: error.message,
+            partyCode: code,
+            instanceId: INSTANCE_ID,
+            redisReady: redisReady,
+            redisStatus: redis ? redis.status : 'not_created',
+            timestamp: timestamp
+          });
+        } else {
+          // In development, try fallback
+          console.warn(`[join-party] Redis error, trying fallback: ${error.message}`);
+          partyData = getPartyFromFallback(code);
+        }
       }
     } else {
       partyData = getPartyFromFallback(code);
@@ -758,11 +833,21 @@ app.post("/api/join-party", async (req, res) => {
     if (!partyData) {
       const totalParties = parties.size;
       const localPartyExists = parties.has(code);
-      const redisStatusMsg = redisReady ? "ready" : "not_ready";
+      const redisStatusMsg = redis ? redis.status : 'not_created';
       const rejectionReason = `Party ${code} not found in ${storageBackend}. Local parties count: ${totalParties}, exists locally: ${localPartyExists}, redisStatus: ${redisStatusMsg}`;
       console.log(`[HTTP] Party join rejected: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storageBackend: ${storageBackend}, redisStatus: ${redisStatusMsg}`);
       console.log("[join-party] end (party not found)");
-      return res.status(404).json({ error: "Party not found or expired" });
+      
+      // Return 404 with debug fields
+      return res.status(404).json({ 
+        error: "Party not found or expired",
+        partyCode: code,
+        instanceId: INSTANCE_ID,
+        redisReady: redisReady,
+        redisStatus: redisStatusMsg,
+        checkedKey: `${PARTY_KEY_PREFIX}${code}`,
+        timestamp: timestamp
+      });
     }
     
     // Get local party reference (non-blocking)
