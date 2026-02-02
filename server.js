@@ -711,7 +711,7 @@ async function startServer() {
       console.log("✅ Redis connected and ready");
     } catch (err) {
       console.warn(`⚠️  Redis connection timeout: ${err.message}`);
-      console.warn("   Server will continue but party creation may fail until Redis is ready");
+      console.warn("   Server will continue in fallback mode - parties will be stored locally");
     }
   } else {
     console.warn("⚠️  Redis not configured - using fallback mode");
