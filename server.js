@@ -93,6 +93,7 @@ app.use((req, res, next) => {
 app.use(express.static(__dirname));
 
 // Helper function to extract registered routes from Express app
+// Returns: Array of objects with {path: string, methods: string} properties
 // Note: Uses Express internal _router property - may break in future Express versions
 // Includes guard checks to gracefully handle API changes; returns empty array if unavailable
 function getRegisteredRoutes() {
@@ -178,8 +179,9 @@ app.get("/api/ping", (req, res) => {
 // Debug endpoint to list all registered routes
 // This endpoint helps verify which routes are registered at runtime
 // Useful for production debugging when routes appear to be missing
-// WARNING: Exposes application structure. In production, consider adding
-// authentication or restricting access via environment variables
+// NOTE: This endpoint is intentionally enabled for production debugging and verification
+// WARNING: Exposes application structure. Consider adding authentication in future versions
+// if this becomes a security concern
 app.get("/api/routes", (req, res) => {
   const routes = getRegisteredRoutes();
   
