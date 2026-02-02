@@ -214,10 +214,12 @@ function connectWS() {
 
     ws.onopen = () => {
       console.log("[WS] Connected successfully");
+      addDebugLog("WebSocket connected");
       resolve();
     };
     ws.onerror = (e) => {
       console.error("[WS] Connection error:", e);
+      addDebugLog("WebSocket error");
       reject(e);
     };
     ws.onmessage = (ev) => {
@@ -228,6 +230,7 @@ function connectWS() {
     };
     ws.onclose = () => {
       console.log("[WS] Connection closed");
+      addDebugLog("WebSocket disconnected");
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
@@ -265,6 +268,7 @@ function handleServer(msg) {
     state.code = msg.code; 
     state.isHost = false; 
     state.connected = true;
+    addDebugLog(`Joined party: ${msg.code}`);
     showGuest(); 
     toast(`Joined party ${msg.code}`); 
     updateDebugState();
@@ -337,6 +341,7 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PLAYING");
       updateGuestVisualMode("playing");
+      addDebugLog("Track started: " + (msg.filename || "Unknown"));
       
       // Handle guest audio playback
       if (msg.trackUrl) {
@@ -1517,50 +1522,56 @@ function updateChatModeUI() {
 }
 
 function updateDebugState() {
-  // Check if debug mode is enabled
-  const urlParams = new URLSearchParams(window.location.search);
-  const debugEnabled = urlParams.get('debug') === '1' || localStorage.getItem('debug') === 'true';
+  // Update new debug panel fields
+  const debugModeEl = el("debugMode");
+  const debugWsStatusEl = el("debugWsStatus");
+  const debugPollingStatusEl = el("debugPollingStatus");
+  const debugPartyCodeEl = el("debugPartyCode");
+  const debugPartyStatusEl = el("debugPartyStatus");
+  const debugGuestCountEl = el("debugGuestCount");
+  const debugTrackNameEl = el("debugTrackName");
+  const debugAudioReadyEl = el("debugAudioReady");
+  const debugLastEventEl = el("debugLastEvent");
   
-  const debugPanel = el("debugPanel");
-  if (!debugPanel) return;
-  
-  if (debugEnabled) {
-    debugPanel.style.display = "block";
-    debugPanel.setAttribute("aria-hidden", "false");
-    
-    // Update all debug fields
-    const versionEl = el("debugAppVersion");
-    const roleEl = el("debugRole");
-    const partyCodeEl = el("debugPartyCode");
-    const connectedEl = el("debugConnected");
-    const nowPlayingEl = el("debugNowPlaying");
-    const upNextEl = el("debugUpNext");
-    const playbackStateEl = el("debugPlaybackState");
-    const lastHostEventEl = el("debugLastHostEvent");
-    const visualModeEl = el("debugVisualMode");
-    
-    // Fetch and display app version from server
-    if (versionEl && versionEl.textContent === "Loading...") {
-      fetch("/health").then(res => {
-        const version = res.headers.get("X-App-Version") || "Unknown";
-        versionEl.textContent = version;
-      }).catch(() => {
-        versionEl.textContent = "Unknown";
-      });
-    }
-    
-    if (roleEl) roleEl.textContent = state.isHost ? "host" : "guest";
-    if (partyCodeEl) partyCodeEl.textContent = state.code || "None";
-    if (connectedEl) connectedEl.textContent = state.connected ? "true" : "false";
-    if (nowPlayingEl) nowPlayingEl.textContent = state.nowPlayingFilename || "None";
-    if (upNextEl) upNextEl.textContent = state.upNextFilename || "None";
-    if (playbackStateEl) playbackStateEl.textContent = state.playbackState;
-    if (lastHostEventEl) lastHostEventEl.textContent = state.lastHostEvent || "None";
-    if (visualModeEl) visualModeEl.textContent = state.visualMode;
-  } else {
-    debugPanel.style.display = "none";
-    debugPanel.setAttribute("aria-hidden", "true");
+  if (debugModeEl) debugModeEl.textContent = state.isHost ? "Host" : "Guest";
+  if (debugWsStatusEl) {
+    const wsState = state.ws ? (state.ws.readyState === WebSocket.OPEN ? "Connected" : "Disconnected") : "Not initialized";
+    debugWsStatusEl.textContent = wsState;
   }
+  if (debugPollingStatusEl) {
+    debugPollingStatusEl.textContent = state.partyStatusPollingInterval ? "Active" : "Inactive";
+  }
+  if (debugPartyCodeEl) debugPartyCodeEl.textContent = state.code || "None";
+  if (debugPartyStatusEl) {
+    debugPartyStatusEl.textContent = state.snapshot?.status || "Unknown";
+  }
+  if (debugGuestCountEl) debugGuestCountEl.textContent = state.snapshot?.guestCount || "0";
+  if (debugTrackNameEl) debugTrackNameEl.textContent = state.nowPlayingFilename || "None";
+  if (debugAudioReadyEl) {
+    debugAudioReadyEl.textContent = state.guestAudioReady ? "Yes" : "No";
+  }
+  if (debugLastEventEl) debugLastEventEl.textContent = state.lastHostEvent || "None";
+}
+
+// Add debug log entry
+function addDebugLog(message) {
+  const debugLogsEl = el("debugLogs");
+  if (!debugLogsEl) return;
+  
+  const timestamp = new Date().toLocaleTimeString();
+  const logEntry = document.createElement("div");
+  logEntry.className = "debug-log";
+  logEntry.textContent = `[${timestamp}] ${message}`;
+  
+  debugLogsEl.appendChild(logEntry);
+  
+  // Keep only last 20 logs
+  while (debugLogsEl.children.length > 20) {
+    debugLogsEl.removeChild(debugLogsEl.firstChild);
+  }
+  
+  // Scroll to bottom
+  debugLogsEl.scrollTop = debugLogsEl.scrollHeight;
 }
 
 function hashStr(s){
@@ -3271,6 +3282,27 @@ function activateGiftedPartyPass() {
 // ========================================
 
 function initParentInfo() {
+  // Debug panel toggle
+  const btnToggleDebug = el("btnToggleDebug");
+  const debugPanel = el("debugPanel");
+  const btnCloseDebug = el("btnCloseDebug");
+  
+  if (btnToggleDebug && debugPanel) {
+    btnToggleDebug.onclick = () => {
+      debugPanel.classList.toggle("hidden");
+      if (!debugPanel.classList.contains("hidden")) {
+        updateDebugState();
+        addDebugLog("Debug panel opened");
+      }
+    };
+  }
+  
+  if (btnCloseDebug && debugPanel) {
+    btnCloseDebug.onclick = () => {
+      debugPanel.classList.add("hidden");
+    };
+  }
+
   const btnParentInfo = el("btnParentInfo");
   const modalParentInfo = el("modalParentInfo");
   const btnCloseParentInfo = el("btnCloseParentInfo");

@@ -926,6 +926,73 @@
     </div>
   </div>
 
+  <!-- Debug Panel (floating overlay) -->
+  <div class="debug-panel hidden" id="debugPanel">
+    <div class="debug-panel-header">
+      <h4>🛠️ Debug Info</h4>
+      <button class="debug-panel-close" id="btnCloseDebug">✕</button>
+    </div>
+    <div class="debug-panel-content">
+      <div class="debug-section">
+        <h5>Connection</h5>
+        <div class="debug-row">
+          <span class="debug-label">Mode:</span>
+          <span class="debug-value" id="debugMode">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">WebSocket:</span>
+          <span class="debug-value" id="debugWsStatus">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Polling:</span>
+          <span class="debug-value" id="debugPollingStatus">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Party State</h5>
+        <div class="debug-row">
+          <span class="debug-label">Code:</span>
+          <span class="debug-value" id="debugPartyCode">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Status:</span>
+          <span class="debug-value" id="debugPartyStatus">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Guests:</span>
+          <span class="debug-value" id="debugGuestCount">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Playback (Guest)</h5>
+        <div class="debug-row">
+          <span class="debug-label">Track:</span>
+          <span class="debug-value" id="debugTrackName">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Audio Ready:</span>
+          <span class="debug-value" id="debugAudioReady">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Last Event:</span>
+          <span class="debug-value" id="debugLastEvent">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Recent Logs</h5>
+        <div class="debug-logs" id="debugLogs">
+          <div class="debug-log muted">No logs yet...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug Toggle Button (floating) -->
+  <button class="debug-toggle-btn" id="btnToggleDebug" title="Toggle Debug Panel">🛠️</button>
+
   <!-- Parent Info Panel -->
   <div class="modal hidden" id="modalParentInfo">
     <div class="modal-card parent-info-card">
