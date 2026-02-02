@@ -199,6 +199,215 @@ Tests are located in:
 - `server.test.js` - HTTP endpoint tests (85 tests)
 - `utils.test.js` - Utility function tests (26 tests)
 
+## Manual Testing Checklist
+
+Use this checklist to verify all features are working correctly before deployment or release.
+
+### Browser-Only Mode Testing
+- [ ] **Landing Page**
+  - [ ] Page loads without errors
+  - [ ] All buttons and UI elements are visible
+  - [ ] Party Pass pricing information displays correctly
+  
+- [ ] **Create Party (Browser-Only)**
+  - [ ] Click "Start Party" button
+  - [ ] Party code is generated and displayed
+  - [ ] Party interface loads correctly
+  - [ ] Music file selection dialog opens
+  
+- [ ] **Music Playback (Single Device)**
+  - [ ] Select a music file from local device
+  - [ ] Music plays correctly
+  - [ ] Playback controls (play/pause/skip) work
+  - [ ] Volume controls function properly
+  
+- [ ] **Party Pass Activation (Simulated)**
+  - [ ] Party Pass modal can be opened
+  - [ ] Simulated activation completes successfully
+  - [ ] Pro features are unlocked (if implemented)
+
+### Multi-Device Sync Testing
+
+#### Prerequisites
+- [ ] Node.js server is running (`npm start`)
+- [ ] Redis server is connected (verify with `/health` endpoint)
+- [ ] At least 2 devices are available for testing
+
+#### Party Creation and Join Flow
+- [ ] **Host Device - Create Party**
+  - [ ] Navigate to app URL
+  - [ ] Click "Start Party"
+  - [ ] Party code is displayed (6 characters)
+  - [ ] "Waiting for guests..." message appears
+  - [ ] Party code can be copied/shared
+  
+- [ ] **Guest Device - Join Party**
+  - [ ] Navigate to app URL
+  - [ ] Click "Join Party"
+  - [ ] Enter party code
+  - [ ] Optional: Enter nickname
+  - [ ] Click "Join party" button
+  - [ ] Transition to "Joined Party" screen (NOT stuck on "Joining...")
+  - [ ] Party code is displayed
+  - [ ] Guest count is shown
+  - [ ] Time remaining countdown is visible
+  
+- [ ] **Host Device - Guest Joined**
+  - [ ] Guest count updates from "Waiting for guests..." to "1 guest joined"
+  - [ ] Update occurs within 1-3 seconds
+  - [ ] Guest nickname appears in guest list (if provided)
+
+#### Multi-Guest Testing
+- [ ] **Add Second Guest**
+  - [ ] Third device joins the same party
+  - [ ] Both existing devices show updated guest count
+  - [ ] All devices show correct time remaining
+  
+- [ ] **Polling Updates**
+  - [ ] Guest count updates on all devices every 2 seconds
+  - [ ] Time remaining counts down synchronously
+  - [ ] No polling errors in browser console
+
+#### Music Sync Testing
+- [ ] **Host Plays Music**
+  - [ ] Host selects and plays a music file
+  - [ ] All guest devices receive playback notification
+  - [ ] Music plays in sync across all devices
+  - [ ] Playback position stays synchronized
+  
+- [ ] **Playback Controls**
+  - [ ] Host pauses - all devices pause
+  - [ ] Host resumes - all devices resume
+  - [ ] Host skips track - all devices skip
+  - [ ] Volume changes sync across devices
+
+#### DJ Mode Testing
+- [ ] **DJ Mode Activation**
+  - [ ] Host activates DJ mode
+  - [ ] Full-screen DJ interface appears
+  - [ ] Visualizers are displayed and respond to music
+  - [ ] DJ controls are accessible
+  
+- [ ] **Up Next Queue**
+  - [ ] Queue interface is visible
+  - [ ] Tracks can be added to queue
+  - [ ] Queue updates across all devices
+  - [ ] Track transitions happen smoothly
+
+#### Guest Reactions Testing
+- [ ] **Send Reaction**
+  - [ ] Guest device can access reactions
+  - [ ] Guest sends a reaction (emoji/message)
+  - [ ] Host receives reaction in real-time
+  - [ ] Reaction appears on DJ screen
+  
+- [ ] **Multiple Reactions**
+  - [ ] Multiple guests can send reactions simultaneously
+  - [ ] All reactions appear on host screen
+  - [ ] Reactions don't cause performance issues
+
+#### Leave and End Party Flow
+- [ ] **Guest Leaves Party**
+  - [ ] Guest clicks "Leave Party" button
+  - [ ] Guest returns to landing page
+  - [ ] Host sees guest count decrement within 1-3 seconds
+  - [ ] Remaining guests see updated count
+  
+- [ ] **Host Ends Party**
+  - [ ] Host clicks "End Party" or "Leave" button
+  - [ ] All guests see "Party has ended" message
+  - [ ] All guests return to landing page
+  - [ ] Party cannot be rejoined after ending
+
+#### Error Handling
+- [ ] **Invalid Party Code**
+  - [ ] Enter non-existent party code
+  - [ ] Appropriate error message is displayed
+  - [ ] User can retry with different code
+  
+- [ ] **Expired Party**
+  - [ ] Join party that expired (after party TTL duration)
+  - [ ] "Party not found or expired" error appears
+  - [ ] User is redirected appropriately
+  
+- [ ] **Network Interruption**
+  - [ ] Disable network mid-session
+  - [ ] App shows connection lost indicator
+  - [ ] Re-enable network
+  - [ ] App reconnects and resumes
+
+### Railway Deployment Testing
+
+- [ ] **Health Check**
+  - [ ] Navigate to `https://your-app.railway.app/health`
+  - [ ] Response shows `"status": "ok"`
+  - [ ] Response shows `"redis": "connected"`
+  - [ ] Instance ID is present
+  
+- [ ] **Redis Connection**
+  - [ ] REDIS_URL environment variable is set
+  - [ ] Redis plugin is running in Railway dashboard
+  - [ ] No Redis connection errors in logs
+  
+- [ ] **Create Party (Production)**
+  - [ ] Create party on deployed app
+  - [ ] Party code is generated
+  - [ ] No 503 errors
+  - [ ] Check Railway logs for successful creation
+  
+- [ ] **Join Party (Production)**
+  - [ ] Guest joins party on deployed app
+  - [ ] Join succeeds immediately
+  - [ ] Check Railway logs for:
+    - `POST /api/create-party` success
+    - `POST /api/join-party` success
+    - Correct party code in logs
+  
+- [ ] **Multi-Instance Testing** (if applicable)
+  - [ ] Multiple Railway instances are running
+  - [ ] Party created on instance A
+  - [ ] Guest joins on instance B
+  - [ ] Party state syncs via Redis
+  - [ ] All features work across instances
+
+### Performance Testing
+
+- [ ] **Load Testing**
+  - [ ] Test with maximum guests (per plan limit)
+  - [ ] All guests receive updates
+  - [ ] No significant lag or delays
+  - [ ] Server remains responsive
+  
+- [ ] **Long Session Testing**
+  - [ ] Party runs for extended period (30+ minutes)
+  - [ ] No memory leaks
+  - [ ] Polling continues reliably
+  - [ ] Time remaining countdown is accurate
+
+### Browser Compatibility
+
+- [ ] **Desktop Browsers**
+  - [ ] Chrome/Edge (latest)
+  - [ ] Firefox (latest)
+  - [ ] Safari (latest)
+  
+- [ ] **Mobile Browsers**
+  - [ ] iOS Safari
+  - [ ] Android Chrome
+  - [ ] Responsive design works on all screen sizes
+
+### Security Testing
+
+- [ ] **Input Validation**
+  - [ ] Party codes are validated (6 characters)
+  - [ ] Nicknames are sanitized (HTML escaping)
+  - [ ] Invalid inputs are rejected
+  
+- [ ] **Authorization**
+  - [ ] Only host can end party
+  - [ ] Only host can access DJ controls
+  - [ ] Guests cannot perform host-only actions
+
 ## API Endpoints
 
 ### GET /health
