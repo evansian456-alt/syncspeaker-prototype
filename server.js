@@ -512,6 +512,7 @@ app.get("/api/debug/redis", (req, res) => {
         const url = new URL(redisUrl);
         urlScheme = url.protocol.replace(':', '');
       } catch (err) {
+        console.warn('[debug/redis] Invalid Redis URL:', err.message);
         urlScheme = 'invalid_url';
       }
     }
