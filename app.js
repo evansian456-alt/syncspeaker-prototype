@@ -96,13 +96,44 @@ async function checkServerHealth() {
     
     console.log("[Health] Server health check:", health);
     
+    // Build error message from enhanced health data
+    let errorMsg = null;
+    if (health.ok !== true) {
+      if (health.redis?.errorType) {
+        // Provide user-friendly error messages based on error type
+        switch (health.redis.errorType) {
+          case 'connection_refused':
+            errorMsg = "Redis server not reachable. Contact support.";
+            break;
+          case 'timeout':
+            errorMsg = "Redis connection timeout. Check network.";
+            break;
+          case 'host_not_found':
+            errorMsg = "Redis host not found. Check configuration.";
+            break;
+          case 'auth_failed':
+            errorMsg = "Redis authentication failed. Check credentials.";
+            break;
+          case 'tls_error':
+            errorMsg = "Redis TLS/SSL error. Check configuration.";
+            break;
+          default:
+            errorMsg = health.redis?.status || "Server not ready";
+        }
+      } else {
+        errorMsg = health.redis?.status || "Server not ready";
+      }
+    }
+    
     // Return health info with ok status
     // If ok field is missing, assume false for safety (server may be outdated)
     return {
       ok: health.ok === true,
       redis: health.redis?.connected || false,
       instanceId: health.instanceId,
-      error: health.ok !== true ? (health.redis?.status || "Server not ready") : null
+      redisErrorType: health.redis?.errorType,
+      configSource: health.redis?.configSource,
+      error: errorMsg
     };
   } catch (error) {
     console.error("[Health] Health check failed:", error);
@@ -1925,8 +1956,17 @@ function attemptAddPhone() {
         const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
         updateDebug(`HTTP 503 - ${errorMsg}`);
-        updateStatus("⏳ Server is starting up - Redis connecting. Please wait a moment and try again.", true);
-        throw new Error("Server is starting up - Redis connecting. Please wait a moment and try again.");
+        
+        // Provide actionable error message with retry guidance
+        let userMessage = "⏳ Party service is starting up. ";
+        if (errorMsg.includes("Redis")) {
+          userMessage += "Server is connecting to party database. Please wait 10-30 seconds and try again.";
+        } else {
+          userMessage += "Please wait a moment and try again.";
+        }
+        
+        updateStatus(userMessage, true);
+        throw new Error(userMessage);
       }
       
       // Handle all error responses with exact backend message

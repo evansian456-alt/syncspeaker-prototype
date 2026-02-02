@@ -242,12 +242,19 @@ app.get("/health", async (req, res) => {
     status: "ok", 
     instanceId: INSTANCE_ID,
     redis: redisStatus,
-    version: APP_VERSION
+    version: APP_VERSION,
+    configSource: redisConfigSource // Show where Redis config came from
   };
   
   // Include error details if Redis has issues
   if (redisConnectionError) {
     health.redisError = redisConnectionError;
+    health.redisErrorType = redisConnectionError.includes('ECONNREFUSED') ? 'connection_refused' :
+                            redisConnectionError.includes('ETIMEDOUT') ? 'timeout' :
+                            redisConnectionError.includes('ENOTFOUND') ? 'host_not_found' :
+                            redisConnectionError.includes('authentication') || redisConnectionError.includes('NOAUTH') ? 'auth_failed' :
+                            redisConnectionError.includes('TLS') || redisConnectionError.includes('SSL') ? 'tls_error' :
+                            'unknown';
   }
   
   res.json(health);
@@ -269,12 +276,23 @@ app.get("/api/health", async (req, res) => {
     redis: {
       connected: redisConnected,
       status: redisConnected ? 'ready' : (redisConnectionError || 'not_connected'),
-      mode: IS_PRODUCTION ? 'required' : 'optional'
+      mode: IS_PRODUCTION ? 'required' : 'optional',
+      configSource: redisConfigSource
     },
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
     environment: IS_PRODUCTION ? 'production' : 'development'
   };
+  
+  // Add detailed error type if Redis has issues
+  if (redisConnectionError) {
+    health.redis.errorType = redisConnectionError.includes('ECONNREFUSED') ? 'connection_refused' :
+                             redisConnectionError.includes('ETIMEDOUT') ? 'timeout' :
+                             redisConnectionError.includes('ENOTFOUND') ? 'host_not_found' :
+                             redisConnectionError.includes('authentication') || redisConnectionError.includes('NOAUTH') ? 'auth_failed' :
+                             redisConnectionError.includes('TLS') || redisConnectionError.includes('SSL') ? 'tls_error' :
+                             'unknown';
+  }
   
   // Return 503 if not ready (production mode without Redis)
   const statusCode = isReady ? 200 : 503;
