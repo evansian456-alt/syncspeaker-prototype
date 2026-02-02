@@ -3,6 +3,167 @@
 ## Overview
 This test plan covers all features of the SyncSpeaker browser prototype, including the original local music picker and 9 new features.
 
+---
+
+## CRITICAL: Real-Device Multi-Phone Testing
+
+### Prerequisites
+- Railway deployment is live and accessible
+- Redis is configured and running
+- Two or more physical phones available
+
+### Test A: Health Check Verification
+**Purpose:** Verify server is ready before testing cross-device features
+
+**Steps:**
+1. Open browser on Phone A
+2. Navigate to: `https://[your-railway-url]/api/health`
+3. Check the response JSON
+
+**Expected Results:**
+- ✅ `ok: true` (server is ready)
+- ✅ `redis.connected: true` (Redis is available)
+- ✅ `instanceId` is present (shows which server instance)
+- ✅ `environment: "production"` (Railway deployment)
+- ✅ HTTP status: `200`
+
+**If Health Check Fails:**
+- If `ok: false` → Server not ready, Redis may be starting up
+- If `redis.connected: false` → Redis configuration issue
+- If HTTP `503` → Server explicitly not ready
+- Wait 30-60 seconds and retry health check before proceeding
+
+---
+
+### Test B: Same Wi-Fi Network Party Join
+**Purpose:** Verify cross-device join on same network
+
+**Steps:**
+1. **Phone A (Host):**
+   - Navigate to `https://[your-railway-url]`
+   - Click "Start a Party"
+   - Note the 6-character party code displayed
+
+2. **Phone B (Guest):**
+   - Navigate to `https://[your-railway-url]`
+   - Enter the exact party code from Phone A
+   - Click "Join Party"
+
+**Expected Results:**
+- ✅ Phone B shows "Joining party..." status
+- ✅ Phone B successfully joins within 5 seconds
+- ✅ No "404 - Party not found" error
+- ✅ No "503 - Server not ready" error
+- ✅ No "endpoint is not defined" error
+- ✅ Phone A shows "1 guest connected"
+- ✅ Both phones show the same party code
+
+**If Join Fails:**
+- Check Phone B browser console for exact error
+- Verify party code was entered correctly (case-insensitive)
+- Check `/api/debug/parties` to see if party exists
+- Check `/api/health` to verify Redis connection
+
+---
+
+### Test C: Mobile Hotspot Party Join
+**Purpose:** Verify cross-device join when devices use different networks
+
+**Steps:**
+1. **Phone A (Host):**
+   - Enable mobile hotspot OR use cellular data
+   - Navigate to `https://[your-railway-url]`
+   - Create a party
+   - Note the party code
+
+2. **Phone B (Guest):**
+   - Connect to Phone A's hotspot OR use different cellular data
+   - Navigate to `https://[your-railway-url]`
+   - Join using the party code
+
+**Expected Results:**
+- ✅ Guest joins successfully even on different network
+- ✅ No 404 errors (party persisted in Redis, not just local)
+- ✅ Both phones communicate through Railway server
+
+---
+
+### Test D: Debug Endpoint Verification
+**Purpose:** Use debug tools to verify party persistence
+
+**Steps:**
+1. Create a party on Phone A
+2. On Phone B (or laptop), navigate to: `https://[your-railway-url]/api/debug/parties`
+3. Review the JSON response
+
+**Expected Results:**
+- ✅ Party from Phone A appears in the list
+- ✅ `source: "redis"` or `source: "redis_only"` (not "fallback" in production)
+- ✅ `instanceId` matches the server that created the party
+- ✅ `createdAt` timestamp is recent
+- ✅ Party code matches exactly
+
+**Additional Checks:**
+- Navigate to `/api/debug/party/[CODE]` (replace [CODE] with actual party code)
+- Verify party details are correct
+- Check TTL (time-to-live) is around 7200 seconds (2 hours)
+
+---
+
+### Test E: Error Message Clarity
+**Purpose:** Verify users get helpful error messages
+
+**Scenario 1: Invalid Party Code**
+- Enter a code that doesn't exist: `ZZZZZ9`
+- **Expected:** "❌ Party not found. Check the code or ask the host to create a new party."
+
+**Scenario 2: Server Not Ready (503)**
+- If testing immediately after deployment, server may not be ready
+- **Expected:** "⏳ Server starting up - Redis connecting. Please wait and try again."
+
+**Scenario 3: Network Error**
+- Turn off phone's internet, try to join
+- **Expected:** "Server not responding. Try again." OR "Multi-device sync requires the server..."
+
+**Scenario 4: Code Normalization**
+- Enter code in lowercase: `abc123`
+- **Expected:** Automatically normalized to `ABC123` and join succeeds
+
+---
+
+### Test F: Multi-Instance Verification (Railway Specific)
+**Purpose:** Verify party sync across Railway instances
+
+**Background:** Railway may run multiple server instances. A party created on Instance A must be discoverable by Instance B.
+
+**Steps:**
+1. Create 3-5 parties rapidly from different devices
+2. Try joining each party from a different device
+3. Check `/api/debug/parties` - note the `instanceId` for each party
+
+**Expected Results:**
+- ✅ All parties are joinable regardless of which instance created them
+- ✅ Parties may have different `instanceId` values (proves multi-instance)
+- ✅ All parties are stored in Redis, not local memory
+- ✅ No 404 errors when joining parties from different instances
+
+---
+
+### Test G: Party Expiration (Optional Long Test)
+**Purpose:** Verify parties expire after 2 hours (TTL)
+
+**Steps:**
+1. Create a party
+2. Check `/api/debug/party/[CODE]` - note the TTL
+3. Wait 2 hours (or adjust Redis TTL in code for faster testing)
+4. Try to join the expired party
+
+**Expected Results:**
+- ✅ After expiration, join returns "404 - Party not found"
+- ✅ Party no longer appears in `/api/debug/parties`
+
+---
+
 ## Features Covered
 1. **Local Music Picker** (Original)
 2. **Crowd Energy Meter** - Track reactions/messages, decay over time

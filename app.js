@@ -79,6 +79,43 @@ function generatePartyCode() {
   return code;
 }
 
+// Health check function - checks if server is ready before operations
+async function checkServerHealth() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    
+    const response = await fetch("/api/health", {
+      method: "GET",
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    const health = await response.json();
+    
+    console.log("[Health] Server health check:", health);
+    
+    // Return health info with ok status
+    return {
+      ok: health.ok !== false, // Default to true if not specified
+      redis: health.redis?.connected || false,
+      instanceId: health.instanceId,
+      error: health.ok === false ? (health.redis?.status || "Server not ready") : null
+    };
+  } catch (error) {
+    console.error("[Health] Health check failed:", error);
+    // If health check fails, we can't determine server state
+    // Allow operation to proceed but it may fail
+    return {
+      ok: false,
+      redis: false,
+      instanceId: null,
+      error: error.message
+    };
+  }
+}
+
 const el = (id) => document.getElementById(id);
 const toastEl = el("toast");
 
@@ -1697,8 +1734,8 @@ function attemptAddPhone() {
       if (response.status === 503) {
         const errorData = await response.json().catch(() => ({ error: "Server not ready" }));
         const errorMsg = errorData.error || "Server not ready - Redis unavailable";
-        updateStatus(errorMsg, true);
-        throw new Error("Server not ready. Please wait a moment and try again.");
+        updateStatus("⏳ Server starting up - Redis connecting. Please wait and try again.", true);
+        throw new Error("Server is starting up - Redis connecting. Please wait a moment and try again.");
       }
       
       // Handle other error responses
@@ -1887,8 +1924,8 @@ function attemptAddPhone() {
         const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
         updateDebug(`HTTP 503 - ${errorMsg}`);
-        updateStatus("Server is starting up. Please wait a moment and try again.", true);
-        throw new Error("Server is starting up. Please wait a moment and try again.");
+        updateStatus("⏳ Server is starting up - Redis connecting. Please wait a moment and try again.", true);
+        throw new Error("Server is starting up - Redis connecting. Please wait a moment and try again.");
       }
       
       // Handle all error responses with exact backend message
@@ -1902,8 +1939,8 @@ function attemptAddPhone() {
         
         // Provide actionable error message for 404
         if (response.status === 404) {
-          updateStatus("Party not found. Please check the code and try again.", true);
-          throw new Error("Party not found. Please check the code and try again.");
+          updateStatus("❌ Party not found. Check the code or ask the host to create a new party.", true);
+          throw new Error("Party not found. The party may have expired or the code is incorrect.");
         }
         
         // For other errors, display exact backend message
