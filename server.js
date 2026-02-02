@@ -972,6 +972,191 @@ app.get("/api/party", async (req, res) => {
   }
 });
 
+// POST /api/leave-party - Remove guest from party
+app.post("/api/leave-party", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/leave-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  
+  try {
+    const { partyCode, guestId } = req.body;
+    
+    if (!partyCode) {
+      return res.status(400).json({ error: "Party code is required" });
+    }
+    
+    if (!guestId) {
+      return res.status(400).json({ error: "Guest ID is required" });
+    }
+    
+    // Normalize party code
+    const code = partyCode.trim().toUpperCase();
+    
+    // Validate party code length
+    if (code.length !== 6) {
+      return res.status(400).json({ error: "Party code must be 6 characters" });
+    }
+    
+    // Determine storage backend
+    const useRedis = redis && redisReady;
+    const storageBackend = useRedis ? 'redis' : 'fallback';
+    
+    // In production mode, Redis is required
+    if (IS_PRODUCTION && !useRedis) {
+      return res.status(503).json({ 
+        error: "Server not ready - Redis unavailable",
+        instanceId: INSTANCE_ID
+      });
+    }
+    
+    // Read party data
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[leave-party] Redis error for party ${code}, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      return res.status(404).json({ error: "Party not found or expired" });
+    }
+    
+    // Remove guest from party
+    if (partyData.guests) {
+      const initialCount = partyData.guests.length;
+      partyData.guests = partyData.guests.filter(g => g.guestId !== guestId);
+      partyData.guestCount = partyData.guests.length;
+      
+      console.log(`[leave-party] Guest ${guestId} left party ${code}, count: ${initialCount} → ${partyData.guestCount}`);
+    }
+    
+    // Save updated party data
+    if (useRedis) {
+      try {
+        await setPartyInRedis(code, partyData);
+      } catch (error) {
+        console.warn(`[leave-party] Redis write failed for ${code}, using fallback: ${error.message}`);
+        setPartyInFallback(code, partyData);
+      }
+    } else {
+      setPartyInFallback(code, partyData);
+    }
+    
+    res.json({ 
+      ok: true, 
+      guestCount: partyData.guestCount 
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error leaving party, instanceId: ${INSTANCE_ID}:`, error);
+    res.status(500).json({ 
+      error: "Failed to leave party",
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/end-party - End party early (host only)
+app.post("/api/end-party", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/end-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  
+  try {
+    const { partyCode } = req.body;
+    
+    if (!partyCode) {
+      return res.status(400).json({ error: "Party code is required" });
+    }
+    
+    // Normalize party code
+    const code = partyCode.trim().toUpperCase();
+    
+    // Validate party code length
+    if (code.length !== 6) {
+      return res.status(400).json({ error: "Party code must be 6 characters" });
+    }
+    
+    // Determine storage backend
+    const useRedis = redis && redisReady;
+    const storageBackend = useRedis ? 'redis' : 'fallback';
+    
+    // In production mode, Redis is required
+    if (IS_PRODUCTION && !useRedis) {
+      return res.status(503).json({ 
+        error: "Server not ready - Redis unavailable",
+        instanceId: INSTANCE_ID
+      });
+    }
+    
+    // Read party data
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[end-party] Redis error for party ${code}, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      return res.status(404).json({ error: "Party not found or expired" });
+    }
+    
+    // Mark party as ended
+    partyData.status = "ended";
+    partyData.endedAt = Date.now();
+    
+    console.log(`[end-party] Party ${code} ended by host`);
+    
+    // Save updated party data (or delete it)
+    // Option 1: Mark as ended but keep in storage for a short time
+    if (useRedis) {
+      try {
+        // Set shorter TTL for ended parties (e.g., 5 minutes)
+        const data = JSON.stringify(partyData);
+        await redis.setex(`${PARTY_KEY_PREFIX}${code}`, 300, data); // 5 minutes
+      } catch (error) {
+        console.warn(`[end-party] Redis write failed for ${code}, using fallback: ${error.message}`);
+        setPartyInFallback(code, partyData);
+      }
+    } else {
+      setPartyInFallback(code, partyData);
+    }
+    
+    // Option 2: Delete immediately (uncomment if preferred)
+    // if (useRedis) {
+    //   try {
+    //     await deletePartyFromRedis(code);
+    //   } catch (error) {
+    //     console.warn(`[end-party] Redis delete failed for ${code}: ${error.message}`);
+    //   }
+    // } else {
+    //   deletePartyFromFallback(code);
+    // }
+    
+    // Remove from local memory
+    if (parties.has(code)) {
+      parties.delete(code);
+    }
+    
+    res.json({ ok: true });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);
+    res.status(500).json({ 
+      error: "Failed to end party",
+      details: error.message 
+    });
+  }
+});
+
 // GET /api/party/:code/debug - Enhanced debug endpoint with Redis TTL info
 app.get("/api/party/:code/debug", async (req, res) => {
   const timestamp = new Date().toISOString();

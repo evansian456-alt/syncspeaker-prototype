@@ -2354,26 +2354,76 @@ function attemptAddPhone() {
     send({ t: "SET_PRO", isPro: state.isPro });
   };
 
-  el("btnLeave").onclick = () => { 
-    // Show party recap before leaving
+  el("btnLeave").onclick = async () => { 
+    // For host: end party
     if (state.isHost) {
+      // Show party recap before leaving
       showPartyRecap();
+      
+      // Call end-party endpoint
+      try {
+        if (state.code) {
+          const response = await fetch("/api/end-party", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              partyCode: state.code
+            })
+          });
+          
+          if (response.ok) {
+            console.log("[Party] Party ended successfully");
+            toast("Party ended");
+          } else {
+            console.warn("[Party] Failed to end party:", response.status);
+          }
+        }
+      } catch (error) {
+        console.error("[Party] Error ending party:", error);
+      }
     }
     
+    // Close WebSocket if connected
     if (state.ws) {
       state.ws.close(); 
     } else {
       // In prototype mode (no WebSocket), navigate back to landing manually
-      if (!state.isHost) {
-        showLanding();
-      }
+      showLanding();
     }
   };
 
   // Guest leave button handler
   const btnGuestLeave = el("btnGuestLeave");
   if (btnGuestLeave) {
-    btnGuestLeave.onclick = () => {
+    btnGuestLeave.onclick = async () => {
+      // Call leave-party endpoint
+      try {
+        if (state.code && state.clientId) {
+          const response = await fetch("/api/leave-party", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              partyCode: state.code,
+              guestId: state.clientId
+            })
+          });
+          
+          if (response.ok) {
+            console.log("[Party] Left party successfully");
+            toast("Left party");
+          } else {
+            console.warn("[Party] Failed to leave party:", response.status);
+          }
+        }
+      } catch (error) {
+        console.error("[Party] Error leaving party:", error);
+      }
+      
+      // Close WebSocket if connected
       if (state.ws) {
         state.ws.close();
       } else {
