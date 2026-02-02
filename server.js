@@ -97,6 +97,12 @@ app.use(express.static(__dirname));
 function getRegisteredRoutes() {
   const routes = [];
   
+  // Guard check for Express internal API
+  if (!app._router || !app._router.stack) {
+    console.warn('[getRegisteredRoutes] Warning: Express _router not available');
+    return routes;
+  }
+  
   // Extract routes from Express app
   app._router.stack.forEach((middleware) => {
     if (middleware.route) {
@@ -108,7 +114,7 @@ function getRegisteredRoutes() {
         path: middleware.route.path,
         methods: methods
       });
-    } else if (middleware.name === 'router') {
+    } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
       // Router middleware
       middleware.handle.stack.forEach((handler) => {
         if (handler.route) {
