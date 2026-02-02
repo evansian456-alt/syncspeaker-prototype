@@ -767,7 +767,7 @@ describe('Production Scenarios', () => {
       expect(retrieved.chatMode).toBe('OPEN');
     });
 
-    it('should return 500 when Redis times out during join', async () => {
+    it('should use fallback storage when Redis times out during join', async () => {
       // Create a party in Redis first
       const testCode = 'TEST02';
       const partyData = {
@@ -787,14 +787,14 @@ describe('Production Scenarios', () => {
         throw new Error('Redis timeout');
       });
       
-      // Try to join the party - this should fail since Redis is required
+      // Try to join the party - should fall back to local storage
       const response = await request(app)
         .post('/api/join-party')
         .send({ partyCode: testCode });
       
-      // Should fail with 500 error
-      expect(response.status).toBe(500);
-      expect(response.body.error).toContain('Failed to lookup party');
+      // Should return 404 since party not in fallback storage (graceful degradation)
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Party not found or expired');
       
       // Restore Redis
       redis.get = originalGet;
