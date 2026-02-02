@@ -921,6 +921,63 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 
 ---
 
+## Route Registration Verification Tests (NEW)
+
+### Test 1: Debug Routes Endpoint
+**Steps:**
+1. Start server with `npm start`
+2. Navigate to `/api/routes` in browser or curl:
+   ```bash
+   curl http://localhost:8080/api/routes
+   ```
+3. Verify response contains route list
+
+**Expected Results:**
+- ✅ Returns JSON with `routes` array
+- ✅ Array contains `POST /api/create-party`
+- ✅ Array contains `POST /api/join-party`
+- ✅ Includes `instanceId` and `version`
+- ✅ `totalRoutes` count is accurate
+
+### Test 2: Server Startup Logs Routes
+**Steps:**
+1. Start server with `npm start`
+2. Check console output during startup
+
+**Expected Results:**
+- ✅ Logs show "📋 Registered HTTP Routes:" section
+- ✅ Lists all registered routes with methods
+- ✅ Shows "✓ Critical Routes Verified:" section
+- ✅ Explicitly confirms "✓ POST /api/create-party"
+- ✅ Explicitly confirms "✓ POST /api/join-party"
+
+### Test 3: Production Route Verification (Railway)
+**Steps:**
+1. Deploy to Railway
+2. Call `/api/routes` endpoint:
+   ```bash
+   curl https://[railway-url]/api/routes
+   ```
+3. Verify POST /api/join-party is listed
+
+**Expected Results:**
+- ✅ Route is present in production deployment
+- ✅ Same routes as local development
+- ✅ Can verify routes are registered before testing
+
+### Test 4: Guest Join Endpoint Always Available
+**Steps:**
+1. Start server (both with and without Redis)
+2. Verify POST /api/join-party works in both scenarios
+
+**Expected Results:**
+- ✅ With Redis: Join endpoint uses Redis for party lookup
+- ✅ Without Redis: Join endpoint uses fallback storage
+- ✅ Endpoint ALWAYS responds (never 404 for the route itself)
+- ✅ Route is unconditionally registered regardless of Redis status
+
+---
+
 ## Known Limitations
 - Browser prototype, not production app
 - WebSocket sync not tested (offline mode)

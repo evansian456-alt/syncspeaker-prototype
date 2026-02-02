@@ -129,6 +129,47 @@ app.get("/api/ping", (req, res) => {
   res.json({ message: "pong", timestamp: Date.now() });
 });
 
+// Debug endpoint to list all registered routes
+// This endpoint helps verify which routes are registered at runtime
+// Useful for production debugging when routes appear to be missing
+app.get("/api/routes", (req, res) => {
+  const routes = [];
+  
+  // Extract routes from Express app
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      // Routes registered directly on the app
+      const methods = Object.keys(middleware.route.methods)
+        .map(m => m.toUpperCase())
+        .join(', ');
+      routes.push({
+        path: middleware.route.path,
+        methods: methods
+      });
+    } else if (middleware.name === 'router') {
+      // Router middleware
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          const methods = Object.keys(handler.route.methods)
+            .map(m => m.toUpperCase())
+            .join(', ');
+          routes.push({
+            path: handler.route.path,
+            methods: methods
+          });
+        }
+      });
+    }
+  });
+  
+  res.json({
+    instanceId: INSTANCE_ID,
+    version: APP_VERSION,
+    routes: routes,
+    totalRoutes: routes.length
+  });
+});
+
 // Debug endpoint to list active parties
 // WARNING: This endpoint is for debugging purposes only and should be
 // protected by authentication or disabled in production environments
@@ -723,6 +764,43 @@ async function startServer() {
     console.log(`   Redis status: ${redis ? redis.status : 'NOT CONFIGURED'}`);
     console.log(`   Redis ready: ${redisReady ? 'YES' : 'NO'}`);
     console.log("🎉 Server ready to accept connections");
+    
+    // Log registered routes for debugging
+    console.log("\n📋 Registered HTTP Routes:");
+    const routes = [];
+    app._router.stack.forEach((middleware) => {
+      if (middleware.route) {
+        const methods = Object.keys(middleware.route.methods)
+          .map(m => m.toUpperCase())
+          .join(', ');
+        routes.push(`   ${methods} ${middleware.route.path}`);
+      } else if (middleware.name === 'router') {
+        middleware.handle.stack.forEach((handler) => {
+          if (handler.route) {
+            const methods = Object.keys(handler.route.methods)
+              .map(m => m.toUpperCase())
+              .join(', ');
+            routes.push(`   ${methods} ${handler.route.path}`);
+          }
+        });
+      }
+    });
+    
+    // Print all routes
+    routes.forEach(route => console.log(route));
+    
+    // Explicitly confirm critical routes
+    const criticalRoutes = [
+      'POST /api/create-party',
+      'POST /api/join-party'
+    ];
+    
+    console.log("\n✓ Critical Routes Verified:");
+    criticalRoutes.forEach(route => {
+      const isRegistered = routes.some(r => r.includes(route));
+      console.log(`   ${isRegistered ? '✓' : '✗'} ${route}`);
+    });
+    console.log("");
   });
   
   // Start cleanup interval
