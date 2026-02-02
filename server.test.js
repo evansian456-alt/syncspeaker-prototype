@@ -187,13 +187,13 @@ describe('Server HTTP Endpoints', () => {
       expect(joinResponse.body).toHaveProperty('ok', true);
     });
 
-    it('should allow guest to join after delay (30+ seconds)', async () => {
+    it('should allow guest to join after short delay', async () => {
       // Host creates party
       const createResponse = await request(app).post('/api/create-party');
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
-      // Wait 1 second (simulating delay)
+      // Wait 1 second (simulating short delay)
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Guest joins after delay

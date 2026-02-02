@@ -1647,7 +1647,7 @@ function attemptAddPhone() {
   el("btnCreate").onclick = async () => {
     console.log("[UI] Start party button clicked");
     const btn = el("btnCreate");
-    const statusEl = el("partyStatus");
+    const partyStatusEl = el("partyStatus");
     const messageEl = el("createStatusMessage");
     
     // Prevent multiple clicks - check if button is already disabled
@@ -1658,7 +1658,7 @@ function attemptAddPhone() {
     
     // Helper function to update status
     const updateStatus = (message, isError = false) => {
-      if (statusEl) statusEl.classList.remove("hidden");
+      if (partyStatusEl) partyStatusEl.classList.remove("hidden");
       if (messageEl) {
         messageEl.textContent = message;
         messageEl.style.color = isError ? "var(--danger, #ff5a6a)" : "var(--text, #fff)";
@@ -1736,7 +1736,7 @@ function attemptAddPhone() {
       toast(`Party created: ${partyCode}`);
       
       // Hide status
-      if (statusEl) statusEl.classList.add("hidden");
+      if (partyStatusEl) partyStatusEl.classList.add("hidden");
       
     } catch (error) {
       console.error("[Party] Error creating party:", error);
