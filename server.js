@@ -117,14 +117,14 @@ if (redis) {
 
   redis.on("error", (err) => {
     const errorType = err.code || err.name || 'unknown';
-    console.error(`[Redis] Error [${errorType}] (instance: ${INSTANCE_ID}):`, err.message);
+    console.error(`[Redis] Error [${errorType}] (instance: ${INSTANCE_ID}):`, err.message || '(no message)');
     
-    // Provide actionable error messages for common issues
-    if (err.message.includes('ECONNREFUSED')) {
+    // Provide actionable error messages for common issues - check err.code
+    if (err.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED')) {
       console.error(`   → Redis server not reachable. Check REDIS_URL or REDIS_HOST.`);
-    } else if (err.message.includes('ETIMEDOUT')) {
+    } else if (err.code === 'ETIMEDOUT' || err.message.includes('ETIMEDOUT')) {
       console.error(`   → Connection timeout. Check network/firewall settings.`);
-    } else if (err.message.includes('ENOTFOUND')) {
+    } else if (err.code === 'ENOTFOUND' || err.message.includes('ENOTFOUND')) {
       console.error(`   → Redis host not found. Verify REDIS_URL hostname.`);
     } else if (err.message.includes('authentication') || err.message.includes('NOAUTH')) {
       console.error(`   → Authentication failed. Check Redis password in REDIS_URL.`);
@@ -132,7 +132,7 @@ if (redis) {
       console.error(`   → TLS/SSL error. Ensure rediss:// URL is used for TLS connections.`);
     }
     
-    redisConnectionError = err.message;
+    redisConnectionError = err.message || err.code || 'Unknown error';
     redisReady = false;
     if (!useFallbackMode) {
       console.warn(`⚠️  Redis unavailable — using fallback mode (instance: ${INSTANCE_ID})`);
