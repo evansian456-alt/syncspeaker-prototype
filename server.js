@@ -92,6 +92,53 @@ app.use((req, res, next) => {
 // Serve static files from the repo root
 app.use(express.static(__dirname));
 
+// Helper function to extract registered routes from Express app
+// Returns: Array of objects with {path: string, methods: string} properties
+// Note: Uses Express internal _router property - may break in future Express versions
+// Includes guard checks to gracefully handle API changes; returns empty array if unavailable
+function getRegisteredRoutes() {
+  const routes = [];
+  
+  // Guard check for Express internal API
+  if (!app._router || !app._router.stack) {
+    console.warn('[getRegisteredRoutes] Warning: Express _router not available');
+    return routes;
+  }
+  
+  // Extract routes from Express app
+  app._router.stack.forEach((middleware) => {
+    // Guard check for middleware existence
+    if (!middleware) return;
+    
+    if (middleware.route) {
+      // Routes registered directly on the app
+      const methods = Object.keys(middleware.route.methods)
+        .map(m => m.toUpperCase())
+        .join(', ');
+      routes.push({
+        path: middleware.route.path,
+        methods: methods
+      });
+    } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+      // Router middleware
+      middleware.handle.stack.forEach((handler) => {
+        // Guard check for handler existence
+        if (!handler || !handler.route) return;
+        
+        const methods = Object.keys(handler.route.methods)
+          .map(m => m.toUpperCase())
+          .join(', ');
+        routes.push({
+          path: handler.route.path,
+          methods: methods
+        });
+      });
+    }
+  });
+  
+  return routes;
+}
+
 // Route for serving index.html at root "/"
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -127,6 +174,23 @@ app.get("/health", async (req, res) => {
 // Simple ping endpoint for testing client->server
 app.get("/api/ping", (req, res) => {
   res.json({ message: "pong", timestamp: Date.now() });
+});
+
+// Debug endpoint to list all registered routes
+// This endpoint helps verify which routes are registered at runtime
+// Useful for production debugging when routes appear to be missing
+// NOTE: This endpoint is intentionally enabled for production debugging and verification
+// WARNING: Exposes application structure. Consider adding authentication in future versions
+// if this becomes a security concern
+app.get("/api/routes", (req, res) => {
+  const routes = getRegisteredRoutes();
+  
+  res.json({
+    instanceId: INSTANCE_ID,
+    version: APP_VERSION,
+    routes: routes,
+    totalRoutes: routes.length
+  });
 });
 
 // Debug endpoint to list active parties
@@ -723,6 +787,31 @@ async function startServer() {
     console.log(`   Redis status: ${redis ? redis.status : 'NOT CONFIGURED'}`);
     console.log(`   Redis ready: ${redisReady ? 'YES' : 'NO'}`);
     console.log("🎉 Server ready to accept connections");
+    
+    // Log registered routes for debugging
+    console.log("\n📋 Registered HTTP Routes:");
+    const routes = getRegisteredRoutes();
+    
+    // Print all routes with formatting
+    routes.forEach(route => {
+      console.log(`   ${route.methods} ${route.path}`);
+    });
+    
+    // Explicitly confirm critical routes
+    const criticalRoutes = [
+      { method: 'POST', path: '/api/create-party' },
+      { method: 'POST', path: '/api/join-party' }
+    ];
+    
+    console.log("\n✓ Critical Routes Verified:");
+    criticalRoutes.forEach(({ method, path }) => {
+      const isRegistered = routes.some(r => {
+        const methodList = r.methods.split(', ');
+        return methodList.includes(method) && r.path === path;
+      });
+      console.log(`   ${isRegistered ? '✓' : '✗'} ${method} ${path}`);
+    });
+    console.log("");
   });
   
   // Start cleanup interval
