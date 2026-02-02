@@ -1645,8 +1645,10 @@ function attemptAddPhone() {
   };
 
   el("btnCreate").onclick = async () => {
-    console.log("[UI] Start party button clicked - PROTOTYPE MODE (no backend dependency)");
+    console.log("[UI] Start party button clicked");
     const btn = el("btnCreate");
+    const statusEl = el("createStatus");
+    const messageEl = el("createStatusMessage");
     
     // Prevent multiple clicks - check if button is already disabled
     if (btn.disabled) {
@@ -1654,46 +1656,104 @@ function attemptAddPhone() {
       return;
     }
     
-    // BROWSER PROTOTYPE MODE: Create party instantly without network dependency
-    // Disable button briefly for visual feedback
-    btn.disabled = true;
-    btn.textContent = "Creating party...";
-    
-    // Apply guest anonymity (Feature 7)
-    applyGuestAnonymity();
-    
-    // Get user configuration
-    state.source = "local"; // Always use local source for music from phone
-    state.isPro = el("togglePro").checked;
-    console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
-    
-    // Generate party code client-side (6 random letters/numbers)
-    const partyCode = generatePartyCode();
-    console.log("[Party] Generated party code:", partyCode);
-    
-    // Set party state immediately
-    state.code = partyCode;
-    state.isHost = true;
-    state.offlineMode = true; // Mark as prototype/offline mode
-    
-    // Initialize snapshot with host member for prototype mode
-    state.snapshot = {
-      members: [{
-        id: "host-" + Date.now(),
-        name: state.name,
-        isHost: true,
-        isPro: state.isPro
-      }]
+    // Helper function to update status
+    const updateStatus = (message, isError = false) => {
+      if (statusEl) statusEl.classList.remove("hidden");
+      if (messageEl) {
+        messageEl.textContent = message;
+        messageEl.style.color = isError ? "var(--danger, #ff5a6a)" : "var(--text, #fff)";
+      }
+      console.log(`[Party] ${message}`);
     };
     
-    // Show party view immediately
-    showParty();
-    
-    // Show success toast
-    toast(`Party created: ${partyCode}`);
-    
-    // TODO: Enable real-time sync later in native app
-    // For browser prototype, we skip WebSocket connection to ensure Start Party works instantly
+    try {
+      btn.disabled = true;
+      btn.textContent = "Creating party...";
+      updateStatus("Creating party…");
+      
+      // Apply guest anonymity (Feature 7)
+      applyGuestAnonymity();
+      
+      // Get user configuration
+      state.source = "local"; // Always use local source for music from phone
+      state.isPro = el("togglePro").checked;
+      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+      
+      // Call server API to create party
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const response = await fetch("/api/create-party", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Handle 503 (Service Unavailable - Redis not ready)
+      if (response.status === 503) {
+        const errorData = await response.json().catch(() => ({ error: "Server not ready" }));
+        const errorMsg = errorData.error || "Server not ready - Redis unavailable";
+        updateStatus(errorMsg, true);
+        throw new Error("Server not ready. Please wait a moment and try again.");
+      }
+      
+      // Handle other error responses
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        const errorMsg = errorData.error || `Server error: ${response.status}`;
+        updateStatus(errorMsg, true);
+        throw new Error(errorMsg);
+      }
+      
+      const data = await response.json();
+      const partyCode = data.partyCode;
+      
+      console.log("[Party] Party created via API:", partyCode);
+      
+      // Set party state
+      state.code = partyCode;
+      state.isHost = true;
+      state.offlineMode = false; // Mark as server-backed mode
+      
+      // Initialize snapshot with host member
+      state.snapshot = {
+        members: [{
+          id: "host-" + Date.now(),
+          name: state.name,
+          isHost: true,
+          isPro: state.isPro
+        }]
+      };
+      
+      // Show party view
+      showParty();
+      
+      // Show success toast
+      toast(`Party created: ${partyCode}`);
+      
+      // Hide status
+      if (statusEl) statusEl.classList.add("hidden");
+      
+    } catch (error) {
+      console.error("[Party] Error creating party:", error);
+      
+      // Check if it's a network error (server not running)
+      if (error.name === "AbortError") {
+        updateStatus("Server not responding. Is the server running?", true);
+      } else if (error.message.includes("Failed to fetch")) {
+        updateStatus("Cannot reach server. Is the server running?", true);
+      } else {
+        updateStatus(error.message || "Failed to create party", true);
+      }
+      
+      // Re-enable button
+      btn.disabled = false;
+      btn.textContent = "Start party";
+    }
   };
 
   el("btnJoin").onclick = async () => {
@@ -1827,7 +1887,8 @@ function attemptAddPhone() {
         const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
         updateDebug(`HTTP 503 - ${errorMsg}`);
-        throw new Error("Party expired or server still syncing. Ask host to restart party.");
+        updateStatus("Server is starting up. Please wait a moment and try again.", true);
+        throw new Error("Server is starting up. Please wait a moment and try again.");
       }
       
       // Handle all error responses with exact backend message
@@ -1841,7 +1902,8 @@ function attemptAddPhone() {
         
         // Provide actionable error message for 404
         if (response.status === 404) {
-          throw new Error("Party expired or server still syncing. Ask host to restart party.");
+          updateStatus("Party not found. Please check the code and try again.", true);
+          throw new Error("Party not found. Please check the code and try again.");
         }
         
         // For other errors, display exact backend message
