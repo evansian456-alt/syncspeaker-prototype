@@ -1875,6 +1875,7 @@ function attemptAddPhone() {
       // Retry logic for party lookup with exponential backoff
       let lastError = null;
       let response = null;
+      const endpoint = "POST /api/join-party";
       
       for (let attempt = 1; attempt <= PARTY_LOOKUP_RETRIES; attempt++) {
         try {
@@ -1889,7 +1890,6 @@ function attemptAddPhone() {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
           
-          const endpoint = "POST /api/join-party";
           updateDebug(`Endpoint: ${endpoint} (attempt ${attempt})`);
           updateDebugPanel(endpoint, null);
           
@@ -1934,7 +1934,6 @@ function attemptAddPhone() {
           errorMsg = lastError.message;
         }
         
-        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, `${endpoint} (${lastError.name === "AbortError" ? "timeout" : "network error"})`);
         throw new Error(errorMsg);
       }
@@ -1944,7 +1943,6 @@ function attemptAddPhone() {
       // Check for 501 (Unsupported method) which happens with simple HTTP servers
       if (response.status === 501) {
         const errorMsg = "Multi-device sync requires the server to be running. Use 'npm start' to enable joining parties.";
-        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, "Server doesn't support POST (browser-only mode)");
         throw new Error(errorMsg);
       }
@@ -1953,7 +1951,6 @@ function attemptAddPhone() {
       if (response.status === 503) {
         const errorData = await response.json().catch(() => ({ error: "Server not ready" }));
         const errorMsg = errorData.error || "Server not ready - Redis unavailable";
-        const endpoint = "POST /api/join-party";
         updateDebugPanel(endpoint, `HTTP 503: ${errorMsg}`);
         updateDebug(`HTTP 503 - ${errorMsg}`);
         
@@ -1973,7 +1970,6 @@ function attemptAddPhone() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorMsg = errorData.error || `Server error: ${response.status}`;
-        const endpoint = "POST /api/join-party";
         const statusMessage = `HTTP ${response.status}: ${errorMsg}`;
         updateDebugPanel(endpoint, statusMessage);
         updateDebug(`HTTP ${response.status} - ${errorMsg}`);
