@@ -184,7 +184,7 @@ app.get("/health", async (req, res) => {
 // In production mode, server is NOT ready if Redis is unavailable
 // In development mode, server is always ready (uses fallback storage)
 app.get("/api/health", async (req, res) => {
-  const redisConnected = redis && redisReady && !redisConnectionError;
+  const redisConnected = !!(redis && redisReady && !redisConnectionError);
   
   // In production, we require Redis to be ready
   // In development, we allow fallback mode
