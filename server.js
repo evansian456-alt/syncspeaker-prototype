@@ -803,7 +803,10 @@ async function startServer() {
     
     console.log("\n✓ Critical Routes Verified:");
     criticalRoutes.forEach(({ method, path }) => {
-      const isRegistered = routes.some(r => r.methods.includes(method) && r.path === path);
+      const isRegistered = routes.some(r => {
+        const methodList = r.methods.split(', ');
+        return methodList.includes(method) && r.path === path;
+      });
       console.log(`   ${isRegistered ? '✓' : '✗'} ${method} ${path}`);
     });
     console.log("");
