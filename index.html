@@ -16,8 +16,10 @@
       </div>
     </div>
     <div class="header-right">
+      <span id="connectionIndicator">● Connected</span>
       <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
       <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
+      <button class="btn-account" id="btnAccount" title="Account">👤</button>
       <div class="pill" id="planPill">Free · 2 phones</div>
     </div>
   </header>
@@ -496,7 +498,11 @@
               <div class="lbl">Party code</div>
               <div class="code" id="partyCode">------</div>
             </div>
-            <button class="btn" id="btnCopy">Copy</button>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn" id="btnCopy">Copy</button>
+              <button class="btn" id="btnShowQR" title="Show QR Code">📱</button>
+              <button class="btn" id="btnShare" title="Share">📤</button>
+            </div>
           </div>
           <div class="tiny muted">Share code with friends.</div>
           <div class="party-info-footer">
@@ -1075,6 +1081,14 @@
     </div>
   </div>
 
+  <div class="modal hidden" id="modalQRCode">
+    <div class="modalCard">
+      <h3>📱 Join Party</h3>
+      <div id="qrCodeContainer"></div>
+      <button class="btn primary full-width" id="btnCloseQR">Close</button>
+    </div>
+  </div>
+
   <div class="toast hidden" id="toast"></div>
 
    <!-- Party End Recap Modal -->
@@ -1235,6 +1249,192 @@
   <!-- DJ Messages Container (global overlay) -->
   <div id="djMessagesContainer"></div>
 
+  <!-- Authentication Views -->
+  <section class="card hidden" id="viewLogin">
+    <div class="auth-container">
+      <h2>🎧 Log In to SyncSpeaker</h2>
+      <p class="muted">Access your DJ profile and subscription</p>
+      
+      <form id="formLogin" class="auth-form">
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" class="input-field" placeholder="your@email.com" required />
+        </div>
+        
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" class="input-field" placeholder="Enter password" required />
+        </div>
+        
+        <div class="auth-error hidden" id="loginError"></div>
+        
+        <button type="submit" class="btn primary full-width">Log In</button>
+      </form>
+      
+      <div class="auth-links">
+        <a href="#" id="linkForgotPassword">Forgot password?</a>
+        <span>·</span>
+        <a href="#" id="linkToSignup">Create account</a>
+        <span>·</span>
+        <a href="#" id="linkToLanding">Back</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="viewSignup">
+    <div class="auth-container">
+      <h2>🎵 Create Account</h2>
+      <p class="muted">Join SyncSpeaker and start your DJ journey</p>
+      
+      <form id="formSignup" class="auth-form">
+        <div class="form-group">
+          <label for="signupEmail">Email</label>
+          <input type="email" id="signupEmail" class="input-field" placeholder="your@email.com" required />
+        </div>
+        
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" class="input-field" placeholder="At least 6 characters" required />
+        </div>
+        
+        <div class="form-group">
+          <label for="signupDjName">DJ Name (Optional)</label>
+          <input type="text" id="signupDjName" class="input-field" placeholder="DJ Awesome" maxlength="30" />
+        </div>
+        
+        <div class="auth-error hidden" id="signupError"></div>
+        
+        <button type="submit" class="btn primary full-width">Create Account</button>
+      </form>
+      
+      <div class="auth-links">
+        <a href="#" id="linkToLogin">Already have an account?</a>
+        <span>·</span>
+        <a href="#" id="linkSignupToLanding">Back</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="viewPasswordReset">
+    <div class="auth-container">
+      <h2>🔑 Reset Password</h2>
+      <p class="muted">Enter your email to receive a reset code</p>
+      
+      <form id="formPasswordResetRequest" class="auth-form">
+        <div class="form-group">
+          <label for="resetEmail">Email</label>
+          <input type="email" id="resetEmail" class="input-field" placeholder="your@email.com" required />
+        </div>
+        
+        <div class="auth-error hidden" id="resetRequestError"></div>
+        <div class="auth-success hidden" id="resetRequestSuccess"></div>
+        
+        <button type="submit" class="btn primary full-width">Send Reset Code</button>
+      </form>
+      
+      <form id="formPasswordReset" class="auth-form hidden">
+        <div class="form-group">
+          <label for="resetCode">Reset Code</label>
+          <input type="text" id="resetCode" class="input-field" placeholder="Enter 6-character code" maxlength="6" required />
+        </div>
+        
+        <div class="form-group">
+          <label for="resetNewPassword">New Password</label>
+          <input type="password" id="resetNewPassword" class="input-field" placeholder="At least 6 characters" required />
+        </div>
+        
+        <div class="auth-error hidden" id="resetError"></div>
+        
+        <button type="submit" class="btn primary full-width">Reset Password</button>
+      </form>
+      
+      <div class="auth-links">
+        <a href="#" id="linkResetToLogin">Back to Login</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- User Profile View -->
+  <section class="card hidden" id="viewProfile">
+    <div class="profile-container">
+      <div class="row space">
+        <h2>👤 My Profile</h2>
+        <button class="btn" id="btnCloseProfile">Back</button>
+      </div>
+      
+      <div class="glass-card">
+        <div class="profile-header">
+          <div class="profile-avatar" id="profileAvatar">🎧</div>
+          <div class="profile-info">
+            <h3 id="profileDjName">DJ Name</h3>
+            <div class="profile-email" id="profileEmail">email@example.com</div>
+            <div class="tier-badge" id="profileTierBadge">FREE</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="glass-card">
+        <h3>📊 Stats</h3>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="statTotalParties">0</div>
+            <div class="stat-label">Parties Hosted</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statTotalTracks">0</div>
+            <div class="stat-label">Tracks Played</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statTotalGuests">0</div>
+            <div class="stat-label">Total Guests</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="glass-card" id="djRankSection">
+        <h3>🏆 DJ Rank</h3>
+        <div class="rank-display">
+          <div class="rank-badge" id="profileRankBadge">BEGINNER</div>
+          <div class="rank-score">
+            <span id="profileScore">0</span> points
+          </div>
+        </div>
+        <div class="rank-progress">
+          <div class="rank-progress-bar">
+            <div class="rank-progress-fill" id="profileRankProgress"></div>
+          </div>
+          <div class="rank-progress-label" id="profileRankLabel">Keep hosting to rank up!</div>
+        </div>
+      </div>
+      
+      <div class="glass-card">
+        <h3>⚙️ Settings</h3>
+        <form id="formProfileUpdate">
+          <div class="form-group">
+            <label for="profileDjNameInput">DJ Name</label>
+            <input type="text" id="profileDjNameInput" class="input-field" maxlength="30" />
+          </div>
+          
+          <div class="form-group">
+            <label for="profileGuestNameInput">Guest Name (for when you join parties)</label>
+            <input type="text" id="profileGuestNameInput" class="input-field" maxlength="30" />
+          </div>
+          
+          <button type="submit" class="btn primary">Save Changes</button>
+        </form>
+      </div>
+      
+      <div class="glass-card">
+        <button class="btn danger full-width" id="btnLogout">Log Out</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="auth.js"></script>
+  <script src="visual-stage.js"></script>
+  <script src="moderation.js"></script>
+  <script src="network-accessibility.js"></script>
+  <script src="qr-deeplink.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

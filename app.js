@@ -4504,6 +4504,31 @@ function updateBoostsUI() {
 // ========================================
 
 function initializeAllFeatures() {
+  // Initialize auth if available
+  if (typeof initAuth === 'function') {
+    initAuth();
+  }
+  
+  // Initialize auth UI bindings
+  if (typeof initializeAuth === 'function') {
+    initializeAuth();
+  }
+  
+  // Initialize network monitoring if available
+  if (typeof initNetworkMonitoring === 'function') {
+    initNetworkMonitoring();
+  }
+  
+  // Initialize accessibility if available
+  if (typeof initAccessibility === 'function') {
+    initAccessibility();
+  }
+  
+  // Initialize moderation if available
+  if (typeof initModeration === 'function') {
+    initModeration();
+  }
+  
   initCrowdEnergyMeter();
   initDJMoments();
   initPartyRecap();
@@ -4514,7 +4539,7 @@ function initializeAllFeatures() {
   initSessionStats();
   initBoostAddons();
   
-  console.log("[Features] All 10 features initialized");
+  console.log("[Features] All features initialized");
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();
@@ -4648,6 +4673,406 @@ async function checkAutoReconnect() {
     // Clear potentially corrupted session data
     localStorage.removeItem('syncSpeakerGuestSession');
   }
+}
+
+// ============================================
+// AUTHENTICATION INTEGRATION
+// ============================================
+// AUTHENTICATION INTEGRATION
+// ============================================
+
+/**
+ * Show a specific view and hide all others
+ */
+function showView(viewId) {
+  // Hide all main views
+  const views = ['viewLanding', 'viewChooseTier', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile'];
+  
+  views.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('hidden');
+    }
+  });
+  
+  // Show the requested view
+  const targetView = document.getElementById(viewId);
+  if (targetView) {
+    targetView.classList.remove('hidden');
+  }
+}
+
+/**
+ * Initialize authentication UI and state
+ */
+function initializeAuth() {
+  console.log('[Auth] Initializing authentication system');
+  
+  // Check if user is logged in
+  const currentUser = getCurrentUser();
+  if (currentUser) {
+    console.log('[Auth] User logged in:', currentUser.email);
+    state.userTier = currentUser.tier;
+    updateUIForLoggedInUser(currentUser);
+  } else {
+    console.log('[Auth] No user logged in');
+  }
+  
+  // Set up event listeners for auth forms
+  setupAuthEventListeners();
+}
+
+/**
+ * Update UI for logged in user
+ */
+function updateUIForLoggedInUser(user) {
+  const btnAccount = document.getElementById('btnAccount');
+  if (btnAccount) {
+    btnAccount.textContent = user.djName || '👤';
+    btnAccount.title = user.email;
+  }
+  
+  const planPill = document.getElementById('planPill');
+  if (planPill) {
+    const limits = {
+      FREE: `${user.tier} · ${FREE_LIMIT} phones`,
+      PARTY_PASS: `Party Pass · ${PARTY_PASS_LIMIT} phones`,
+      PRO: `${user.tier} · ${PRO_LIMIT} phones`
+    };
+    planPill.textContent = limits[user.tier] || limits.FREE;
+  }
+  
+  // Apply DJ name if hosting
+  if (user.djName) {
+    state.djName = user.djName;
+  }
+}
+
+/**
+ * Set up auth event listeners
+ */
+function setupAuthEventListeners() {
+  // Account button
+  const btnAccount = document.getElementById('btnAccount');
+  if (btnAccount) {
+    btnAccount.addEventListener('click', () => {
+      if (isLoggedIn()) {
+        showProfile();
+      } else {
+        showView('viewLogin');
+      }
+    });
+  }
+  
+  // Login form
+  const formLogin = document.getElementById('formLogin');
+  if (formLogin) {
+    formLogin.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleLogin();
+    });
+  }
+  
+  // Signup form
+  const formSignup = document.getElementById('formSignup');
+  if (formSignup) {
+    formSignup.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleSignup();
+    });
+  }
+  
+  // Password reset request
+  const formPasswordResetRequest = document.getElementById('formPasswordResetRequest');
+  if (formPasswordResetRequest) {
+    formPasswordResetRequest.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handlePasswordResetRequest();
+    });
+  }
+  
+  // Password reset
+  const formPasswordReset = document.getElementById('formPasswordReset');
+  if (formPasswordReset) {
+    formPasswordReset.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handlePasswordReset();
+    });
+  }
+  
+  // Profile update
+  const formProfileUpdate = document.getElementById('formProfileUpdate');
+  if (formProfileUpdate) {
+    formProfileUpdate.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleProfileUpdate();
+    });
+  }
+  
+  // Logout button
+  const btnLogout = document.getElementById('btnLogout');
+  if (btnLogout) {
+    btnLogout.addEventListener('click', handleLogout);
+  }
+  
+  // Close profile
+  const btnCloseProfile = document.getElementById('btnCloseProfile');
+  if (btnCloseProfile) {
+    btnCloseProfile.addEventListener('click', () => showView('viewLanding'));
+  }
+  
+  // Navigation links
+  document.getElementById('linkToSignup')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewSignup');
+  });
+  
+  document.getElementById('linkToLogin')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewLogin');
+  });
+  
+  document.getElementById('linkToLanding')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewLanding');
+  });
+  
+  document.getElementById('linkSignupToLanding')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewLanding');
+  });
+  
+  document.getElementById('linkForgotPassword')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewPasswordReset');
+  });
+  
+  document.getElementById('linkResetToLogin')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('viewLogin');
+  });
+}
+
+/**
+ * Handle login
+ */
+function handleLogin() {
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPassword').value;
+  const errorEl = document.getElementById('loginError');
+  
+  const result = logIn(email, password);
+  
+  if (result.success) {
+    state.userTier = result.user.tier;
+    updateUIForLoggedInUser(result.user);
+    showView('viewLanding');
+    showToast('✅ Logged in successfully!');
+  } else {
+    errorEl.textContent = result.error;
+    errorEl.classList.remove('hidden');
+  }
+}
+
+/**
+ * Handle signup
+ */
+function handleSignup() {
+  const email = document.getElementById('signupEmail').value;
+  const password = document.getElementById('signupPassword').value;
+  const djName = document.getElementById('signupDjName').value;
+  const errorEl = document.getElementById('signupError');
+  
+  const result = signUp(email, password, djName);
+  
+  if (result.success) {
+    // Auto login after signup
+    const loginResult = logIn(email, password);
+    if (loginResult.success) {
+      state.userTier = loginResult.user.tier;
+      updateUIForLoggedInUser(loginResult.user);
+      showView('viewLanding');
+      showToast('✅ Account created successfully!');
+    }
+  } else {
+    errorEl.textContent = result.error;
+    errorEl.classList.remove('hidden');
+  }
+}
+
+/**
+ * Handle logout
+ */
+function handleLogout() {
+  logOut();
+  state.userTier = USER_TIER.FREE;
+  const btnAccount = document.getElementById('btnAccount');
+  if (btnAccount) {
+    btnAccount.textContent = '👤';
+    btnAccount.title = 'Account';
+  }
+  showView('viewLanding');
+  showToast('👋 Logged out');
+}
+
+/**
+ * Handle password reset request
+ */
+function handlePasswordResetRequest() {
+  const email = document.getElementById('resetEmail').value;
+  const errorEl = document.getElementById('resetRequestError');
+  const successEl = document.getElementById('resetRequestSuccess');
+  
+  const result = requestPasswordReset(email);
+  
+  if (result.success) {
+    successEl.textContent = result.message + (result.debugCode ? ` Code: ${result.debugCode}` : '');
+    successEl.classList.remove('hidden');
+    errorEl.classList.add('hidden');
+    
+    // Show reset form
+    document.getElementById('formPasswordResetRequest').classList.add('hidden');
+    document.getElementById('formPasswordReset').classList.remove('hidden');
+  } else {
+    errorEl.textContent = result.error;
+    errorEl.classList.remove('hidden');
+    successEl.classList.add('hidden');
+  }
+}
+
+/**
+ * Handle password reset
+ */
+function handlePasswordReset() {
+  const email = document.getElementById('resetEmail').value;
+  const code = document.getElementById('resetCode').value;
+  const newPassword = document.getElementById('resetNewPassword').value;
+  const errorEl = document.getElementById('resetError');
+  
+  const result = resetPassword(email, code, newPassword);
+  
+  if (result.success) {
+    showView('viewLogin');
+    showToast('✅ Password reset successfully! Please log in.');
+  } else {
+    errorEl.textContent = result.error;
+    errorEl.classList.remove('hidden');
+  }
+}
+
+/**
+ * Handle profile update
+ */
+function handleProfileUpdate() {
+  const djName = document.getElementById('profileDjNameInput').value;
+  const guestName = document.getElementById('profileGuestNameInput').value;
+  
+  const result = updateUserProfile({ djName, guestName });
+  
+  if (result.success) {
+    updateUIForLoggedInUser(result.user);
+    showToast('✅ Profile updated!');
+  } else {
+    showToast('❌ Failed to update profile');
+  }
+}
+
+/**
+ * Show profile view
+ */
+function showProfile() {
+  const user = getCurrentUser();
+  if (!user) {
+    showView('viewLogin');
+    return;
+  }
+  
+  // Update profile display
+  document.getElementById('profileAvatar').textContent = user.profile.avatar;
+  document.getElementById('profileDjName').textContent = user.djName || 'Set your DJ name';
+  document.getElementById('profileEmail').textContent = user.email;
+  
+  const tierBadge = document.getElementById('profileTierBadge');
+  tierBadge.textContent = user.tier;
+  tierBadge.className = 'tier-badge ' + user.tier;
+  
+  // Stats
+  document.getElementById('statTotalParties').textContent = user.profile.stats.totalParties;
+  document.getElementById('statTotalTracks').textContent = user.profile.stats.totalTracks;
+  document.getElementById('statTotalGuests').textContent = user.profile.stats.totalGuests;
+  
+  // DJ Rank
+  const rankBadge = document.getElementById('profileRankBadge');
+  rankBadge.textContent = user.profile.djStats.rank;
+  
+  document.getElementById('profileScore').textContent = user.profile.djStats.score;
+  
+  // Calculate rank progress
+  const rankThresholds = {
+    BEGINNER: 0,
+    INTERMEDIATE: 100,
+    ADVANCED: 500,
+    EXPERT: 2000,
+    MASTER: 5000,
+    LEGEND: 10000
+  };
+  
+  const currentRank = user.profile.djStats.rank;
+  const score = user.profile.djStats.score;
+  const ranks = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT', 'MASTER', 'LEGEND'];
+  const currentIndex = ranks.indexOf(currentRank);
+  
+  let progress = 0;
+  let progressLabel = 'Keep hosting to rank up!';
+  
+  if (currentIndex < ranks.length - 1) {
+    const nextRank = ranks[currentIndex + 1];
+    const currentThreshold = rankThresholds[currentRank];
+    const nextThreshold = rankThresholds[nextRank];
+    progress = ((score - currentThreshold) / (nextThreshold - currentThreshold)) * 100;
+    progressLabel = `${Math.floor(nextThreshold - score)} points to ${nextRank}`;
+  } else {
+    progress = 100;
+    progressLabel = 'Maximum rank achieved!';
+  }
+  
+  document.getElementById('profileRankProgress').style.width = progress + '%';
+  document.getElementById('profileRankLabel').textContent = progressLabel;
+  
+  // Form inputs
+  document.getElementById('profileDjNameInput').value = user.djName || '';
+  document.getElementById('profileGuestNameInput').value = user.guestName || '';
+  
+  showView('viewProfile');
+}
+
+/**
+ * Simple toast notification
+ */
+function showToast(message) {
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 10000;
+    animation: slideDown 0.3s ease;
+  `;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideUp 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // Call initialization when DOM is ready
