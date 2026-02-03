@@ -12,7 +12,7 @@
       <div class="logo">SS</div>
       <div>
         <div class="title">SyncSpeaker</div>
-        <div class="subtitle">Turn your phones into one massive speaker</div>
+        <div class="subtitle">Turn your phones into one big speaker.</div>
       </div>
     </div>
     <div class="header-right">
@@ -50,7 +50,7 @@
           </svg>
         </div>
         <h1 class="landing-title">SyncSpeaker</h1>
-        <p class="landing-subtitle">Turn your phones into one massive speaker</p>
+        <p class="landing-subtitle">Turn your phones into one big speaker.</p>
         
         <!-- Equalizer Bars -->
         <div class="equalizer">
@@ -143,31 +143,29 @@
           <div class="pricing-option">
             <div class="pricing-badge free">Free</div>
             <h3>Free Plan</h3>
-            <p class="pricing-desc">Perfect for small groups</p>
+            <p class="pricing-desc">Connect 2 phones with unlimited time – totally free.</p>
             <ul class="pricing-features">
-              <li>✓ Up to 2 phones</li>
+              <li>✓ 2 phones only</li>
               <li>✓ <strong>Unlimited time</strong></li>
-              <li>✓ Emoji-only messages</li>
-              <li>• Includes ads</li>
+              <li>✓ Emoji reactions only</li>
+              <li>✓ No DJ profile</li>
+              <li>✓ No add-ons</li>
+              <li>✓ No custom messages</li>
             </ul>
           </div>
           <div class="pricing-option party-pass-featured">
             <div class="popular-badge">Most popular</div>
             <div class="pricing-badge party-pass">Party Pass</div>
             <h3>🎉 Party Pass</h3>
-            <p class="pricing-subtitle">(2-Hour Session)</p>
             <p class="pricing-price">£2.99</p>
-            <p class="pricing-desc">Go Pro for tonight. No commitment.</p>
+            <p class="pricing-desc">Perfect for small parties and hangouts.</p>
+            <p class="pricing-subtitle">Up to 4 phones – 2 hours – preset messages.</p>
             <ul class="pricing-features">
-              <li>✓ No ads during playback</li>
-              <li>✓ Up to <strong>4 phones max</strong></li>
-              <li>✓ <strong>2 hours duration</strong></li>
-              <li>✓ Preset messages allowed</li>
-              <li>✓ Emoji reactions</li>
-              <li>✓ Pro DJ mode with visualizers</li>
-              <li>✓ Up Next queue system</li>
-              <li>✓ Priority sync stability</li>
-              <li>✓ Party-wide unlock</li>
+              <li>✓ Up to <strong>4 phones</strong></li>
+              <li>✓ <strong>2 hours</strong></li>
+              <li>✓ Preset messages</li>
+              <li>✓ DJ profile active</li>
+              <li>✓ Add-ons available</li>
             </ul>
             <button class="btn-party-pass" id="btnActivatePartyPassLanding">Activate Party Pass</button>
             <p class="pricing-fine-print">Single-use · Valid for one party · Auto-expires after 2 hours</p>
@@ -176,19 +174,15 @@
             <div class="pricing-badge pro">Pro</div>
             <h3>Pro Monthly</h3>
             <p class="pricing-price">£9.99/month</p>
-            <p class="pricing-desc">Cancel anytime</p>
+            <p class="pricing-desc">Turn any room into a real DJ experience.</p>
+            <p class="pricing-subtitle">Up to 12 phones – unlimited time – full features.</p>
             <ul class="pricing-features">
-              <li>✓ Up to <strong>10-12 phones</strong></li>
-              <li>✓ <strong>Unlimited parties</strong></li>
-              <li>✓ Full messaging features</li>
-              <li>✓ No ads</li>
-              <li>✓ Pro DJ mode with visualizers</li>
-              <li>✓ Full DJ tools</li>
-              <li>✓ Guest reactions &amp; messaging</li>
-              <li>✓ Up Next queue system</li>
-              <li>✓ Priority sync stability</li>
-              <li>✓ Quality override warnings</li>
-              <li>✓ Speaker support</li>
+              <li>✓ <strong>10–12 phones</strong></li>
+              <li>✓ <strong>Unlimited time</strong></li>
+              <li>✓ Custom messages</li>
+              <li>✓ Full DJ profile</li>
+              <li>✓ Rankings</li>
+              <li>✓ All add-ons</li>
             </ul>
             <button class="btn-pro-monthly" id="btnSubscribeMonthly">Subscribe Monthly</button>
           </div>
@@ -198,7 +192,7 @@
       <!-- BOOST YOUR PARTY 🚀 Add-ons Section -->
       <div class="glass-card boosts-card">
         <h2>🚀 BOOST YOUR PARTY</h2>
-        <p class="boosts-subtitle">Level up with epic power-ups!</p>
+        <p class="boosts-subtitle">Boost your party on the fly!</p>
         <div class="boosts-grid">
           
           <!-- Add-on 1: Extra Phones -->
@@ -262,6 +256,68 @@
       <div class="blob blob-1"></div>
       <div class="blob blob-2"></div>
       <div class="blob blob-3"></div>
+    </section>
+
+    <!-- Choose Tier Screen -->
+    <section class="card hidden" id="viewChooseTier">
+      <h1>Choose Your Plan</h1>
+      <p class="muted">Select how you want to start your party</p>
+      
+      <div class="tier-selection-grid">
+        <!-- FREE TIER -->
+        <div class="tier-card" id="tierFree">
+          <div class="tier-badge free">Free</div>
+          <h2>Free Mode</h2>
+          <p class="tier-tagline">Connect 2 phones with unlimited time – totally free.</p>
+          <ul class="tier-features">
+            <li>✓ 2 phones only</li>
+            <li>✓ Unlimited time</li>
+            <li>✓ Emoji reactions only</li>
+            <li>✗ No DJ profile</li>
+            <li>✗ No add-ons</li>
+            <li>✗ No custom messages</li>
+          </ul>
+          <button class="btn primary" id="btnSelectFree">Create Free Party</button>
+        </div>
+
+        <!-- PARTY PASS TIER -->
+        <div class="tier-card tier-featured" id="tierPartyPass">
+          <div class="popular-badge">Most popular</div>
+          <div class="tier-badge party-pass">Party Pass</div>
+          <h2>Party Pass</h2>
+          <p class="tier-price">£2.99</p>
+          <p class="tier-tagline">Perfect for small parties and hangouts.</p>
+          <p class="tier-subtitle">Up to 4 phones – 2 hours – preset messages.</p>
+          <ul class="tier-features">
+            <li>✓ Up to 4 phones</li>
+            <li>✓ 2 hours</li>
+            <li>✓ Preset messages</li>
+            <li>✓ DJ profile active</li>
+            <li>✓ Add-ons available</li>
+          </ul>
+          <button class="btn btn-party-pass" id="btnSelectPartyPass">Select Party Pass</button>
+        </div>
+
+        <!-- PRO TIER -->
+        <div class="tier-card" id="tierPro">
+          <div class="tier-badge pro">Pro</div>
+          <h2>Pro Monthly</h2>
+          <p class="tier-price">£9.99/month</p>
+          <p class="tier-tagline">Turn any room into a real DJ experience.</p>
+          <p class="tier-subtitle">Up to 12 phones – unlimited time – full features.</p>
+          <ul class="tier-features">
+            <li>✓ 10–12 phones</li>
+            <li>✓ Unlimited time</li>
+            <li>✓ Custom messages</li>
+            <li>✓ Full DJ profile</li>
+            <li>✓ Rankings</li>
+            <li>✓ All add-ons</li>
+          </ul>
+          <button class="btn btn-pro-monthly" id="btnSelectPro">Pro Mode Required</button>
+        </div>
+      </div>
+
+      <button class="btn secondary" id="btnBackToLanding" style="margin-top: 2rem;">← Back</button>
     </section>
 
     <section class="card hidden" id="viewHome">
@@ -681,6 +737,45 @@
       <div class="dj-flash-overlay" id="djFlashOverlay"></div>
     </div>
 
+    <!-- Payment Screen for Party Pass -->
+    <section class="card hidden" id="viewPayment">
+      <h1>Activate Party Pass</h1>
+      <p class="muted">Complete your purchase to unlock Party Pass features</p>
+
+      <div class="payment-summary glass-card">
+        <h2>Order Summary</h2>
+        <div class="payment-item">
+          <span>Party Pass (2-Hour Session)</span>
+          <span class="payment-price">£2.99</span>
+        </div>
+        <div class="payment-total">
+          <strong>Total</strong>
+          <strong>£2.99</strong>
+        </div>
+        
+        <div class="payment-features">
+          <h3>What's Included:</h3>
+          <ul>
+            <li>✓ Up to 4 phones</li>
+            <li>✓ 2 hours of party time</li>
+            <li>✓ Preset messages</li>
+            <li>✓ DJ profile active</li>
+            <li>✓ Add-ons available</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="payment-form glass-card">
+        <h3>Payment Method</h3>
+        <p class="muted tiny">This is a prototype - payment processing not implemented</p>
+        
+        <div class="payment-buttons">
+          <button class="btn btn-party-pass" id="btnCompletePayment">Complete Purchase (Demo)</button>
+          <button class="btn secondary" id="btnCancelPayment">Cancel</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Guest Party View -->
     <section class="card hidden" id="viewGuest">
       <div class="row space">
@@ -982,11 +1077,11 @@
 
   <div class="toast hidden" id="toast"></div>
 
-  <!-- Party End Recap Modal -->
+   <!-- Party End Recap Modal -->
   <div class="modal hidden" id="modalPartyRecap">
     <div class="modal-card party-recap-card">
       <div class="recap-header">
-        <h2>🎉 Party Recap</h2>
+        <h2>🎉 Great set, DJ!</h2>
         <p class="muted">Thanks for using SyncSpeaker!</p>
       </div>
       <div class="recap-stats">

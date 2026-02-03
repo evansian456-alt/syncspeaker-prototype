@@ -500,6 +500,8 @@ function handleServer(msg) {
 
 function showHome() {
   hide("viewLanding"); 
+  hide("viewChooseTier");
+  hide("viewPayment");
   show("viewHome"); 
   hide("viewParty");
   hide("viewGuest");
@@ -535,6 +537,8 @@ function showLanding() {
   hide("viewHome"); 
   hide("viewParty");
   hide("viewGuest");
+  hide("viewChooseTier");
+  hide("viewPayment");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false; state.offlineMode = false;
   state.connected = false;
@@ -580,7 +584,11 @@ function showLanding() {
 }
 
 function showParty() {
-  hide("viewLanding"); hide("viewHome"); show("viewParty");
+  hide("viewLanding"); 
+  hide("viewHome"); 
+  hide("viewChooseTier");
+  hide("viewPayment");
+  show("viewParty");
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   
   // Display prototype mode message if in offline/local mode
@@ -641,6 +649,28 @@ function showParty() {
     // Start polling for party status updates (guest joins)
     startPartyStatusPolling();
   }
+}
+
+// Show tier selection screen
+function showChooseTier() {
+  hide("viewLanding");
+  hide("viewHome");
+  hide("viewParty");
+  hide("viewGuest");
+  hide("viewPayment");
+  show("viewChooseTier");
+  updateDebugState();
+}
+
+// Show payment screen
+function showPayment() {
+  hide("viewLanding");
+  hide("viewHome");
+  hide("viewParty");
+  hide("viewGuest");
+  hide("viewChooseTier");
+  show("viewPayment");
+  updateDebugState();
 }
 
 // Start polling party status for updates (both host and guest)
@@ -3011,12 +3041,48 @@ function attemptAddPhone() {
   // Landing page navigation
   el("btnLandingStart").onclick = () => {
     console.log("[UI] Landing: Start Party clicked");
-    showHome();
+    showChooseTier();
   };
 
   el("btnLandingJoin").onclick = () => {
     console.log("[UI] Landing: Join Party clicked");
     showHome();
+  };
+
+  // Tier selection handlers
+  el("btnSelectFree").onclick = () => {
+    console.log("[UI] Free tier selected");
+    state.userTier = USER_TIER.FREE;
+    showHome();
+  };
+
+  el("btnSelectPartyPass").onclick = () => {
+    console.log("[UI] Party Pass tier selected");
+    showPayment();
+  };
+
+  el("btnSelectPro").onclick = () => {
+    console.log("[UI] Pro tier clicked");
+    alert("Pro subscription required. This is a demo - please enable Pro mode in settings.");
+  };
+
+  el("btnBackToLanding").onclick = () => {
+    console.log("[UI] Back to landing from tier selection");
+    showLanding();
+  };
+
+  // Payment screen handlers
+  el("btnCompletePayment").onclick = () => {
+    console.log("[UI] Party Pass payment completed (demo)");
+    state.userTier = USER_TIER.PARTY_PASS;
+    state.partyPassActive = true;
+    state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours
+    showHome();
+  };
+
+  el("btnCancelPayment").onclick = () => {
+    console.log("[UI] Payment cancelled");
+    showChooseTier();
   };
 
   el("btnCreate").onclick = async () => {
