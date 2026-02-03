@@ -2328,8 +2328,8 @@ function setupDjEmojiReactionButtons() {
       
       const emoji = btn.getAttribute("data-emoji");
       const message = btn.getAttribute("data-message") || emoji;
-      if (message && state.ws) {
-        send({ t: "DJ_EMOJI", emoji: message });
+      
+      if (message) {
         state.lastMessageTimestamp = now;
         
         // Visual feedback
@@ -2342,13 +2342,52 @@ function setupDjEmojiReactionButtons() {
         createEmojiReactionEffect(emoji);
         
         // Add to DJ messages container
-        addDjMessage(state.partyCode, emoji, "dj-sent", true);
+        const messagesContainer = el("djMessagesContainer");
+        const noMessagesEl = el("djNoMessages");
+        
+        if (messagesContainer) {
+          // Hide "no messages" text
+          if (noMessagesEl) {
+            noMessagesEl.style.display = "none";
+          }
+          
+          // Create message element
+          const messageEl = document.createElement("div");
+          messageEl.className = "dj-message dj-message-emoji";
+          messageEl.innerHTML = `
+            <div class="dj-message-text">${escapeHtml(message)}</div>
+            <div class="dj-message-sender">DJ</div>
+          `;
+          
+          // Add to container
+          messagesContainer.appendChild(messageEl);
+          
+          // Trigger flash effect
+          triggerDjFlash();
+          
+          // Remove message after 5 seconds
+          setTimeout(() => {
+            if (messageEl.parentNode) {
+              messageEl.classList.add("fade-out");
+              setTimeout(() => {
+                if (messageEl.parentNode) {
+                  messageEl.parentNode.removeChild(messageEl);
+                }
+              }, 300);
+            }
+          }, 5000);
+        }
         
         // Track the emoji
         trackReaction(emoji);
         
         // Increase crowd energy
         increaseCrowdEnergy(5);
+        
+        // Broadcast to guests via WebSocket if connected
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          send({ t: "DJ_EMOJI", emoji: message });
+        }
         
         toast(`Sent: ${emoji}`);
       }
