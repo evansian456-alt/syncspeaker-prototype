@@ -4498,3 +4498,247 @@ body {
 .payment-buttons .btn {
   flex: 1;
 }
+
+/* ============================================
+   AUTHENTICATION VIEWS
+   ============================================ */
+.auth-container {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.auth-form {
+  margin: 24px 0;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.input-field {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: white;
+  font-size: 15px;
+  transition: all 0.2s;
+}
+
+.input-field:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(90, 169, 255, 0.1);
+}
+
+.input-field::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.auth-error {
+  padding: 12px;
+  margin: 16px 0;
+  background: rgba(255, 100, 100, 0.15);
+  border: 1px solid rgba(255, 100, 100, 0.3);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 14px;
+}
+
+.auth-success {
+  padding: 12px;
+  margin: 16px 0;
+  background: rgba(100, 255, 100, 0.15);
+  border: 1px solid rgba(100, 255, 100, 0.3);
+  border-radius: 8px;
+  color: #69db7c;
+  font-size: 14px;
+}
+
+.auth-links {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.auth-links a {
+  color: var(--brand);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.auth-links a:hover {
+  color: #8B7CFF;
+  text-decoration: underline;
+}
+
+.auth-links span {
+  margin: 0 8px;
+}
+
+.btn-account {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.btn-account:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+/* ============================================
+   PROFILE VIEW
+   ============================================ */
+.profile-container {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+}
+
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand) 0%, #8B7CFF 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  flex-shrink: 0;
+}
+
+.profile-info {
+  flex: 1;
+}
+
+.profile-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+}
+
+.profile-email {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px;
+}
+
+.tier-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(90, 169, 255, 0.2);
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
+.tier-badge.PRO {
+  background: rgba(139, 124, 255, 0.2);
+  color: #8B7CFF;
+  border-color: #8B7CFF;
+}
+
+.tier-badge.PARTY_PASS {
+  background: rgba(255, 184, 0, 0.2);
+  color: #FFB800;
+  border-color: #FFB800;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 20px;
+  padding: 16px 0;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--brand);
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rank-display {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.rank-badge {
+  display: inline-block;
+  padding: 12px 24px;
+  font-size: 24px;
+  font-weight: 700;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--brand) 0%, #8B7CFF 100%);
+  color: white;
+  margin-bottom: 12px;
+}
+
+.rank-score {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.rank-progress {
+  margin-top: 20px;
+}
+
+.rank-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.rank-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand) 0%, #8B7CFF 100%);
+  transition: width 0.3s ease;
+}
+
+.rank-progress-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+}
+
+.full-width {
+  width: 100%;
+}
+
