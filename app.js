@@ -34,7 +34,8 @@ const musicState = {
 // Debug state for tracking API calls and errors
 const debugState = {
   lastEndpoint: null,
-  lastError: null
+  lastError: null,
+  serverHealth: null // Last server health check result
 };
 
 const state = {
@@ -278,6 +279,9 @@ async function checkServerHealth() {
     
     console.log("[Health] Server health check:", health);
     
+    // Store in debug state for diagnostics panel
+    debugState.serverHealth = health;
+    
     // Build error message from enhanced health data
     let errorMsg = null;
     if (health.ok !== true) {
@@ -309,24 +313,38 @@ async function checkServerHealth() {
     
     // Return health info with ok status
     // If ok field is missing, assume false for safety (server may be outdated)
-    return {
+    const result = {
       ok: health.ok === true,
       redis: health.redis?.connected || false,
       instanceId: health.instanceId,
       redisErrorType: health.redis?.errorType,
       configSource: health.redis?.configSource,
+      version: health.version,
       error: errorMsg
     };
+    
+    // Update debug panel
+    updateDebugState();
+    
+    return result;
   } catch (error) {
     console.error("[Health] Health check failed:", error);
     // If health check fails, server is not reachable
     // Return ok: false so caller knows not to proceed with operations
-    return {
+    const result = {
       ok: false,
       redis: false,
       instanceId: null,
       error: error.message
     };
+    
+    // Store in debug state
+    debugState.serverHealth = { ok: false, error: error.message };
+    
+    // Update debug panel
+    updateDebugState();
+    
+    return result;
   }
 }
 
@@ -343,6 +361,9 @@ function toast(msg) {
 function updateDebugPanel(endpoint = null, error = null) {
   if (endpoint) debugState.lastEndpoint = endpoint;
   if (error) debugState.lastError = error;
+  
+  // Update the debug state display
+  updateDebugState();
   
   const debugPanel = el("debugPanel");
   if (!debugPanel) return;
@@ -2221,6 +2242,16 @@ function updateDebugState() {
   const debugAudioReadyEl = el("debugAudioReady");
   const debugLastEventEl = el("debugLastEvent");
   
+  // Server health fields
+  const debugApiStatusEl = el("debugApiStatus");
+  const debugRedisStatusEl = el("debugRedisStatus");
+  const debugInstanceIdEl = el("debugInstanceId");
+  const debugVersionEl = el("debugVersion");
+  
+  // Error fields
+  const debugLastErrorEl = el("debugLastError");
+  const debugLastApiCallEl = el("debugLastApiCall");
+  
   if (debugModeEl) debugModeEl.textContent = state.isHost ? "Host" : "Guest";
   if (debugWsStatusEl) {
     const wsState = state.ws ? (state.ws.readyState === WebSocket.OPEN ? "Connected" : "Disconnected") : "Not initialized";
@@ -2239,6 +2270,62 @@ function updateDebugState() {
     debugAudioReadyEl.textContent = state.guestAudioReady ? "Yes" : "No";
   }
   if (debugLastEventEl) debugLastEventEl.textContent = state.lastHostEvent || "None";
+  
+  // Update server health fields
+  if (debugApiStatusEl) {
+    const health = debugState.serverHealth;
+    if (health) {
+      debugApiStatusEl.textContent = health.ok ? "✅ OK" : "❌ Error";
+      debugApiStatusEl.style.color = health.ok ? "#0f0" : "#f00";
+    } else {
+      debugApiStatusEl.textContent = "Unknown";
+      debugApiStatusEl.style.color = "#888";
+    }
+  }
+  
+  if (debugRedisStatusEl) {
+    const health = debugState.serverHealth;
+    if (health && health.redis !== undefined) {
+      if (health.redis === true) {
+        debugRedisStatusEl.textContent = "✅ Connected";
+        debugRedisStatusEl.style.color = "#0f0";
+      } else if (health.redisErrorType) {
+        debugRedisStatusEl.textContent = `❌ ${health.redisErrorType}`;
+        debugRedisStatusEl.style.color = "#f00";
+      } else {
+        debugRedisStatusEl.textContent = "❌ Disconnected";
+        debugRedisStatusEl.style.color = "#f00";
+      }
+    } else {
+      debugRedisStatusEl.textContent = "Unknown";
+      debugRedisStatusEl.style.color = "#888";
+    }
+  }
+  
+  if (debugInstanceIdEl) {
+    const health = debugState.serverHealth;
+    debugInstanceIdEl.textContent = health?.instanceId || "Unknown";
+  }
+  
+  if (debugVersionEl) {
+    const health = debugState.serverHealth;
+    debugVersionEl.textContent = health?.version || "Unknown";
+  }
+  
+  // Update error fields
+  if (debugLastErrorEl) {
+    if (debugState.lastError) {
+      debugLastErrorEl.textContent = debugState.lastError;
+      debugLastErrorEl.style.color = "#f00"; // Red for errors
+    } else {
+      debugLastErrorEl.textContent = "None";
+      debugLastErrorEl.style.color = "#888"; // Gray for no error (neutral)
+    }
+  }
+  
+  if (debugLastApiCallEl) {
+    debugLastApiCallEl.textContent = debugState.lastEndpoint || "None";
+  }
 }
 
 // Add debug log entry
