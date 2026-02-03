@@ -245,6 +245,18 @@
               Pick any audio file from your phone (MP3, WAV, M4A, etc). We don't provide music.
             </div>
             <div class="music-warning hidden" id="musicWarning"></div>
+            
+            <!-- Track URL for Multi-Device Sync -->
+            <div class="track-url-section" style="margin-top: 16px; padding: 12px; background: rgba(90, 169, 255, 0.1); border-radius: 8px; border: 1px solid rgba(90, 169, 255, 0.2);">
+              <h5 style="margin: 0 0 8px 0; font-size: 14px; color: rgba(255, 255, 255, 0.9);">🌐 Multi-Device Audio Sync (Optional)</h5>
+              <div class="tiny muted" style="margin-bottom: 8px;">
+                For guests to hear audio, provide a public HTTPS URL to your track:
+              </div>
+              <input type="text" id="trackUrlInput" class="input" placeholder="https://example.com/track.mp3" style="font-size: 13px;" />
+              <div class="tiny muted" style="margin-top: 6px; font-style: italic; color: rgba(255, 255, 255, 0.6);">
+                💡 Without a URL, guests see track info but won't hear audio. Use direct MP3/M4A links with CORS enabled (e.g., Dropbox public links, your server, or free audio hosting).
+              </div>
+            </div>
           </div>
 
           <button type="button" class="btn primary" id="btnCreate">Start party</button>
@@ -914,6 +926,73 @@
     </div>
   </div>
 
+  <!-- Debug Panel (floating overlay) -->
+  <div class="debug-panel hidden" id="debugPanel">
+    <div class="debug-panel-header">
+      <h4>🛠️ Debug Info</h4>
+      <button class="debug-panel-close" id="btnCloseDebug">✕</button>
+    </div>
+    <div class="debug-panel-content">
+      <div class="debug-section">
+        <h5>Connection</h5>
+        <div class="debug-row">
+          <span class="debug-label">Mode:</span>
+          <span class="debug-value" id="debugMode">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">WebSocket:</span>
+          <span class="debug-value" id="debugWsStatus">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Polling:</span>
+          <span class="debug-value" id="debugPollingStatus">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Party State</h5>
+        <div class="debug-row">
+          <span class="debug-label">Code:</span>
+          <span class="debug-value" id="debugPartyCode">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Status:</span>
+          <span class="debug-value" id="debugPartyStatus">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Guests:</span>
+          <span class="debug-value" id="debugGuestCount">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Playback (Guest)</h5>
+        <div class="debug-row">
+          <span class="debug-label">Track:</span>
+          <span class="debug-value" id="debugTrackName">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Audio Ready:</span>
+          <span class="debug-value" id="debugAudioReady">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Last Event:</span>
+          <span class="debug-value" id="debugLastEvent">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Recent Logs</h5>
+        <div class="debug-logs" id="debugLogs">
+          <div class="debug-log muted">No logs yet...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug Toggle Button (floating) -->
+  <button class="debug-toggle-btn" id="btnToggleDebug" title="Toggle Debug Panel">🛠️</button>
+
   <!-- Parent Info Panel -->
   <div class="modal hidden" id="modalParentInfo">
     <div class="modal-card parent-info-card">
@@ -962,6 +1041,9 @@
       <button class="btn primary" id="btnCloseParentInfo">Close</button>
     </div>
   </div>
+
+  <!-- DJ Messages Container (global overlay) -->
+  <div id="djMessagesContainer"></div>
 
   <script src="app.js"></script>
 </body>

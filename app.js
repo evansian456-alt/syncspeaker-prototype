@@ -48,6 +48,9 @@ const state = {
   visualMode: "idle", // playing, paused, idle
   connected: false,
   guestVolume: 80,
+  guestAudioElement: null, // Audio element for guest playback
+  guestAudioReady: false, // Flag if guest audio is loaded and ready
+  guestNeedsTap: false, // Flag if guest needs to tap to play
   // Crowd Energy state
   crowdEnergy: 0, // 0-100
   crowdEnergyPeak: 0,
@@ -69,7 +72,8 @@ const state = {
   partyTheme: "neon", // neon, dark-rave, festival, minimal
   // Guest counter for anonymous names
   nextGuestNumber: 1,
-  guestNickname: null
+  guestNickname: null,
+  lastDjMessageTimestamp: 0 // Track last DJ message to avoid duplicates
 };
 
 // Client-side party code generator for offline fallback
@@ -210,10 +214,12 @@ function connectWS() {
 
     ws.onopen = () => {
       console.log("[WS] Connected successfully");
+      addDebugLog("WebSocket connected");
       resolve();
     };
     ws.onerror = (e) => {
       console.error("[WS] Connection error:", e);
+      addDebugLog("WebSocket error");
       reject(e);
     };
     ws.onmessage = (ev) => {
@@ -224,6 +230,7 @@ function connectWS() {
     };
     ws.onclose = () => {
       console.log("[WS] Connection closed");
+      addDebugLog("WebSocket disconnected");
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
@@ -261,6 +268,7 @@ function handleServer(msg) {
     state.code = msg.code; 
     state.isHost = false; 
     state.connected = true;
+    addDebugLog(`Joined party: ${msg.code}`);
     showGuest(); 
     toast(`Joined party ${msg.code}`); 
     updateDebugState();
@@ -333,6 +341,15 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PLAYING");
       updateGuestVisualMode("playing");
+      addDebugLog("Track started: " + (msg.filename || "Unknown"));
+      
+      // Handle guest audio playback
+      if (msg.trackUrl) {
+        handleGuestAudioPlayback(msg.trackUrl, msg.filename, msg.startAtServerMs, msg.startPosition);
+      } else {
+        // No track URL provided - show message
+        toast("Host is playing locally - no audio sync available");
+      }
     }
     updateDebugState();
     return;
@@ -344,6 +361,11 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PAUSED");
       updateGuestVisualMode("paused");
+      
+      // Pause guest audio if playing
+      if (state.guestAudioElement && !state.guestAudioElement.paused) {
+        state.guestAudioElement.pause();
+      }
     }
     updateDebugState();
     return;
@@ -386,6 +408,12 @@ function handleServer(msg) {
     if (state.isHost) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
     }
+    return;
+  }
+  
+  // DJ auto-generated messages
+  if (msg.t === "DJ_MESSAGE") {
+    displayDjMessage(msg.message, msg.type);
     return;
   }
   
@@ -446,6 +474,9 @@ function showLanding() {
   
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
+  
+  // Cleanup guest audio element
+  cleanupGuestAudio();
   
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
@@ -526,10 +557,10 @@ function showParty() {
   }
 }
 
-// Start polling party status for host to get updates on guest joins
+// Start polling party status for updates (both host and guest)
 function startPartyStatusPolling() {
-  // Only poll for hosts and when not in offline mode
-  if (!state.isHost || state.offlineMode) {
+  // Don't poll in offline mode
+  if (state.offlineMode) {
     return;
   }
   
@@ -542,9 +573,9 @@ function startPartyStatusPolling() {
   // Reset polling flag
   state.partyStatusPollingInProgress = false;
   
-  console.log("[Polling] Starting party status polling");
+  console.log(`[Polling] Starting party status polling (${state.isHost ? 'host' : 'guest'} mode)`);
   
-  // Poll every 2 seconds (changed from 3)
+  // Poll every 2 seconds
   state.partyStatusPollingInterval = setInterval(async () => {
     // Skip if previous poll is still in progress
     if (state.partyStatusPollingInProgress) {
@@ -553,8 +584,8 @@ function startPartyStatusPolling() {
     
     state.partyStatusPollingInProgress = true;
     try {
-      if (!state.code || !state.isHost) {
-        // Stop polling if no longer host or no party code
+      if (!state.code) {
+        // Stop polling if no party code
         stopPartyStatusPolling();
         return;
       }
@@ -563,9 +594,9 @@ function startPartyStatusPolling() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      // Use new GET /api/party endpoint with cache buster
+      // Use /api/party-state for enhanced info including playback state
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -574,7 +605,7 @@ function startPartyStatusPolling() {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.warn("[Polling] Failed to fetch party status:", response.status);
+        console.warn("[Polling] Failed to fetch party state:", response.status);
         return;
       }
       
@@ -606,7 +637,6 @@ function startPartyStatusPolling() {
             isHost: false
           }));
           // Add host to members if not already there
-          // Note: For guests, we don't have host info from API, so we just add a placeholder
           if (!state.snapshot.members.some(m => m.isHost)) {
             state.snapshot.members.unshift({
               id: 'host',
@@ -617,12 +647,46 @@ function startPartyStatusPolling() {
           }
         }
         
-        // Log when guests join or leave
-        if (newGuestCount !== previousGuestCount) {
+        // Log when guests join or leave (host only)
+        if (state.isHost && newGuestCount !== previousGuestCount) {
           console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
           if (newGuestCount > previousGuestCount) {
             toast(`🎉 Guest joined (${newGuestCount} total)`);
           }
+        }
+        
+        // Guest-specific: Handle playback state updates from polling
+        if (!state.isHost && data.currentTrack) {
+          const track = data.currentTrack;
+          
+          // Check if this is a new track or track start
+          if (track.filename !== state.nowPlayingFilename) {
+            console.log("[Polling] New track detected:", track.filename);
+            state.nowPlayingFilename = track.filename;
+            updateGuestNowPlaying(track.filename);
+            
+            // If track has URL, prepare guest audio
+            if (track.url) {
+              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+            }
+          }
+        }
+        
+        // Check for DJ messages
+        if (data.djMessages && data.djMessages.length > 0) {
+          // Only show new messages (check timestamp)
+          const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          let maxTimestamp = lastMessageTimestamp;
+          
+          data.djMessages.forEach(msg => {
+            if (msg.timestamp > lastMessageTimestamp) {
+              displayDjMessage(msg.message, msg.type);
+              maxTimestamp = Math.max(maxTimestamp, msg.timestamp);
+            }
+          });
+          
+          // Update timestamp once after loop
+          state.lastDjMessageTimestamp = maxTimestamp;
         }
         
         // Update host guest count display
@@ -706,9 +770,9 @@ function startGuestPartyStatusPolling() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
       
-      // Use new GET /api/party endpoint with cache buster
+      // Use enhanced /api/party-state endpoint with cache buster
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -717,7 +781,7 @@ function startGuestPartyStatusPolling() {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.warn("[Polling] Failed to fetch party status:", response.status);
+        console.warn("[Polling] Failed to fetch party state:", response.status);
         return;
       }
       
@@ -743,6 +807,43 @@ function startGuestPartyStatusPolling() {
         // Log when guests join or leave
         if (newGuestCount !== previousGuestCount) {
           console.log(`[Polling] Guest count changed: ${previousGuestCount} → ${newGuestCount}`);
+        }
+        
+        // Handle playback state updates from polling (fallback if WebSocket not available)
+        if (data.currentTrack) {
+          const track = data.currentTrack;
+          
+          // Check if this is a new track or track start
+          if (track.filename !== state.nowPlayingFilename) {
+            console.log("[Polling] New track detected:", track.filename);
+            state.nowPlayingFilename = track.filename;
+            updateGuestNowPlaying(track.filename);
+            
+            // If track has URL, prepare guest audio
+            if (track.url) {
+              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+            } else {
+              // No URL - host playing local file
+              toast("🎵 Host is playing: " + track.filename);
+            }
+          }
+        }
+        
+        // Check for DJ messages
+        if (data.djMessages && data.djMessages.length > 0) {
+          // Only show new messages (check timestamp)
+          const lastMessageTimestamp = state.lastDjMessageTimestamp || 0;
+          let maxTimestamp = lastMessageTimestamp;
+          
+          data.djMessages.forEach(msg => {
+            if (msg.timestamp > lastMessageTimestamp) {
+              displayDjMessage(msg.message, msg.type);
+              maxTimestamp = Math.max(maxTimestamp, msg.timestamp);
+            }
+          });
+          
+          // Update timestamp once after loop
+          state.lastDjMessageTimestamp = maxTimestamp;
         }
         
         // Check for expired/ended status
@@ -984,6 +1085,166 @@ function updateGuestVisualMode(mode) {
   }
   
   updateDebugState();
+}
+
+// Handle guest audio playback with sync
+function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosition = 0) {
+  console.log("[Guest Audio] Received track:", filename, "URL:", trackUrl);
+  
+  if (!trackUrl) {
+    toast("⚠️ Host playing local file - no audio available");
+    state.guestNeedsTap = false;
+    return;
+  }
+  
+  // Create or reuse audio element
+  if (!state.guestAudioElement) {
+    state.guestAudioElement = new Audio();
+    state.guestAudioElement.volume = state.guestVolume / 100;
+    
+    // Add event listeners
+    state.guestAudioElement.addEventListener('loadeddata', () => {
+      console.log("[Guest Audio] Audio loaded and ready");
+      state.guestAudioReady = true;
+    });
+    
+    state.guestAudioElement.addEventListener('error', (e) => {
+      console.error("[Guest Audio] Error loading audio:", e);
+      toast("❌ Failed to load audio track");
+      state.guestNeedsTap = false;
+    });
+  }
+  
+  // Set source
+  state.guestAudioElement.src = trackUrl;
+  state.guestAudioReady = false;
+  state.guestNeedsTap = true;
+  
+  // Show "Tap to Play" prompt
+  showGuestTapToPlay(filename);
+  
+  // Calculate sync position
+  const serverDelay = Date.now() - startAtServerMs;
+  const syncPosition = startPosition + (serverDelay / 1000);
+  
+  // Store sync info for when user taps
+  state.guestAudioElement.dataset.syncPosition = syncPosition.toString();
+  
+  console.log("[Guest Audio] Ready to play. Server delay:", serverDelay, "ms, Sync position:", syncPosition.toFixed(2), "s");
+}
+
+// Show "Tap to Play" button for guest
+function showGuestTapToPlay(filename) {
+  // Create overlay if it doesn't exist
+  let overlay = el("guestTapOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "guestTapOverlay";
+    overlay.className = "guest-tap-overlay";
+    overlay.innerHTML = `
+      <div class="guest-tap-content">
+        <div class="guest-tap-icon">🎵</div>
+        <div class="guest-tap-title">Track Started!</div>
+        <div class="guest-tap-filename"></div>
+        <button class="btn btn-primary guest-tap-button">Tap to Play Audio</button>
+        <div class="guest-tap-note">Browser requires user interaction to play audio</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    
+    // Add click handler
+    const tapBtn = overlay.querySelector(".guest-tap-button");
+    tapBtn.onclick = () => {
+      playGuestAudio();
+    };
+  }
+  
+  // Update filename
+  const filenameEl = overlay.querySelector(".guest-tap-filename");
+  if (filenameEl) {
+    filenameEl.textContent = filename || "Unknown Track";
+  }
+  
+  overlay.style.display = "flex";
+}
+
+// Play guest audio with sync
+function playGuestAudio() {
+  if (!state.guestAudioElement || !state.guestAudioElement.src) {
+    toast("No audio loaded");
+    return;
+  }
+  
+  const syncPosition = parseFloat(state.guestAudioElement.dataset.syncPosition || "0");
+  state.guestAudioElement.currentTime = syncPosition;
+  
+  state.guestAudioElement.play()
+    .then(() => {
+      console.log("[Guest Audio] Playing from position:", syncPosition.toFixed(2), "s");
+      toast("🎵 Audio synced and playing!");
+      state.guestNeedsTap = false;
+      
+      // Hide tap overlay
+      const overlay = el("guestTapOverlay");
+      if (overlay) {
+        overlay.style.display = "none";
+      }
+    })
+    .catch((error) => {
+      console.error("[Guest Audio] Play failed:", error);
+      toast("❌ Could not play audio. Please try again.");
+    });
+}
+
+// Cleanup guest audio element
+function cleanupGuestAudio() {
+  if (state.guestAudioElement) {
+    // Pause audio if playing
+    if (!state.guestAudioElement.paused) {
+      state.guestAudioElement.pause();
+    }
+    
+    // Clear source to free memory
+    state.guestAudioElement.src = "";
+    state.guestAudioElement.load(); // Force release
+    
+    // Remove element
+    state.guestAudioElement = null;
+    state.guestAudioReady = false;
+    state.guestNeedsTap = false;
+  }
+  
+  // Hide tap overlay if visible
+  const overlay = el("guestTapOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+}
+
+// Display DJ auto-generated message
+function displayDjMessage(message, type = "system") {
+  console.log("[DJ Message]", type, ":", message);
+  
+  // Show as toast with appropriate styling
+  let icon = "🎧";
+  if (type === "warning") icon = "⏰";
+  if (type === "prompt") icon = "💬";
+  
+  toast(`${icon} ${message}`, type === "warning" ? 8000 : 5000);
+  
+  // Also display in party view if exists
+  const djMessagesContainer = el("djMessagesContainer");
+  if (djMessagesContainer) {
+    const msgEl = document.createElement("div");
+    msgEl.className = `dj-message dj-message-${type}`;
+    msgEl.textContent = message;
+    djMessagesContainer.appendChild(msgEl);
+    
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+      msgEl.remove();
+    }, 10000);
+  }
 }
 
 function setupGuestVolumeControl() {
@@ -1299,50 +1560,60 @@ function updateChatModeUI() {
 }
 
 function updateDebugState() {
-  // Check if debug mode is enabled
-  const urlParams = new URLSearchParams(window.location.search);
-  const debugEnabled = urlParams.get('debug') === '1' || localStorage.getItem('debug') === 'true';
+  // Update new debug panel fields
+  const debugModeEl = el("debugMode");
+  const debugWsStatusEl = el("debugWsStatus");
+  const debugPollingStatusEl = el("debugPollingStatus");
+  const debugPartyCodeEl = el("debugPartyCode");
+  const debugPartyStatusEl = el("debugPartyStatus");
+  const debugGuestCountEl = el("debugGuestCount");
+  const debugTrackNameEl = el("debugTrackName");
+  const debugAudioReadyEl = el("debugAudioReady");
+  const debugLastEventEl = el("debugLastEvent");
   
-  const debugPanel = el("debugPanel");
-  if (!debugPanel) return;
-  
-  if (debugEnabled) {
-    debugPanel.style.display = "block";
-    debugPanel.setAttribute("aria-hidden", "false");
-    
-    // Update all debug fields
-    const versionEl = el("debugAppVersion");
-    const roleEl = el("debugRole");
-    const partyCodeEl = el("debugPartyCode");
-    const connectedEl = el("debugConnected");
-    const nowPlayingEl = el("debugNowPlaying");
-    const upNextEl = el("debugUpNext");
-    const playbackStateEl = el("debugPlaybackState");
-    const lastHostEventEl = el("debugLastHostEvent");
-    const visualModeEl = el("debugVisualMode");
-    
-    // Fetch and display app version from server
-    if (versionEl && versionEl.textContent === "Loading...") {
-      fetch("/health").then(res => {
-        const version = res.headers.get("X-App-Version") || "Unknown";
-        versionEl.textContent = version;
-      }).catch(() => {
-        versionEl.textContent = "Unknown";
-      });
-    }
-    
-    if (roleEl) roleEl.textContent = state.isHost ? "host" : "guest";
-    if (partyCodeEl) partyCodeEl.textContent = state.code || "None";
-    if (connectedEl) connectedEl.textContent = state.connected ? "true" : "false";
-    if (nowPlayingEl) nowPlayingEl.textContent = state.nowPlayingFilename || "None";
-    if (upNextEl) upNextEl.textContent = state.upNextFilename || "None";
-    if (playbackStateEl) playbackStateEl.textContent = state.playbackState;
-    if (lastHostEventEl) lastHostEventEl.textContent = state.lastHostEvent || "None";
-    if (visualModeEl) visualModeEl.textContent = state.visualMode;
-  } else {
-    debugPanel.style.display = "none";
-    debugPanel.setAttribute("aria-hidden", "true");
+  if (debugModeEl) debugModeEl.textContent = state.isHost ? "Host" : "Guest";
+  if (debugWsStatusEl) {
+    const wsState = state.ws ? (state.ws.readyState === WebSocket.OPEN ? "Connected" : "Disconnected") : "Not initialized";
+    debugWsStatusEl.textContent = wsState;
   }
+  if (debugPollingStatusEl) {
+    debugPollingStatusEl.textContent = state.partyStatusPollingInterval ? "Active" : "Inactive";
+  }
+  if (debugPartyCodeEl) debugPartyCodeEl.textContent = state.code || "None";
+  if (debugPartyStatusEl) {
+    debugPartyStatusEl.textContent = state.snapshot?.status || "Unknown";
+  }
+  if (debugGuestCountEl) debugGuestCountEl.textContent = state.snapshot?.guestCount || "0";
+  if (debugTrackNameEl) debugTrackNameEl.textContent = state.nowPlayingFilename || "None";
+  if (debugAudioReadyEl) {
+    debugAudioReadyEl.textContent = state.guestAudioReady ? "Yes" : "No";
+  }
+  if (debugLastEventEl) debugLastEventEl.textContent = state.lastHostEvent || "None";
+}
+
+// Add debug log entry
+function addDebugLog(message) {
+  const debugLogsEl = el("debugLogs");
+  if (!debugLogsEl) return;
+  
+  const timestamp = new Date().toLocaleTimeString();
+  const logEntry = document.createElement("div");
+  logEntry.className = "debug-log";
+  logEntry.textContent = `[${timestamp}] ${message}`;
+  
+  debugLogsEl.appendChild(logEntry);
+  
+  // Keep only last 20 logs - remove old ones efficiently
+  const children = debugLogsEl.children;
+  if (children.length > 20) {
+    const toRemove = children.length - 20;
+    for (let i = 0; i < toRemove; i++) {
+      debugLogsEl.removeChild(children[0]);
+    }
+  }
+  
+  // Scroll to bottom
+  debugLogsEl.scrollTop = debugLogsEl.scrollHeight;
 }
 
 function hashStr(s){
@@ -1527,7 +1798,16 @@ function playQueuedTrack() {
         
         // Broadcast to guests
         if (state.isHost && state.ws) {
-          send({ t: "HOST_PLAY" });
+          // Get track URL from input if provided
+          const trackUrlInput = el("trackUrlInput");
+          const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+          
+          send({ 
+            t: "HOST_PLAY",
+            trackUrl: trackUrl,
+            filename: musicState.selectedFile.name,
+            startPosition: 0
+          });
         }
         
         // Update back to DJ button visibility
@@ -2469,7 +2749,20 @@ function attemptAddPhone() {
           
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
-            send({ t: "HOST_PLAY" });
+            // Get track URL from input if provided
+            const trackUrlInput = el("trackUrlInput");
+            const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+            
+            send({ 
+              t: "HOST_PLAY",
+              trackUrl: trackUrl,
+              filename: musicState.selectedFile ? musicState.selectedFile.name : "Unknown",
+              startPosition: audioEl.currentTime
+            });
+            
+            if (!trackUrl) {
+              console.log("[Music] No track URL provided - guests won't hear audio");
+            }
           }
           
           // Update back to DJ button visibility
@@ -2517,7 +2810,12 @@ function attemptAddPhone() {
       
       // Broadcast PLAY to guests even in simulated mode
       if (state.isHost && state.ws) {
-        send({ t: "HOST_PLAY" });
+        send({ 
+          t: "HOST_PLAY",
+          trackUrl: null, // Simulated mode - no track URL
+          filename: "Simulated Track",
+          startPosition: 0
+        });
       }
       
       // Update back to DJ button visibility
@@ -3026,6 +3324,27 @@ function activateGiftedPartyPass() {
 // ========================================
 
 function initParentInfo() {
+  // Debug panel toggle
+  const btnToggleDebug = el("btnToggleDebug");
+  const debugPanel = el("debugPanel");
+  const btnCloseDebug = el("btnCloseDebug");
+  
+  if (btnToggleDebug && debugPanel) {
+    btnToggleDebug.onclick = () => {
+      debugPanel.classList.toggle("hidden");
+      if (!debugPanel.classList.contains("hidden")) {
+        updateDebugState();
+        addDebugLog("Debug panel opened");
+      }
+    };
+  }
+  
+  if (btnCloseDebug && debugPanel) {
+    btnCloseDebug.onclick = () => {
+      debugPanel.classList.add("hidden");
+    };
+  }
+
   const btnParentInfo = el("btnParentInfo");
   const modalParentInfo = el("modalParentInfo");
   const btnCloseParentInfo = el("btnCloseParentInfo");
