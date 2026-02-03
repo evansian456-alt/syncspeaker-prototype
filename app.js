@@ -3293,36 +3293,19 @@ function attemptAddPhone() {
   // Initialize music player
   initializeMusicPlayer();
 
-  // NEW: Landing page auth buttons
+  // NEW: Landing page auth buttons - TEMPORARILY HIDDEN (no-auth mode)
+  // Auth is temporarily disabled, so hide login/signup buttons (already hidden in HTML)
   const btnLandingCreateAccount = el("btnLandingCreateAccount");
   const btnLandingSignIn = el("btnLandingSignIn");
-  
-  if (btnLandingCreateAccount) {
-    btnLandingCreateAccount.onclick = () => {
-      console.log("[UI] Landing: Create Account clicked");
-      showView('viewSignup');
-    };
-  }
-  
-  if (btnLandingSignIn) {
-    btnLandingSignIn.onclick = () => {
-      console.log("[UI] Landing: Sign In clicked");
-      showView('viewLogin');
-    };
-  }
 
-  // OLD Landing page navigation - keep for backward compatibility
+  // OLD Landing page navigation - update to work without auth
   const btnLandingStart = el("btnLandingStart");
   const btnLandingJoin = el("btnLandingJoin");
   
   if (btnLandingStart) {
     btnLandingStart.onclick = () => {
       console.log("[UI] Landing: Start Party clicked");
-      // Enforce authentication
-      if (!isLoggedIn()) {
-        showView('viewSignup');
-        return;
-      }
+      // TEMPORARY: Skip auth check - go directly to tier selection
       showChooseTier();
     };
   }
@@ -3330,11 +3313,7 @@ function attemptAddPhone() {
   if (btnLandingJoin) {
     btnLandingJoin.onclick = () => {
       console.log("[UI] Landing: Join Party clicked");
-      // Enforce authentication
-      if (!isLoggedIn()) {
-        showView('viewSignup');
-        return;
-      }
+      // TEMPORARY: Skip auth check - go directly to home
       showHome();
     };
   }
@@ -4787,15 +4766,8 @@ function updateBoostsUI() {
 // ========================================
 
 function initializeAllFeatures() {
-  // Initialize auth if available
-  if (typeof initAuth === 'function') {
-    initAuth();
-  }
-  
-  // Initialize auth UI bindings
-  if (typeof initializeAuth === 'function') {
-    initializeAuth();
-  }
+  // TEMPORARY: Skip auth initialization (no-auth mode)
+  console.log('[Features] Auth initialization SKIPPED (temporary no-auth mode)');
   
   // Initialize network monitoring if available
   if (typeof initNetworkMonitoring === 'function') {

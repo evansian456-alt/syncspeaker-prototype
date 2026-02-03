@@ -591,10 +591,35 @@ app.post("/api/auth/logout", apiLimiter, (req, res) => {
 /**
  * GET /api/me
  * Get current user info with tier and entitlements
+ * TEMPORARY HOTFIX: Returns anonymous user when auth is disabled
  */
 app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
+    
+    // TEMPORARY: When auth is disabled, return anonymous user data
+    if (userId && userId.startsWith('anonymous-')) {
+      return res.json({
+        user: {
+          id: userId,
+          email: 'anonymous@guest.local',
+          djName: 'Guest DJ',
+          createdAt: new Date().toISOString()
+        },
+        tier: 'FREE',
+        profile: {
+          djScore: 0,
+          djRank: 'Guest DJ',
+          activeVisualPack: null,
+          activeTitle: null,
+          verifiedBadge: false,
+          crownEffect: false,
+          animatedName: false,
+          reactionTrail: false
+        },
+        entitlements: []
+      });
+    }
 
     // Get user basic info
     const userResult = await db.query(

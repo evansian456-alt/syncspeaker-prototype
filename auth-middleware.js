@@ -6,14 +6,17 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// JWT secret - REQUIRED in production
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
-  console.warn('[Auth] WARNING: Using default JWT secret - DO NOT USE IN PRODUCTION');
-  return 'syncspeaker-dev-secret-change-in-production';
-})();
+// TEMPORARY HOTFIX: Auth disabled - JWT_SECRET is optional
+// This allows the app to run without authentication in production
+const AUTH_DISABLED = !process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'syncspeaker-no-auth-mode';
+
+if (AUTH_DISABLED) {
+  console.warn('[Auth] ⚠️  TEMPORARY: Authentication is DISABLED (no JWT_SECRET set)');
+  console.warn('[Auth] ⚠️  All protected routes will be publicly accessible');
+} else if (process.env.NODE_ENV !== 'production') {
+  console.warn('[Auth] WARNING: Using JWT secret - development mode');
+}
 
 const JWT_EXPIRES_IN = '7d'; // JWT token expires in 7 days
 const SALT_ROUNDS = 10;
@@ -53,8 +56,17 @@ function verifyToken(token) {
 /**
  * Express middleware to check authentication
  * Reads JWT from cookie and adds user info to req.user
+ * TEMPORARY HOTFIX: When AUTH_DISABLED, this becomes a no-op passthrough
  */
 function requireAuth(req, res, next) {
+  // TEMPORARY: If auth is disabled, allow all requests through
+  if (AUTH_DISABLED) {
+    // Set a unique anonymous user to prevent collisions
+    const anonymousId = `anonymous-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    req.user = { userId: anonymousId, email: 'anonymous@guest.local', djName: 'Guest DJ' };
+    return next();
+  }
+  
   const token = req.cookies?.auth_token;
   
   if (!token) {
@@ -72,8 +84,14 @@ function requireAuth(req, res, next) {
 
 /**
  * Optional auth middleware - adds user to req if authenticated, but doesn't require it
+ * TEMPORARY HOTFIX: When AUTH_DISABLED, this becomes a no-op passthrough
  */
 function optionalAuth(req, res, next) {
+  // TEMPORARY: If auth is disabled, skip token verification
+  if (AUTH_DISABLED) {
+    return next();
+  }
+  
   const token = req.cookies?.auth_token;
   
   if (token) {
