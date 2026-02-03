@@ -2548,6 +2548,9 @@ function handleMessage(ws, msg) {
     case "HOST_BROADCAST_MESSAGE":
       handleHostBroadcastMessage(ws, msg);
       break;
+    case "DJ_EMOJI":
+      handleDjEmoji(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -3284,6 +3287,40 @@ function handleHostBroadcastMessage(ws, msg) {
   const broadcastMsg = JSON.stringify({ 
     t: "HOST_BROADCAST_MESSAGE", 
     message: messageText
+  });
+  
+  party.members.forEach(m => {
+    // Send to guests only (not to host)
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(broadcastMsg);
+    }
+  });
+}
+
+function handleDjEmoji(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send DJ emojis
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send emojis" }));
+    return;
+  }
+  
+  const emoji = (msg.emoji || "").trim().substring(0, 10);
+  
+  console.log(`[Party] DJ sending emoji "${emoji}" in party ${client.party}`);
+  
+  // Broadcast to all members (guests only, not back to host)
+  const broadcastMsg = JSON.stringify({ 
+    t: "GUEST_MESSAGE",
+    message: emoji,
+    guestName: "DJ",
+    guestId: "dj",
+    isEmoji: true
   });
   
   party.members.forEach(m => {

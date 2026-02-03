@@ -2306,6 +2306,56 @@ function setupDjPresetMessageButtons() {
   });
 }
 
+function setupDjEmojiReactionButtons() {
+  const djEmojiButtons = document.querySelectorAll("#djEmojiReactionsSection .btn-emoji-reaction");
+  
+  djEmojiButtons.forEach(btn => {
+    btn.onclick = () => {
+      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      const now = Date.now();
+      const emojiCooldownMs = 1000;
+      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
+        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+        return;
+      }
+      
+      // Only host can send DJ emojis
+      if (!state.isHost) {
+        toast("Only the DJ can send emojis from this panel", "warning");
+        return;
+      }
+      
+      const emoji = btn.getAttribute("data-emoji");
+      const message = btn.getAttribute("data-message") || emoji;
+      if (message && state.ws) {
+        send({ t: "DJ_EMOJI", emoji: message });
+        state.lastMessageTimestamp = now;
+        
+        // Visual feedback
+        btn.classList.add("btn-sending");
+        setTimeout(() => {
+          btn.classList.remove("btn-sending");
+        }, 300);
+        
+        // Show emoji on DJ screen immediately
+        createEmojiReactionEffect(emoji);
+        
+        // Add to DJ messages container
+        addDjMessage(state.partyCode, emoji, "dj-sent", true);
+        
+        // Track the emoji
+        trackReaction(emoji);
+        
+        // Increase crowd energy
+        increaseCrowdEnergy(5);
+        
+        toast(`Sent: ${emoji}`);
+      }
+    };
+  });
+}
+
 function setupChatModeSelector() {
   const chatModeRadios = document.querySelectorAll('input[name="chatMode"]');
   
@@ -4290,6 +4340,9 @@ function attemptAddPhone() {
   
   // Setup DJ preset message buttons
   setupDjPresetMessageButtons();
+  
+  // Setup DJ emoji reaction buttons
+  setupDjEmojiReactionButtons();
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();
