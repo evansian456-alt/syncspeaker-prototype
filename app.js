@@ -3,6 +3,8 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
+const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
+const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 
 // Music player state
 const musicState = {
@@ -12,7 +14,11 @@ const musicState = {
   audioInitialized: false, // Track if audio element event listeners have been set up
   fileInputInitialized: false, // Track if file input handler has been set up
   queuedFile: null, // Next track to play
-  queuedObjectURL: null // Object URL for queued track
+  queuedObjectURL: null, // Object URL for queued track
+  // Track upload and queue state
+  currentTrack: null, // { trackId, trackUrl, title, durationMs, uploadStatus: 'uploading'|'ready'|'error' }
+  queue: [], // Array of track objects (max 5)
+  uploadProgress: 0 // Upload progress percentage (0-100)
 };
 
 // Debug state for tracking API calls and errors
@@ -272,6 +278,10 @@ function handleServer(msg) {
     showGuest(); 
     toast(`Joined party ${msg.code}`); 
     updateDebugState();
+    
+    // Check if host is already playing (mid-track join)
+    checkForMidTrackJoin(msg.code);
+    
     return;
   }
   if (msg.t === "ROOM") {
@@ -372,12 +382,23 @@ function handleServer(msg) {
   }
   
   if (msg.t === "TRACK_CHANGED") {
-    state.nowPlayingFilename = msg.filename;
+    state.nowPlayingFilename = msg.filename || msg.title;
     state.upNextFilename = msg.nextFilename || null;
     state.lastHostEvent = "TRACK_CHANGED";
+    
     if (!state.isHost) {
-      updateGuestNowPlaying(msg.filename);
-      updateGuestUpNext(msg.nextFilename);
+      updateGuestNowPlaying(msg.title || msg.filename);
+      
+      // Update queue display
+      if (msg.queue) {
+        updateGuestQueue(msg.queue);
+      }
+      
+      // Handle audio playback for new track
+      if (msg.trackUrl) {
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
+      }
+      
       updateGuestVisualMode("track-change");
       // Flash effect then return to playing
       setTimeout(() => {
@@ -385,6 +406,36 @@ function handleServer(msg) {
           updateGuestVisualMode("playing");
         }
       }, 500);
+    }
+    updateDebugState();
+    return;
+  }
+  
+  // New sync-specific messages
+  if (msg.t === "TRACK_STARTED") {
+    state.playing = true;
+    state.lastHostEvent = "TRACK_STARTED";
+    
+    if (!state.isHost) {
+      state.nowPlayingFilename = msg.title || msg.filename;
+      updateGuestPlaybackState("PLAYING");
+      updateGuestVisualMode("playing");
+      updateGuestNowPlaying(msg.title || msg.filename);
+      
+      // Handle guest audio playback with precise sync
+      if (msg.trackUrl) {
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
+      } else {
+        toast("Host is playing locally - no audio sync available");
+      }
+    }
+    updateDebugState();
+    return;
+  }
+  
+  if (msg.t === "QUEUE_UPDATED") {
+    if (!state.isHost) {
+      updateGuestQueue(msg.queue || []);
     }
     updateDebugState();
     return;
@@ -963,6 +1014,46 @@ function showGuest() {
   startGuestPartyStatusPolling();
 }
 
+// Check if host is already playing when guest joins mid-track
+async function checkForMidTrackJoin(code) {
+  try {
+    const response = await fetch(`/api/party-state?code=${code}`);
+    const data = await response.json();
+    
+    if (data.exists && data.currentTrack && data.currentTrack.status === 'playing') {
+      console.log("[Mid-Track Join] Host is playing:", data.currentTrack);
+      
+      // Update state
+      state.nowPlayingFilename = data.currentTrack.title || data.currentTrack.filename;
+      updateGuestNowPlaying(state.nowPlayingFilename);
+      
+      // Update queue if available
+      if (data.queue) {
+        updateGuestQueue(data.queue);
+      }
+      
+      // Trigger audio playback with sync
+      if (data.currentTrack.url || data.currentTrack.trackUrl) {
+        handleGuestAudioPlayback(
+          data.currentTrack.url || data.currentTrack.trackUrl,
+          data.currentTrack.title || data.currentTrack.filename,
+          data.currentTrack.startAtServerMs,
+          data.currentTrack.startPositionSec || data.currentTrack.startPosition || 0
+        );
+        
+        state.playing = true;
+        updateGuestPlaybackState("PLAYING");
+        updateGuestVisualMode("playing");
+      }
+    } else if (data.queue && data.queue.length > 0) {
+      // No current track but queue exists
+      updateGuestQueue(data.queue);
+    }
+  } catch (error) {
+    console.error("[Mid-Track Join] Error checking party state:", error);
+  }
+}
+
 function updateGuestConnectionStatus() {
   const statusEl = el("guestConnectionStatus");
   if (!statusEl) return;
@@ -1090,6 +1181,7 @@ function updateGuestVisualMode(mode) {
 // Handle guest audio playback with sync
 function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosition = 0) {
   console.log("[Guest Audio] Received track:", filename, "URL:", trackUrl);
+  console.log("[Guest Audio] Sync info - startAtServerMs:", startAtServerMs, "startPosition:", startPosition);
   
   if (!trackUrl) {
     toast("⚠️ Host playing local file - no audio available");
@@ -1120,21 +1212,22 @@ function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosi
   state.guestAudioReady = false;
   state.guestNeedsTap = true;
   
-  // Show "Tap to Play" prompt
-  showGuestTapToPlay(filename);
+  // Store sync info for precise timing
+  state.guestAudioElement.dataset.startAtServerMs = startAtServerMs.toString();
+  state.guestAudioElement.dataset.startPositionSec = startPosition.toString();
   
-  // Calculate sync position
-  const serverDelay = Date.now() - startAtServerMs;
-  const syncPosition = startPosition + (serverDelay / 1000);
+  // Show "Tap to Sync" prompt
+  showGuestTapToPlay(filename, startAtServerMs, startPosition);
   
-  // Store sync info for when user taps
-  state.guestAudioElement.dataset.syncPosition = syncPosition.toString();
-  
-  console.log("[Guest Audio] Ready to play. Server delay:", serverDelay, "ms, Sync position:", syncPosition.toFixed(2), "s");
+  console.log("[Guest Audio] Ready for user interaction");
 }
 
-// Show "Tap to Play" button for guest
-function showGuestTapToPlay(filename) {
+// Show "Tap to Play" button for guest with sync info
+function showGuestTapToPlay(filename, startAtServerMs, startPositionSec) {
+  // Determine if this is a mid-track join or fresh start
+  const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+  const isMidTrackJoin = elapsedSec > 2; // If more than 2 seconds elapsed, it's mid-track
+  
   // Create overlay if it doesn't exist
   let overlay = el("guestTapOverlay");
   if (!overlay) {
@@ -1144,10 +1237,16 @@ function showGuestTapToPlay(filename) {
     overlay.innerHTML = `
       <div class="guest-tap-content">
         <div class="guest-tap-icon">🎵</div>
-        <div class="guest-tap-title">Track Started!</div>
+        <div class="guest-tap-title" id="guestTapTitle"></div>
         <div class="guest-tap-filename"></div>
-        <button class="btn btn-primary guest-tap-button">Tap to Play Audio</button>
+        <button class="btn btn-primary guest-tap-button">Tap to Sync</button>
         <div class="guest-tap-note">Browser requires user interaction to play audio</div>
+        <div class="guest-sync-debug">
+          <div>Debug Info:</div>
+          <div id="guestDebugTarget">Target: --</div>
+          <div id="guestDebugElapsed">Elapsed: --</div>
+          <div id="guestDebugStart">Start Pos: --</div>
+        </div>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -1159,41 +1258,137 @@ function showGuestTapToPlay(filename) {
     };
   }
   
+  // Update title based on mid-track join status
+  const titleEl = overlay.querySelector("#guestTapTitle");
+  if (titleEl) {
+    titleEl.textContent = isMidTrackJoin ? "Host is already playing" : "Track Started!";
+  }
+  
   // Update filename
   const filenameEl = overlay.querySelector(".guest-tap-filename");
   if (filenameEl) {
     filenameEl.textContent = filename || "Unknown Track";
   }
   
+  // Update debug info
+  updateGuestSyncDebug(startAtServerMs, startPositionSec);
+  
   overlay.style.display = "flex";
 }
 
-// Play guest audio with sync
+// Update guest sync debug display
+function updateGuestSyncDebug(startAtServerMs, startPositionSec) {
+  const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+  const targetSec = startPositionSec + elapsedSec;
+  
+  const targetEl = el("guestDebugTarget");
+  const elapsedEl = el("guestDebugElapsed");
+  const startEl = el("guestDebugStart");
+  
+  if (targetEl) targetEl.textContent = `Target: ${targetSec.toFixed(2)}s`;
+  if (elapsedEl) elapsedEl.textContent = `Elapsed: ${elapsedSec.toFixed(2)}s`;
+  if (startEl) startEl.textContent = `Start Pos: ${startPositionSec.toFixed(2)}s`;
+}
+
+// Play guest audio with metadata-safe seek
 function playGuestAudio() {
   if (!state.guestAudioElement || !state.guestAudioElement.src) {
     toast("No audio loaded");
     return;
   }
   
-  const syncPosition = parseFloat(state.guestAudioElement.dataset.syncPosition || "0");
-  state.guestAudioElement.currentTime = syncPosition;
+  const audioEl = state.guestAudioElement;
+  const startAtServerMs = parseFloat(audioEl.dataset.startAtServerMs || "0");
+  const startPositionSec = parseFloat(audioEl.dataset.startPositionSec || "0");
   
-  state.guestAudioElement.play()
-    .then(() => {
-      console.log("[Guest Audio] Playing from position:", syncPosition.toFixed(2), "s");
-      toast("🎵 Audio synced and playing!");
-      state.guestNeedsTap = false;
-      
-      // Hide tap overlay
-      const overlay = el("guestTapOverlay");
-      if (overlay) {
-        overlay.style.display = "none";
-      }
-    })
-    .catch((error) => {
-      console.error("[Guest Audio] Play failed:", error);
-      toast("❌ Could not play audio. Please try again.");
-    });
+  // Function to compute and seek to correct position
+  const computeAndSeek = () => {
+    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    let targetSec = startPositionSec + elapsedSec;
+    
+    // Handle edge case: don't seek past duration
+    if (audioEl.duration && targetSec > audioEl.duration) {
+      targetSec = audioEl.duration;
+    }
+    
+    console.log("[Guest Audio] Syncing to position:", targetSec.toFixed(2), "s");
+    console.log("[Guest Audio] Debug - elapsedSec:", elapsedSec.toFixed(2), "startPositionSec:", startPositionSec);
+    
+    audioEl.currentTime = targetSec;
+    
+    audioEl.play()
+      .then(() => {
+        console.log("[Guest Audio] Playing from position:", targetSec.toFixed(2), "s");
+        toast("🎵 Audio synced and playing!");
+        state.guestNeedsTap = false;
+        
+        // Hide tap overlay
+        const overlay = el("guestTapOverlay");
+        if (overlay) {
+          overlay.style.display = "none";
+        }
+        
+        // Start drift correction
+        startDriftCorrection(startAtServerMs, startPositionSec);
+      })
+      .catch((error) => {
+        console.error("[Guest Audio] Play failed:", error);
+        toast("❌ Could not play audio: " + error.message);
+      });
+  };
+  
+  // Wait for metadata before seeking (CRITICAL for mobile browsers)
+  if (audioEl.readyState >= 1) { // HAVE_METADATA or better
+    computeAndSeek();
+  } else {
+    console.log("[Guest Audio] Waiting for metadata before seeking...");
+    audioEl.onloadedmetadata = () => {
+      console.log("[Guest Audio] Metadata loaded, duration:", audioEl.duration);
+      computeAndSeek();
+    };
+  }
+}
+
+// Drift correction - runs every 5 seconds
+let driftCorrectionInterval = null;
+
+function startDriftCorrection(startAtServerMs, startPositionSec) {
+  // Clear any existing interval
+  if (driftCorrectionInterval) {
+    clearInterval(driftCorrectionInterval);
+  }
+  
+  console.log("[Drift Correction] Started");
+  
+  driftCorrectionInterval = setInterval(() => {
+    if (!state.guestAudioElement || state.guestAudioElement.paused) {
+      return;
+    }
+    
+    // Calculate ideal position
+    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    const idealSec = startPositionSec + elapsedSec;
+    
+    // Calculate drift
+    const currentSec = state.guestAudioElement.currentTime;
+    const drift = Math.abs(currentSec - idealSec);
+    
+    console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
+    
+    // Correct if drift > threshold
+    if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
+      console.log("[Drift Correction] Correcting drift of", drift.toFixed(3), "seconds");
+      state.guestAudioElement.currentTime = idealSec;
+    }
+  }, DRIFT_CORRECTION_INTERVAL_MS);
+}
+
+function stopDriftCorrection() {
+  if (driftCorrectionInterval) {
+    clearInterval(driftCorrectionInterval);
+    driftCorrectionInterval = null;
+    console.log("[Drift Correction] Stopped");
+  }
 }
 
 // Cleanup guest audio element
@@ -1203,6 +1398,32 @@ function cleanupGuestAudio() {
     if (!state.guestAudioElement.paused) {
       state.guestAudioElement.pause();
     }
+    
+    // Stop drift correction
+    stopDriftCorrection();
+
+// Update guest queue display
+function updateGuestQueue(queue) {
+  console.log("[Guest] Updating queue:", queue);
+  
+  const queueEl = el("guestQueueList");
+  if (!queueEl) {
+    console.warn("[Guest] Queue element not found");
+    return;
+  }
+  
+  if (!queue || queue.length === 0) {
+    queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
+    return;
+  }
+  
+  queueEl.innerHTML = queue.map((track, index) => `
+    <div class="queue-item">
+      <span class="queue-number">${index + 1}.</span>
+      <span class="queue-title">${track.title || 'Unknown Track'}</span>
+    </div>
+  `).join('');
+}
     
     // Clear source to free memory
     state.guestAudioElement.src = "";
@@ -1916,7 +2137,7 @@ function handleMusicFileSelection(file) {
     showMusicWarning(warnings.join(" "), !canPlay);
   }
   
-  // Create ObjectURL and set audio source
+  // Create ObjectURL and set audio source for local playback
   const objectURL = URL.createObjectURL(file);
   musicState.currentObjectURL = objectURL;
   
@@ -1934,6 +2155,133 @@ function handleMusicFileSelection(file) {
   }
   
   toast(`✓ Music file selected: ${file.name}`);
+  
+  // AUTO-UPLOAD: Upload the file immediately for guest streaming
+  if (state.isHost) {
+    uploadTrackToServer(file);
+  }
+}
+
+// Upload track to server for guest streaming
+async function uploadTrackToServer(file) {
+  if (!file) return;
+  
+  console.log(`[Upload] Starting upload for ${file.name}`);
+  updateMusicStatus(`Uploading ${file.name}...`);
+  
+  // Show upload progress UI
+  const uploadStatusEl = el("uploadStatus");
+  const uploadProgressEl = el("uploadProgress");
+  if (uploadStatusEl) uploadStatusEl.classList.remove("hidden");
+  
+  try {
+    const formData = new FormData();
+    formData.append('audio', file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    // Track upload progress
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = Math.round((e.loaded / e.total) * 100);
+        musicState.uploadProgress = percentComplete;
+        if (uploadProgressEl) {
+          uploadProgressEl.textContent = `Uploading: ${percentComplete}%`;
+        }
+        console.log(`[Upload] Progress: ${percentComplete}%`);
+      }
+    });
+    
+    // Handle completion
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          console.log(`[Upload] Upload complete:`, response);
+          
+          // Wait for audio metadata to get accurate duration
+          const audioEl = musicState.audioElement;
+          if (audioEl) {
+            const handleMetadata = () => {
+              const durationMs = audioEl.duration ? Math.round(audioEl.duration * 1000) : null;
+              
+              // Store track info
+              musicState.currentTrack = {
+                trackId: response.trackId,
+                trackUrl: response.trackUrl,
+                title: response.title,
+                durationMs: durationMs,
+                uploadStatus: 'ready',
+                filename: response.filename
+              };
+              
+              updateMusicStatus(`✓ Ready: ${file.name}`);
+              if (uploadProgressEl) {
+                uploadProgressEl.textContent = `✓ Ready`;
+              }
+              toast(`✓ Track uploaded and ready`);
+              
+              // Hide upload status after 2 seconds
+              setTimeout(() => {
+                if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
+              }, 2000);
+            };
+            
+            if (audioEl.readyState >= 1) {
+              // Metadata already loaded
+              handleMetadata();
+            } else {
+              // Wait for metadata
+              audioEl.addEventListener('loadedmetadata', handleMetadata, { once: true });
+            }
+          } else {
+            // No audio element - store without duration
+            musicState.currentTrack = {
+              trackId: response.trackId,
+              trackUrl: response.trackUrl,
+              title: response.title,
+              durationMs: null,
+              uploadStatus: 'ready',
+              filename: response.filename
+            };
+            
+            updateMusicStatus(`✓ Ready: ${file.name}`);
+            if (uploadProgressEl) {
+              uploadProgressEl.textContent = `✓ Ready`;
+            }
+            toast(`✓ Track uploaded and ready`);
+          }
+          
+        } catch (e) {
+          console.error(`[Upload] Error parsing response:`, e);
+          updateMusicStatus(`Upload error: Invalid response`);
+          toast(`Upload failed: Invalid response`);
+        }
+      } else {
+        console.error(`[Upload] Upload failed with status ${xhr.status}`);
+        updateMusicStatus(`Upload failed: ${xhr.status}`);
+        toast(`Upload failed (${xhr.status})`);
+      }
+    });
+    
+    // Handle errors
+    xhr.addEventListener('error', () => {
+      console.error(`[Upload] Network error during upload`);
+      updateMusicStatus(`Upload failed: Network error`);
+      toast(`Upload failed: Network error`);
+      if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
+    });
+    
+    // Send request
+    xhr.open('POST', '/api/upload-track');
+    xhr.send(formData);
+    
+  } catch (error) {
+    console.error(`[Upload] Error uploading track:`, error);
+    updateMusicStatus(`Upload error: ${error.message}`);
+    toast(`Upload failed: ${error.message}`);
+    if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
+  }
 }
 
 function initializeMusicPlayer() {
@@ -1963,6 +2311,31 @@ function initializeMusicPlayer() {
       audioEl.addEventListener("play", () => {
         state.playing = true;
         updateMusicStatus("Playing…");
+        
+        // When host presses play, call start-track API
+        if (state.isHost && state.code && musicState.currentTrack) {
+          const startPositionSec = audioEl.currentTime || 0;
+          
+          // Call the new start-track endpoint
+          fetch(`/api/party/${state.code}/start-track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              trackId: musicState.currentTrack.trackId,
+              trackUrl: musicState.currentTrack.trackUrl,
+              title: musicState.currentTrack.title,
+              durationMs: musicState.currentTrack.durationMs,
+              startPositionSec: startPositionSec
+            })
+          })
+          .then(res => res.json())
+          .then(data => {
+            console.log('[Music] Track started:', data);
+          })
+          .catch(err => {
+            console.error('[Music] Error starting track:', err);
+          });
+        }
       });
       
       audioEl.addEventListener("pause", () => {

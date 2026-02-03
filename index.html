@@ -241,6 +241,12 @@
                 <span class="pill-enhanced music-status-ready" id="musicStatusReady">✓ Ready</span>
               </div>
             </div>
+            
+            <!-- Upload Status -->
+            <div class="hidden" id="uploadStatus">
+              <div id="uploadProgress">Preparing upload...</div>
+            </div>
+            
             <div class="tiny muted music-helper">
               Pick any audio file from your phone (MP3, WAV, M4A, etc). We don't provide music.
             </div>
@@ -692,6 +698,14 @@
         <div class="up-next-content">
           <div class="up-next-filename" id="guestUpNextFilename">No track queued</div>
           <span class="up-next-status-badge">Ready</span>
+        </div>
+      </div>
+      
+      <!-- Queue Section -->
+      <div class="glass-card guest-queue-container">
+        <h4 class="guest-queue-title">📋 Queue</h4>
+        <div id="guestQueueList">
+          <div class="queue-empty">No tracks in queue</div>
         </div>
       </div>
 
