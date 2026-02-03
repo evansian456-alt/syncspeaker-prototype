@@ -33,6 +33,7 @@ const state = {
   code: null,
   isHost: false,
   name: "Guest",
+  djName: null, // DJ name for guest view
   source: "local",
   isPro: false,
   partyPro: false,
@@ -986,8 +987,12 @@ function showGuest() {
   hide("viewParty"); 
   show("viewGuest");
   
-  // Update guest meta
-  el("guestMeta").textContent = `You: ${state.guestNickname || state.name}`;
+  // Update guest meta with DJ name if available
+  if (state.djName) {
+    el("guestMeta").textContent = `Listening to ${state.djName} · You: ${state.guestNickname || state.name}`;
+  } else {
+    el("guestMeta").textContent = `You: ${state.guestNickname || state.name}`;
+  }
   
   // Update party code
   el("guestPartyCode").textContent = state.code || "------";
@@ -2710,6 +2715,18 @@ function attemptAddPhone() {
       btn.textContent = "Creating party...";
       updateStatus("Creating party…");
       
+      // Get and validate host name (required for DJ identity)
+      const hostNameInput = el("hostName").value.trim();
+      if (!hostNameInput) {
+        updateStatus("Please enter your DJ name", true);
+        throw new Error("DJ name is required to start a party");
+      }
+      
+      // Add "DJ" prefix to host name
+      const djName = `DJ ${hostNameInput}`;
+      state.name = djName;
+      console.log("[DJ Identity] Host name with DJ prefix:", djName);
+      
       // Apply guest anonymity (Feature 7)
       applyGuestAnonymity();
       
@@ -2727,6 +2744,9 @@ function attemptAddPhone() {
         headers: {
           "Content-Type": "application/json"
         },
+        body: JSON.stringify({
+          djName: djName
+        }),
         signal: controller.signal
       });
       
@@ -2967,6 +2987,12 @@ function attemptAddPhone() {
         state.guestNickname = data.nickname;
       }
       
+      // Store DJ name for display
+      if (data.djName) {
+        state.djName = data.djName;
+        console.log("[DJ Identity] Joined party with DJ:", data.djName);
+      }
+      
       // Set state for joined party
       state.code = code;
       state.isHost = false;
@@ -2976,7 +3002,13 @@ function attemptAddPhone() {
       
       // Transition to guest view immediately (HTTP-based join)
       showGuest();
-      toast(`Joined party ${code}`);
+      
+      // Show welcome message with DJ name
+      if (data.djName) {
+        toast(`You are now listening to ${data.djName}`);
+      } else {
+        toast(`Joined party ${code}`);
+      }
       
       // Try to connect via WebSocket for real-time updates (optional fallback)
       try {
