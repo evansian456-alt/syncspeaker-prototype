@@ -3932,7 +3932,7 @@ async function checkAutoReconnect() {
     console.log("[Guest] Found recent session:", session);
     
     // First check if party still exists
-    const partyCheckResponse = await fetch(`/api/party?code=${partyCode}`);
+    const partyCheckResponse = await fetch(`/api/party?code=${encodeURIComponent(partyCode)}`);
     if (!partyCheckResponse.ok) {
       console.log("[Guest] Party no longer exists, clearing session");
       localStorage.removeItem('syncSpeakerGuestSession');
@@ -3947,6 +3947,7 @@ async function checkAutoReconnect() {
     }
     
     // Show reconnect prompt
+    // Note: Using native confirm() for simplicity. Could be replaced with custom modal for better accessibility.
     const shouldReconnect = confirm(`Reconnect to party ${partyCode}?\n\nYou were previously in this party as "${nickname}".`);
     
     if (shouldReconnect) {
@@ -3973,14 +3974,14 @@ async function checkAutoReconnect() {
         });
         
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+          const errorData = await response.json().catch(() => ({ error: "Failed to parse error response" }));
           throw new Error(errorData.error || "Failed to reconnect");
         }
         
         const data = await response.json();
         console.log("[Guest] Reconnected successfully:", data);
         
-        // Update state
+        // Update state with fresh data from server
         if (data.guestId) {
           state.clientId = data.guestId;
         }
@@ -3991,17 +3992,24 @@ async function checkAutoReconnect() {
         state.isHost = false;
         state.connected = true;
         
-        // Update session timestamp
-        session.joinedAt = Date.now();
-        localStorage.setItem('syncSpeakerGuestSession', JSON.stringify(session));
+        // Save updated session with new values from server
+        const updatedSession = {
+          partyCode: partyCode,
+          guestId: data.guestId,
+          nickname: data.nickname,
+          joinedAt: Date.now()
+        };
+        localStorage.setItem('syncSpeakerGuestSession', JSON.stringify(updatedSession));
         
         // Show guest view
         showGuest();
         toast(`Reconnected to party ${partyCode}`);
         
-        // Try WebSocket connection
+        // Try WebSocket connection (optional)
         try {
-          send({ t: "JOIN", code: partyCode, name: nickname, isPro: state.isPro });
+          // Ensure isPro is set before sending
+          const isPro = state.isPro || false;
+          send({ t: "JOIN", code: partyCode, name: nickname, isPro: isPro });
         } catch (wsError) {
           console.warn("[Guest] WebSocket not available, using polling only:", wsError);
         }
