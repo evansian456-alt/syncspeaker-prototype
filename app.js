@@ -343,6 +343,11 @@ function handleServer(msg) {
     state.lastHostEvent = "TRACK_SELECTED";
     if (!state.isHost) {
       updateGuestNowPlaying(msg.filename);
+      // Store trackUrl for later playback
+      if (msg.trackUrl) {
+        state.guestTrackUrl = msg.trackUrl;
+        state.guestTrackId = msg.trackId;
+      }
       // Don't change playback state yet - wait for PLAY
     }
     updateDebugState();
@@ -367,9 +372,9 @@ function handleServer(msg) {
       updateGuestVisualMode("playing");
       addDebugLog("Track started: " + (msg.filename || "Unknown"));
       
-      // Handle guest audio playback
+      // Handle guest audio playback with proper server timestamp and position
       if (msg.trackUrl) {
-        handleGuestAudioPlayback(msg.trackUrl, msg.filename, msg.startAtServerMs, msg.startPosition);
+        handleGuestAudioPlayback(msg.trackUrl, msg.filename, msg.serverTimestamp, msg.positionSec || 0);
       } else {
         // No track URL provided - show message
         toast("Host is playing locally - no audio sync available");
@@ -410,7 +415,7 @@ function handleServer(msg) {
       
       // Handle audio playback for new track
       if (msg.trackUrl) {
-        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.serverTimestamp, msg.positionSec || 0);
       }
       
       updateGuestVisualMode("track-change");
@@ -2455,6 +2460,22 @@ async function uploadTrackToServer(file) {
               }
               toast(`✓ Track uploaded and ready`);
               
+              // Broadcast TRACK_SELECTED to guests with trackId and trackUrl
+              if (state.isHost && state.ws) {
+                try {
+                  send({ 
+                    t: "HOST_TRACK_SELECTED", 
+                    trackId: response.trackId,
+                    trackUrl: response.trackUrl,
+                    filename: file.name 
+                  });
+                  // Only update state after successful send
+                  state.nowPlayingFilename = file.name;
+                } catch (e) {
+                  console.error("[Upload] Error broadcasting track selected:", e);
+                }
+              }
+              
               // Hide upload status after 2 seconds
               setTimeout(() => {
                 if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
@@ -3497,13 +3518,15 @@ function attemptAddPhone() {
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
             // Use auto-uploaded track URL from musicState
+            const trackId = musicState.currentTrack ? musicState.currentTrack.trackId : null;
             const trackUrl = musicState.currentTrack ? musicState.currentTrack.trackUrl : null;
             
             send({ 
               t: "HOST_PLAY",
+              trackId: trackId,
               trackUrl: trackUrl,
               filename: musicState.selectedFile ? musicState.selectedFile.name : "Unknown",
-              startPosition: audioEl.currentTime
+              positionSec: audioEl.currentTime
             });
             
             if (!trackUrl) {

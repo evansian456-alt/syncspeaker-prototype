@@ -3747,6 +3747,9 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  /* Prevent touch event blocking */
+  touch-action: auto;
+  pointer-events: auto;
 }
 
 .debug-panel.hidden {
@@ -3791,10 +3794,16 @@ body {
   padding: 16px;
   overflow-y: auto;
   max-height: calc(80vh - 60px);
+  /* Ensure scrolling works on touch devices */
+  -webkit-overflow-scrolling: touch;
+  /* Allow touch events to propagate for scrolling */
+  touch-action: pan-y;
 }
 
 .debug-section {
   margin-bottom: 20px;
+  /* Prevent touch events from being blocked */
+  pointer-events: auto;
 }
 
 .debug-section h5 {
