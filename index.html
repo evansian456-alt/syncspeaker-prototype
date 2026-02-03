@@ -146,7 +146,8 @@
             <p class="pricing-desc">Perfect for small groups</p>
             <ul class="pricing-features">
               <li>✓ Up to 2 phones</li>
-              <li>✓ Basic features</li>
+              <li>✓ <strong>Unlimited time</strong></li>
+              <li>✓ Emoji-only messages</li>
               <li>• Includes ads</li>
             </ul>
           </div>
@@ -159,9 +160,11 @@
             <p class="pricing-desc">Go Pro for tonight. No commitment.</p>
             <ul class="pricing-features">
               <li>✓ No ads during playback</li>
-              <li>✓ Up to 10 phones</li>
+              <li>✓ Up to <strong>4 phones max</strong></li>
+              <li>✓ <strong>2 hours duration</strong></li>
+              <li>✓ Preset messages allowed</li>
+              <li>✓ Emoji reactions</li>
               <li>✓ Pro DJ mode with visualizers</li>
-              <li>✓ Guest reactions &amp; messaging</li>
               <li>✓ Up Next queue system</li>
               <li>✓ Priority sync stability</li>
               <li>✓ Party-wide unlock</li>
@@ -175,9 +178,12 @@
             <p class="pricing-price">£9.99/month</p>
             <p class="pricing-desc">Cancel anytime</p>
             <ul class="pricing-features">
-              <li>✓ Up to 10 phones</li>
+              <li>✓ Up to <strong>10-12 phones</strong></li>
+              <li>✓ <strong>Unlimited parties</strong></li>
+              <li>✓ Full messaging features</li>
               <li>✓ No ads</li>
               <li>✓ Pro DJ mode with visualizers</li>
+              <li>✓ Full DJ tools</li>
               <li>✓ Guest reactions &amp; messaging</li>
               <li>✓ Up Next queue system</li>
               <li>✓ Priority sync stability</li>
@@ -186,6 +192,59 @@
             </ul>
             <button class="btn-pro-monthly" id="btnSubscribeMonthly">Subscribe Monthly</button>
           </div>
+        </div>
+      </div>
+
+      <!-- BOOST YOUR PARTY 🚀 Add-ons Section -->
+      <div class="glass-card boosts-card">
+        <h2>🚀 BOOST YOUR PARTY</h2>
+        <p class="boosts-subtitle">Level up with epic power-ups!</p>
+        <div class="boosts-grid">
+          
+          <!-- Add-on 1: Extra Phones -->
+          <div class="boost-item" id="boostExtraPhones">
+            <div class="boost-status" id="boostExtraPhonesStatus">AVAILABLE</div>
+            <div class="boost-icon">📱🔊</div>
+            <h3 class="boost-title">Invite More Friends</h3>
+            <p class="boost-price">£0.99</p>
+            <p class="boost-description">Bring more crew to the party! Unlock 2 extra speakers! 🔥</p>
+            <button class="btn-boost" id="btnBuyExtraPhones">Add 2 More Phones</button>
+            <div class="boost-requirement hidden" id="boostExtraPhonesReq">Upgrade to Party Pass to unlock this power-up!</div>
+          </div>
+
+          <!-- Add-on 2: Extend Party Time -->
+          <div class="boost-item" id="boostExtendTime">
+            <div class="boost-status" id="boostExtendTimeStatus">AVAILABLE</div>
+            <div class="boost-icon">⏰🎉</div>
+            <h3 class="boost-title">Keep The Party Alive</h3>
+            <p class="boost-price">£1.49</p>
+            <p class="boost-description">Keep the vibes going another hour! Don't let the music stop! 🎵</p>
+            <button class="btn-boost" id="btnExtendTime">Extend Party 1 Hour</button>
+            <div class="boost-requirement hidden" id="boostExtendTimeReq">Party Pass needed to extend the session!</div>
+          </div>
+
+          <!-- Add-on 3: Remove Ads -->
+          <div class="boost-item" id="boostRemoveAds">
+            <div class="boost-status" id="boostRemoveAdsStatus">AVAILABLE</div>
+            <div class="boost-icon">😎✨</div>
+            <h3 class="boost-title">Go Ad-Free Mode</h3>
+            <p class="boost-price">£0.99</p>
+            <p class="boost-description">Ad-free beats, non-stop vibes! Stay in the zone! 🎧</p>
+            <button class="btn-boost" id="btnRemoveAds">Remove Ads</button>
+            <div class="boost-requirement hidden" id="boostRemoveAdsReq">You're already ad-free – nice!</div>
+          </div>
+
+          <!-- Add-on 4: Host Gifted Party Pass -->
+          <div class="boost-item" id="boostGiftPartyPass">
+            <div class="boost-status" id="boostGiftPartyPassStatus">AVAILABLE</div>
+            <div class="boost-icon">🎁🔥</div>
+            <h3 class="boost-title">Be The Legend DJ</h3>
+            <p class="boost-price">£2.99</p>
+            <p class="boost-description">Be the legend DJ – upgrade everyone instantly! Share the Pro vibes! 🌟</p>
+            <button class="btn-boost" id="btnBoostGiftPartyPass">Gift Party Pass to Guests</button>
+            <div class="boost-requirement hidden" id="boostGiftPartyPassReq">Already in Party Pass mode!</div>
+          </div>
+
         </div>
       </div>
 

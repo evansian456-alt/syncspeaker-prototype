@@ -1,4 +1,6 @@
 const FREE_LIMIT = 2;
+const PARTY_PASS_LIMIT = 4;
+const PRO_LIMIT = 12;
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
@@ -2782,6 +2784,7 @@ function activatePartyPass() {
   state.partyPassActive = true;
   state.partyPro = true; // Party Pass gives Pro benefits
   state.isPro = true; // Mark this client as Pro
+  state.userTier = USER_TIER.PARTY_PASS; // Set tier to Party Pass
   
   // Notify server that this client is now Pro (makes whole party Pro)
   send({ t: "SET_PRO", isPro: true });
@@ -2805,6 +2808,7 @@ function activatePartyPass() {
   setPlanPill();
   updatePartyPassUI();
   updatePlaybackUI();
+  updateBoostsUI(); // Update boosts UI when tier changes
   
   toast("🎉 Party Pass activated! Enjoy 2 hours of Pro features!");
 }
@@ -2836,6 +2840,7 @@ function expirePartyPass() {
   state.partyPassEndTime = null;
   // Check if any members have regular Pro (not Party Pass)
   state.partyPro = state.snapshot?.members?.some(m => m.isPro) || false;
+  state.userTier = state.isPro ? USER_TIER.PRO : USER_TIER.FREE; // Reset tier
   
   if (state.partyPassTimerInterval) {
     clearInterval(state.partyPassTimerInterval);
@@ -2850,6 +2855,7 @@ function expirePartyPass() {
   setPlanPill();
   updatePartyPassUI();
   updatePlaybackUI();
+  updateBoostsUI(); // Update boosts UI when tier changes
   
   toast("⏰ Party Pass has expired");
 }
@@ -4252,6 +4258,171 @@ function applyTheme(theme) {
 }
 
 // ========================================
+// BOOST ADD-ONS
+// ========================================
+
+// Initialize Boost Add-ons
+function initBoostAddons() {
+  // Add-on 1: Extra Phones
+  const btnExtraPhones = el("btnBuyExtraPhones");
+  if (btnExtraPhones) {
+    btnExtraPhones.addEventListener("click", () => {
+      if (state.userTier === USER_TIER.FREE) {
+        toast("Upgrade to Party Pass first to unlock extra phones!");
+        return;
+      }
+      toast("Extra Phones add-on purchased! +2 phones added 🔊");
+      updateBoostsUI();
+    });
+  }
+  
+  // Add-on 2: Extend Time
+  const btnExtendTime = el("btnExtendTime");
+  if (btnExtendTime) {
+    btnExtendTime.addEventListener("click", () => {
+      if (state.userTier !== USER_TIER.PARTY_PASS) {
+        toast("Party Pass needed to extend time!");
+        return;
+      }
+      if (!state.partyPassActive || !state.partyPassEndTime) {
+        toast("Activate Party Pass first!");
+        return;
+      }
+      // Add 1 hour to party pass
+      const oneHour = 60 * 60 * 1000;
+      state.partyPassEndTime += oneHour;
+      
+      // Update localStorage
+      if (state.code) {
+        localStorage.setItem(`partyPass_${state.code}`, JSON.stringify({
+          endTime: state.partyPassEndTime,
+          active: true
+        }));
+      }
+      
+      updatePartyPassTimer();
+      toast("Party extended by 1 hour! Keep the vibes going! ⏰🎉");
+      updateBoostsUI();
+    });
+  }
+  
+  // Add-on 3: Remove Ads
+  const btnRemoveAds = el("btnRemoveAds");
+  if (btnRemoveAds) {
+    btnRemoveAds.addEventListener("click", () => {
+      if (state.userTier !== USER_TIER.FREE) {
+        toast("You're already ad-free – nice! 😎");
+        return;
+      }
+      state.adActive = false;
+      toast("Ads removed! Ad-free beats, non-stop vibes! 🎧✨");
+      updateBoostsUI();
+    });
+  }
+  
+  // Add-on 4: Gift Party Pass
+  const btnBoostGiftPartyPass = el("btnBoostGiftPartyPass");
+  if (btnBoostGiftPartyPass) {
+    btnBoostGiftPartyPass.addEventListener("click", () => {
+      if (state.partyPassActive) {
+        toast("Already in Party Pass mode! 🎉");
+        return;
+      }
+      activatePartyPass();
+      toast("Legend! You gifted Party Pass to everyone! 🎁🔥");
+      updateBoostsUI();
+    });
+  }
+  
+  // Initial UI update
+  updateBoostsUI();
+}
+
+// Update Boost Add-ons UI based on current tier
+function updateBoostsUI() {
+  const boostExtraPhones = el("boostExtraPhones");
+  const boostExtendTime = el("boostExtendTime");
+  const boostRemoveAds = el("boostRemoveAds");
+  const boostGiftPartyPass = el("boostGiftPartyPass");
+  
+  // Extra Phones - only available with Party Pass or Pro
+  if (boostExtraPhones) {
+    const statusEl = el("boostExtraPhonesStatus");
+    const reqEl = el("boostExtraPhonesReq");
+    const btnEl = el("btnBuyExtraPhones");
+    
+    if (state.userTier === USER_TIER.FREE) {
+      boostExtraPhones.setAttribute("data-status", "UPGRADE_REQUIRED");
+      if (statusEl) statusEl.textContent = "UPGRADE REQUIRED";
+      if (reqEl) reqEl.classList.remove("hidden");
+      if (btnEl) btnEl.disabled = true;
+    } else {
+      boostExtraPhones.setAttribute("data-status", "AVAILABLE");
+      if (statusEl) statusEl.textContent = "AVAILABLE";
+      if (reqEl) reqEl.classList.add("hidden");
+      if (btnEl) btnEl.disabled = false;
+    }
+  }
+  
+  // Extend Time - only for Party Pass
+  if (boostExtendTime) {
+    const statusEl = el("boostExtendTimeStatus");
+    const reqEl = el("boostExtendTimeReq");
+    const btnEl = el("btnExtendTime");
+    
+    if (state.userTier === USER_TIER.PARTY_PASS && state.partyPassActive) {
+      boostExtendTime.setAttribute("data-status", "AVAILABLE");
+      if (statusEl) statusEl.textContent = "AVAILABLE";
+      if (reqEl) reqEl.classList.add("hidden");
+      if (btnEl) btnEl.disabled = false;
+    } else {
+      boostExtendTime.setAttribute("data-status", "UPGRADE_REQUIRED");
+      if (statusEl) statusEl.textContent = "UPGRADE REQUIRED";
+      if (reqEl) reqEl.classList.remove("hidden");
+      if (btnEl) btnEl.disabled = true;
+    }
+  }
+  
+  // Remove Ads - only for Free tier
+  if (boostRemoveAds) {
+    const statusEl = el("boostRemoveAdsStatus");
+    const reqEl = el("boostRemoveAdsReq");
+    const btnEl = el("btnRemoveAds");
+    
+    if (state.userTier === USER_TIER.FREE && state.adActive !== false) {
+      boostRemoveAds.setAttribute("data-status", "AVAILABLE");
+      if (statusEl) statusEl.textContent = "AVAILABLE";
+      if (reqEl) reqEl.classList.add("hidden");
+      if (btnEl) btnEl.disabled = false;
+    } else {
+      boostRemoveAds.setAttribute("data-status", "NOT_APPLICABLE");
+      if (statusEl) statusEl.textContent = "NOT APPLICABLE";
+      if (reqEl) reqEl.classList.remove("hidden");
+      if (btnEl) btnEl.disabled = true;
+    }
+  }
+  
+  // Gift Party Pass - not available if already active
+  if (boostGiftPartyPass) {
+    const statusEl = el("boostGiftPartyPassStatus");
+    const reqEl = el("boostGiftPartyPassReq");
+    const btnEl = el("btnBoostGiftPartyPass");
+    
+    if (state.partyPassActive || state.userTier === USER_TIER.PARTY_PASS) {
+      boostGiftPartyPass.setAttribute("data-status", "ACTIVE");
+      if (statusEl) statusEl.textContent = "ACTIVE";
+      if (reqEl) reqEl.classList.remove("hidden");
+      if (btnEl) btnEl.disabled = true;
+    } else {
+      boostGiftPartyPass.setAttribute("data-status", "AVAILABLE");
+      if (statusEl) statusEl.textContent = "AVAILABLE";
+      if (reqEl) reqEl.classList.add("hidden");
+      if (btnEl) btnEl.disabled = false;
+    }
+  }
+}
+
+// ========================================
 // INITIALIZE ALL FEATURES
 // ========================================
 
@@ -4264,8 +4435,9 @@ function initializeAllFeatures() {
   initThemeSelector();
   initBeatAwareUI();
   initSessionStats();
+  initBoostAddons();
   
-  console.log("[Features] All 9 features initialized");
+  console.log("[Features] All 10 features initialized");
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();
