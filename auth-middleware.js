@@ -90,7 +90,10 @@ function isValidEmail(email) {
  * Validate password strength
  */
 function isValidPassword(password) {
-  return password && password.length >= 6;
+  if (!password || typeof password !== 'string') {
+    return false;
+  }
+  return password.length >= 6;
 }
 
 module.exports = {
