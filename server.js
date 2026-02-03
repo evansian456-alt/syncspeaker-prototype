@@ -598,10 +598,10 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     const userId = req.user.userId;
     
     // TEMPORARY: When auth is disabled, return anonymous user data
-    if (userId === 'anonymous') {
+    if (userId && userId.startsWith('anonymous-')) {
       return res.json({
         user: {
-          id: 'anonymous',
+          id: userId,
           email: 'anonymous@guest.local',
           djName: 'Guest DJ',
           createdAt: new Date().toISOString()

@@ -61,8 +61,9 @@ function verifyToken(token) {
 function requireAuth(req, res, next) {
   // TEMPORARY: If auth is disabled, allow all requests through
   if (AUTH_DISABLED) {
-    // Set a dummy user to prevent errors in routes expecting req.user
-    req.user = { userId: 'anonymous', email: 'anonymous@guest.local', djName: 'Guest DJ' };
+    // Set a unique anonymous user to prevent collisions
+    const anonymousId = `anonymous-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    req.user = { userId: anonymousId, email: 'anonymous@guest.local', djName: 'Guest DJ' };
     return next();
   }
   

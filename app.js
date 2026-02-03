@@ -3294,17 +3294,9 @@ function attemptAddPhone() {
   initializeMusicPlayer();
 
   // NEW: Landing page auth buttons - TEMPORARILY HIDDEN (no-auth mode)
-  // Auth is temporarily disabled, so hide login/signup buttons
+  // Auth is temporarily disabled, so hide login/signup buttons (already hidden in HTML)
   const btnLandingCreateAccount = el("btnLandingCreateAccount");
   const btnLandingSignIn = el("btnLandingSignIn");
-  
-  if (btnLandingCreateAccount) {
-    btnLandingCreateAccount.style.display = 'none'; // Temporarily hide
-  }
-  
-  if (btnLandingSignIn) {
-    btnLandingSignIn.style.display = 'none'; // Temporarily hide
-  }
 
   // OLD Landing page navigation - update to work without auth
   const btnLandingStart = el("btnLandingStart");
