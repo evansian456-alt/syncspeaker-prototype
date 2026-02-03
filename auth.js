@@ -1,12 +1,10 @@
 /**
- * Authentication and User Management System
- * Handles user accounts, login, signup, password reset
- * Uses localStorage for client-side storage (prototype - would use backend DB in production)
+ * Authentication and User Management System (Client-side)
+ * Handles user accounts, login, signup via backend API calls
+ * Auth tokens are stored in HTTP-only cookies by the backend
  */
 
-const AUTH_STORAGE_KEY = 'syncspeaker_users';
 const CURRENT_USER_KEY = 'syncspeaker_current_user';
-const SESSION_KEY = 'syncspeaker_session';
 
 // User tier constants
 const TIER = {
@@ -16,53 +14,26 @@ const TIER = {
 };
 
 /**
- * Initialize authentication system (stub for now)
+ * Initialize authentication system
  */
-function initAuth() {
-  console.log('[Auth] Auth system ready');
-  // Auth system is passive - just needs functions available
-  // UI bindings are handled in app.js initializeAuth()
-}
-
-/**
- * Get all users from storage
- */
-function getAllUsers() {
+async function initAuth() {
+  console.log('[Auth] Auth system initializing');
+  
+  // Check if user is logged in by calling /api/me
   try {
-    const data = localStorage.getItem(AUTH_STORAGE_KEY);
-    return data ? JSON.parse(data) : {};
-  } catch (e) {
-    console.error('Error loading users:', e);
-    return {};
+    const user = await getCurrentUser();
+    if (user) {
+      console.log('[Auth] User is logged in:', user.user.email);
+      // Cache user data in localStorage for quick access
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    } else {
+      console.log('[Auth] No user logged in');
+      localStorage.removeItem(CURRENT_USER_KEY);
+    }
+  } catch (err) {
+    console.log('[Auth] No active session');
+    localStorage.removeItem(CURRENT_USER_KEY);
   }
-}
-
-/**
- * Save users to storage
- */
-function saveUsers(users) {
-  try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(users));
-    return true;
-  } catch (e) {
-    console.error('Error saving users:', e);
-    return false;
-  }
-}
-
-/**
- * Hash password (simple hash for prototype - use bcrypt in production)
- */
-function hashPassword(password) {
-  // Simple hash for prototype - in production use bcrypt or similar
-  let hash = 0;
-  const str = password + 'syncspeaker_salt';
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(36);
 }
 
 /**
@@ -83,7 +54,7 @@ function isValidPassword(password) {
 /**
  * Sign up new user
  */
-function signUp(email, password, djName = '') {
+async function signUp(email, password, djName = '') {
   if (!isValidEmail(email)) {
     return { success: false, error: 'Invalid email address' };
   }
@@ -92,336 +63,189 @@ function signUp(email, password, djName = '') {
     return { success: false, error: 'Password must be at least 6 characters' };
   }
   
-  const users = getAllUsers();
-  
-  if (users[email.toLowerCase()]) {
-    return { success: false, error: 'Email already registered' };
+  if (!djName || djName.trim().length === 0) {
+    return { success: false, error: 'DJ name is required' };
   }
   
-  const user = {
-    email: email.toLowerCase(),
-    passwordHash: hashPassword(password),
-    djName: djName || '',
-    guestName: '',
-    tier: TIER.FREE,
-    createdAt: Date.now(),
-    purchaseHistory: [],
-    profile: {
-      avatar: '🎧',
-      stats: {
-        totalParties: 0,
-        totalTracks: 0,
-        totalGuests: 0
+  try {
+    const response = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
       },
-      recentParties: [],
-      djStats: {
-        rank: 'BEGINNER',
-        score: 0,
-        achievements: []
-      }
+      body: JSON.stringify({
+        email,
+        password,
+        djName: djName.trim()
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Signup failed' };
     }
-  };
-  
-  users[email.toLowerCase()] = user;
-  
-  if (!saveUsers(users)) {
-    return { success: false, error: 'Failed to save user data' };
+    
+    // Fetch full user data
+    const userData = await getCurrentUser();
+    if (userData) {
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+    }
+    
+    return { success: true, user: sanitizeUser(data.user) };
+  } catch (error) {
+    console.error('[Auth] Signup error:', error);
+    return { success: false, error: 'Network error. Please try again.' };
   }
-  
-  return { success: true, user: sanitizeUser(user) };
 }
 
 /**
  * Log in user
  */
-function logIn(email, password) {
+async function logIn(email, password) {
   if (!isValidEmail(email)) {
     return { success: false, error: 'Invalid email address' };
   }
   
-  const users = getAllUsers();
-  const user = users[email.toLowerCase()];
-  
-  if (!user) {
-    return { success: false, error: 'User not found' };
-  }
-  
-  if (user.passwordHash !== hashPassword(password)) {
-    return { success: false, error: 'Incorrect password' };
-  }
-  
-  // Create session
-  const session = {
-    email: user.email,
-    loginTime: Date.now(),
-    tier: user.tier
-  };
-  
   try {
-    localStorage.setItem(CURRENT_USER_KEY, user.email);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  } catch (e) {
-    return { success: false, error: 'Failed to create session' };
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email,
+        password
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Login failed' };
+    }
+    
+    // Fetch full user data
+    const userData = await getCurrentUser();
+    if (userData) {
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+    }
+    
+    return { success: true, user: sanitizeUser(data.user) };
+  } catch (error) {
+    console.error('[Auth] Login error:', error);
+    return { success: false, error: 'Network error. Please try again.' };
   }
-  
-  return { success: true, user: sanitizeUser(user) };
 }
 
 /**
  * Log out current user
  */
-function logOut() {
+async function logOut() {
   try {
+    await fetch('/api/auth/logout', {
+      method: 'POST'
+    });
+    
     localStorage.removeItem(CURRENT_USER_KEY);
-    localStorage.removeItem(SESSION_KEY);
     return { success: true };
-  } catch (e) {
-    return { success: false, error: 'Failed to log out' };
+  } catch (error) {
+    console.error('[Auth] Logout error:', error);
+    // Still clear local cache even if request fails
+    localStorage.removeItem(CURRENT_USER_KEY);
+    return { success: false, error: 'Logout failed' };
   }
 }
 
 /**
- * Get current logged in user
+ * Get current logged in user with full profile data
  */
-function getCurrentUser() {
+async function getCurrentUser() {
   try {
-    const email = localStorage.getItem(CURRENT_USER_KEY);
-    if (!email) return null;
+    const response = await fetch('/api/me');
     
-    const users = getAllUsers();
-    const user = users[email];
-    
-    if (!user) {
-      // Clean up invalid session
-      localStorage.removeItem(CURRENT_USER_KEY);
-      localStorage.removeItem(SESSION_KEY);
-      return null;
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Not authenticated
+        return null;
+      }
+      throw new Error('Failed to get user');
     }
     
-    return sanitizeUser(user);
-  } catch (e) {
-    console.error('Error getting current user:', e);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[Auth] Get user error:', error);
     return null;
   }
 }
 
 /**
- * Check if user is logged in
+ * Get cached user data (fast, but may be stale)
+ */
+function getCachedUser() {
+  try {
+    const data = localStorage.getItem(CURRENT_USER_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    console.error('[Auth] Error reading cached user:', e);
+    return null;
+  }
+}
+
+/**
+ * Check if user is logged in (uses cache)
  */
 function isLoggedIn() {
-  return getCurrentUser() !== null;
+  return getCachedUser() !== null;
 }
 
 /**
- * Update user profile
+ * Update user profile (not implemented yet - kept for compatibility)
  */
-function updateUserProfile(updates) {
-  const currentEmail = localStorage.getItem(CURRENT_USER_KEY);
-  if (!currentEmail) {
-    return { success: false, error: 'Not logged in' };
-  }
-  
-  const users = getAllUsers();
-  const user = users[currentEmail];
-  
-  if (!user) {
-    return { success: false, error: 'User not found' };
-  }
-  
-  // Update allowed fields
-  if (updates.djName !== undefined) user.djName = updates.djName;
-  if (updates.guestName !== undefined) user.guestName = updates.guestName;
-  if (updates.profile) {
-    if (updates.profile.avatar) user.profile.avatar = updates.profile.avatar;
-  }
-  
-  if (!saveUsers(users)) {
-    return { success: false, error: 'Failed to save changes' };
-  }
-  
-  return { success: true, user: sanitizeUser(user) };
+async function updateUserProfile(updates) {
+  console.warn('[Auth] updateUserProfile not yet implemented');
+  return { success: false, error: 'Not implemented' };
 }
 
 /**
- * Update user tier (for purchases)
+ * Update user tier (not implemented - handled via purchase system)
  */
-function updateUserTier(tier, purchaseInfo = {}) {
-  const currentEmail = localStorage.getItem(CURRENT_USER_KEY);
-  if (!currentEmail) {
-    return { success: false, error: 'Not logged in' };
-  }
-  
-  const users = getAllUsers();
-  const user = users[currentEmail];
-  
-  if (!user) {
-    return { success: false, error: 'User not found' };
-  }
-  
-  user.tier = tier;
-  user.purchaseHistory = user.purchaseHistory || [];
-  user.purchaseHistory.push({
-    tier,
-    date: Date.now(),
-    ...purchaseInfo
-  });
-  
-  if (!saveUsers(users)) {
-    return { success: false, error: 'Failed to save purchase' };
-  }
-  
-  return { success: true, user: sanitizeUser(user) };
+async function updateUserTier(tier, purchaseInfo = {}) {
+  console.warn('[Auth] updateUserTier not needed - handled by purchase system');
+  return { success: false, error: 'Use purchase system instead' };
 }
 
 /**
- * Update DJ stats
+ * Update DJ stats (not implemented yet - kept for compatibility)
  */
-function updateDJStats(updates) {
-  const currentEmail = localStorage.getItem(CURRENT_USER_KEY);
-  if (!currentEmail) {
-    return { success: false, error: 'Not logged in' };
-  }
-  
-  const users = getAllUsers();
-  const user = users[currentEmail];
-  
-  if (!user) {
-    return { success: false, error: 'User not found' };
-  }
-  
-  // Update stats
-  if (updates.score !== undefined) {
-    user.profile.djStats.score += updates.score;
-    
-    // Update rank based on score
-    if (user.profile.djStats.score >= 10000) {
-      user.profile.djStats.rank = 'LEGEND';
-    } else if (user.profile.djStats.score >= 5000) {
-      user.profile.djStats.rank = 'MASTER';
-    } else if (user.profile.djStats.score >= 2000) {
-      user.profile.djStats.rank = 'EXPERT';
-    } else if (user.profile.djStats.score >= 500) {
-      user.profile.djStats.rank = 'ADVANCED';
-    } else if (user.profile.djStats.score >= 100) {
-      user.profile.djStats.rank = 'INTERMEDIATE';
-    } else {
-      user.profile.djStats.rank = 'BEGINNER';
-    }
-  }
-  
-  if (updates.achievement) {
-    user.profile.djStats.achievements = user.profile.djStats.achievements || [];
-    if (!user.profile.djStats.achievements.includes(updates.achievement)) {
-      user.profile.djStats.achievements.push(updates.achievement);
-    }
-  }
-  
-  if (!saveUsers(users)) {
-    return { success: false, error: 'Failed to save stats' };
-  }
-  
-  return { success: true, user: sanitizeUser(user) };
+async function updateDJStats(updates) {
+  console.warn('[Auth] updateDJStats not yet implemented');
+  return { success: false, error: 'Not implemented' };
 }
 
 /**
- * Update party stats
+ * Update party stats (not implemented yet - kept for compatibility)
  */
-function updatePartyStats(partyInfo) {
-  const currentEmail = localStorage.getItem(CURRENT_USER_KEY);
-  if (!currentEmail) return { success: false };
-  
-  const users = getAllUsers();
-  const user = users[currentEmail];
-  
-  if (!user) return { success: false };
-  
-  user.profile.stats.totalParties++;
-  if (partyInfo.trackCount) user.profile.stats.totalTracks += partyInfo.trackCount;
-  if (partyInfo.guestCount) user.profile.stats.totalGuests += partyInfo.guestCount;
-  
-  user.profile.recentParties = user.profile.recentParties || [];
-  user.profile.recentParties.unshift({
-    date: Date.now(),
-    ...partyInfo
-  });
-  
-  // Keep only last 10 parties
-  if (user.profile.recentParties.length > 10) {
-    user.profile.recentParties = user.profile.recentParties.slice(0, 10);
-  }
-  
-  saveUsers(users);
-  return { success: true };
+async function updatePartyStats(partyInfo) {
+  console.warn('[Auth] updatePartyStats not yet implemented');
+  return { success: false, error: 'Not implemented' };
 }
 
 /**
- * Request password reset (in prototype, just generate a reset code)
+ * Request password reset (not implemented yet - kept for compatibility)
  */
-function requestPasswordReset(email) {
-  if (!isValidEmail(email)) {
-    return { success: false, error: 'Invalid email address' };
-  }
-  
-  const users = getAllUsers();
-  const user = users[email.toLowerCase()];
-  
-  if (!user) {
-    // Don't reveal if email exists or not for security
-    return { success: true, message: 'If the email exists, a reset code will be sent' };
-  }
-  
-  // Generate reset code (in production, send via email)
-  const resetCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  user.resetCode = resetCode;
-  user.resetCodeExpiry = Date.now() + 15 * 60 * 1000; // 15 minutes
-  
-  saveUsers(users);
-  
-  // In prototype, show the code (in production, email it)
-  console.log(`Password reset code for ${email}: ${resetCode}`);
-  return { 
-    success: true, 
-    message: 'Reset code sent',
-    debugCode: resetCode // Remove in production!
-  };
+async function requestPasswordReset(email) {
+  console.warn('[Auth] requestPasswordReset not yet implemented');
+  return { success: false, error: 'Not implemented' };
 }
 
 /**
- * Reset password with code
+ * Reset password with code (not implemented yet - kept for compatibility)
  */
-function resetPassword(email, resetCode, newPassword) {
-  if (!isValidEmail(email)) {
-    return { success: false, error: 'Invalid email address' };
-  }
-  
-  if (!isValidPassword(newPassword)) {
-    return { success: false, error: 'Password must be at least 6 characters' };
-  }
-  
-  const users = getAllUsers();
-  const user = users[email.toLowerCase()];
-  
-  if (!user || !user.resetCode) {
-    return { success: false, error: 'Invalid reset code' };
-  }
-  
-  if (user.resetCode !== resetCode.toUpperCase()) {
-    return { success: false, error: 'Invalid reset code' };
-  }
-  
-  if (Date.now() > user.resetCodeExpiry) {
-    return { success: false, error: 'Reset code expired' };
-  }
-  
-  user.passwordHash = hashPassword(newPassword);
-  delete user.resetCode;
-  delete user.resetCodeExpiry;
-  
-  if (!saveUsers(users)) {
-    return { success: false, error: 'Failed to reset password' };
-  }
-  
-  return { success: true, message: 'Password reset successfully' };
+async function resetPassword(email, resetCode, newPassword) {
+  console.warn('[Auth] resetPassword not yet implemented');
+  return { success: false, error: 'Not implemented' };
 }
 
 /**
@@ -443,6 +267,7 @@ if (typeof module !== 'undefined' && module.exports) {
     logIn,
     logOut,
     getCurrentUser,
+    getCachedUser,
     isLoggedIn,
     updateUserProfile,
     updateUserTier,
