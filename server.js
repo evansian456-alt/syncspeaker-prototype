@@ -412,6 +412,15 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Rate limiter for general API endpoints
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // Limit each IP to 30 requests per minute
+  message: 'Too many requests, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Rate limiter for purchase endpoints
 const purchaseLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -574,7 +583,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
  * POST /api/auth/logout
  * Log out current user
  */
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", apiLimiter, (req, res) => {
   res.clearCookie('auth_token');
   res.json({ success: true });
 });
@@ -583,7 +592,7 @@ app.post("/api/auth/logout", (req, res) => {
  * GET /api/me
  * Get current user info with tier and entitlements
  */
-app.get("/api/me", authMiddleware.requireAuth, async (req, res) => {
+app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
 
