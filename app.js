@@ -2337,12 +2337,12 @@ async function uploadQueuedTrackToServer(file) {
           const response = JSON.parse(xhr.responseText);
           console.log(`[Upload Queue] Upload complete:`, response);
           
-          // Store queued track info
+          // Store queued track info with duration if available from response
           musicState.queuedTrack = {
             trackId: response.trackId,
             trackUrl: response.trackUrl,
             title: response.title,
-            durationMs: null,
+            durationMs: response.durationMs || null,
             uploadStatus: 'ready',
             filename: response.filename
           };
@@ -2350,15 +2350,30 @@ async function uploadQueuedTrackToServer(file) {
           console.log(`[Upload Queue] Queued track ready for streaming`);
         } catch (e) {
           console.error(`[Upload Queue] Error parsing response:`, e);
+          // Set error state
+          musicState.queuedTrack = {
+            uploadStatus: 'error',
+            filename: file.name
+          };
         }
       } else {
         console.error(`[Upload Queue] Upload failed with status ${xhr.status}`);
+        // Set error state on upload failure
+        musicState.queuedTrack = {
+          uploadStatus: 'error',
+          filename: file.name
+        };
       }
     });
     
     // Handle errors
     xhr.addEventListener('error', () => {
       console.error(`[Upload Queue] Network error`);
+      // Set error state on network error
+      musicState.queuedTrack = {
+        uploadStatus: 'error',
+        filename: file.name
+      };
     });
     
     // Send request
