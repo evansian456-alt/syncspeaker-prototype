@@ -2427,7 +2427,7 @@ async function startServer() {
     console.log(`[WS] Client ${clientId} connected`);
     
     // Send welcome message
-    ws.send(JSON.stringify({ t: "WELCOME", clientId }));
+    safeSend(ws, JSON.stringify({ t: "WELCOME", clientId }));
     
     ws.on("message", (data) => {
       try {
@@ -2451,6 +2451,28 @@ async function startServer() {
   });
   
   return server;
+}
+
+// Helper function to safely send WebSocket messages
+// Guards against sending to closed/closing sockets which can cause crashes
+function safeSend(ws, data) {
+  if (!ws) {
+    console.warn('[WS] safeSend: WebSocket is null or undefined');
+    return false;
+  }
+  
+  if (ws.readyState !== WebSocket.OPEN) {
+    console.warn(`[WS] safeSend: WebSocket not in OPEN state (readyState: ${ws.readyState})`);
+    return false;
+  }
+  
+  try {
+    ws.send(data);
+    return true;
+  } catch (err) {
+    console.error('[WS] safeSend: Error sending message:', err);
+    return false;
+  }
 }
 
 function handleMessage(ws, msg) {
@@ -2544,7 +2566,7 @@ async function handleCreate(ws, msg) {
   // Runtime guard: Check if Redis is available
   if (!redis || !redisReady) {
     console.error(`[WS] Party creation blocked - Redis not ready, instanceId: ${INSTANCE_ID}`);
-    ws.send(JSON.stringify({ 
+    safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Server not ready. Please retry in a moment." 
     }));
@@ -2570,7 +2592,7 @@ async function handleCreate(ws, msg) {
   
   if (attempts >= 10) {
     console.error(`[WS] Failed to generate unique party code after 10 attempts, instanceId: ${INSTANCE_ID}`);
-    ws.send(JSON.stringify({ 
+    safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Failed to generate unique party code. Please try again." 
     }));
@@ -2609,7 +2631,7 @@ async function handleCreate(ws, msg) {
     console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
   } catch (err) {
     console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
-    ws.send(JSON.stringify({ 
+    safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Failed to create party. Please try again." 
     }));
@@ -2631,7 +2653,7 @@ async function handleCreate(ws, msg) {
   
   client.party = code;
   
-  ws.send(JSON.stringify({ t: "CREATED", code }));
+  safeSend(ws, JSON.stringify({ t: "CREATED", code }));
   broadcastRoomState(code);
   
   // Send welcome DJ message to host
@@ -2683,7 +2705,7 @@ async function handleJoin(ws, msg) {
     const localPartyExists = parties.has(code);
     const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
     console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
-    ws.send(JSON.stringify({ t: "ERROR", message: "Party not found" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
     return;
   }
   
@@ -2694,7 +2716,7 @@ async function handleJoin(ws, msg) {
   
   // Check if already a member (prevent duplicates)
   if (party.members.some(m => m.id === client.id)) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Already in this party" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Already in this party" }));
     return;
   }
   
@@ -2729,7 +2751,7 @@ async function handleJoin(ws, msg) {
   
   console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
   
-  ws.send(JSON.stringify({ t: "JOINED", code }));
+  safeSend(ws, JSON.stringify({ t: "JOINED", code }));
   broadcastRoomState(code);
   
   // Send welcome DJ message for first guest
@@ -2753,25 +2775,25 @@ function handleKick(ws, msg) {
   
   // Only host can kick
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can kick members" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can kick members" }));
     return;
   }
   
   // Validate targetId
   if (!msg.targetId || typeof msg.targetId !== 'number') {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Invalid target ID" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid target ID" }));
     return;
   }
   
   const targetMember = party.members.find(m => m.id === msg.targetId);
   
   if (!targetMember) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Member not found" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Member not found" }));
     return;
   }
   
   if (targetMember.isHost) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Cannot kick host" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Cannot kick host" }));
     return;
   }
   
@@ -2893,7 +2915,7 @@ function handleHostPlay(ws, msg) {
   
   // Only host can send play events
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
     return;
   }
   
@@ -2942,7 +2964,7 @@ function handleHostPause(ws, msg) {
   
   // Only host can send pause events
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
     return;
   }
   
@@ -2966,7 +2988,7 @@ function handleHostTrackSelected(ws, msg) {
   
   // Only host can select tracks
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can select tracks" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can select tracks" }));
     return;
   }
   
@@ -3006,7 +3028,7 @@ function handleHostNextTrackQueued(ws, msg) {
   
   // Only host can queue tracks
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can queue tracks" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can queue tracks" }));
     return;
   }
   
@@ -3031,7 +3053,7 @@ function handleHostTrackChanged(ws, msg) {
   
   // Only host can change tracks
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can change tracks" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can change tracks" }));
     return;
   }
   
@@ -3080,7 +3102,7 @@ function handleGuestMessage(ws, msg) {
   // Only guests can send messages (not host)
   const member = party.members.find(m => m.ws === ws);
   if (!member || member.isHost) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only guests can send messages" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only guests can send messages" }));
     return;
   }
   
@@ -3091,13 +3113,13 @@ function handleGuestMessage(ws, msg) {
   
   // LOCKED mode: no messages allowed
   if (chatMode === "LOCKED") {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Chat is locked by the DJ" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Chat is locked by the DJ" }));
     return;
   }
   
   // EMOJI_ONLY mode: only emoji messages allowed
   if (chatMode === "EMOJI_ONLY" && !isEmoji) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only emoji reactions allowed" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only emoji reactions allowed" }));
     return;
   }
   
@@ -3128,13 +3150,13 @@ function handleChatModeSet(ws, msg) {
   
   // Only host can set chat mode
   if (party.host !== ws) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Only host can set chat mode" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can set chat mode" }));
     return;
   }
   
   const mode = msg.mode;
   if (!["OPEN", "EMOJI_ONLY", "LOCKED"].includes(mode)) {
-    ws.send(JSON.stringify({ t: "ERROR", message: "Invalid chat mode" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid chat mode" }));
     return;
   }
   
@@ -3178,6 +3200,26 @@ function waitForRedis(timeoutMs = 5000) {
 function isRedisReady() {
   return redisReady;
 }
+
+// Process-level error handlers to prevent crashes
+// These catch unhandled errors that could cause the server to exit
+process.on('uncaughtException', (err, origin) => {
+  console.error(`❌ [CRITICAL] Uncaught Exception at ${origin}:`, err);
+  console.error(`   Instance: ${INSTANCE_ID}, Version: ${APP_VERSION}`);
+  console.error(`   Stack:`, err.stack);
+  // Log but don't exit - let Railway handle restart if needed
+  // In production, you might want to implement graceful shutdown here
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`❌ [CRITICAL] Unhandled Rejection:`, reason);
+  console.error(`   Instance: ${INSTANCE_ID}, Version: ${APP_VERSION}`);
+  console.error(`   Promise:`, promise);
+  if (reason instanceof Error) {
+    console.error(`   Stack:`, reason.stack);
+  }
+  // Log but don't exit - let the application continue
+});
 
 // Start server if run directly (not imported as module)
 if (require.main === module) {
