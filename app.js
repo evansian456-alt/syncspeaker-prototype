@@ -98,6 +98,159 @@ const state = {
   messageCooldownMs: 2000 // 2 second cooldown between messages
 };
 
+/**
+ * Monetization state - manages user purchases and subscriptions
+ * 
+ * Storage rules:
+ * - Visual packs, titles, and profile upgrades are stored permanently to user account
+ * - Party Pass and party extensions are temporary (reset when party ends)
+ * 
+ * Mutually exclusive items:
+ * - Only ONE visual pack can be active at a time (user can switch between owned packs)
+ * - Only ONE DJ title can be active at a time (user can switch between owned titles)
+ * 
+ * Stackable items:
+ * - All owned profile upgrades display together on profile and DJ screen
+ */
+const monetizationState = {
+  // User's purchased items
+  ownedVisualPacks: [], // ['neon-lights', 'festival-stage', 'club-pulse']
+  ownedTitles: [], // ['rising-dj', 'club-dj', 'superstar-dj', 'legend-dj']
+  ownedProfileUpgrades: [], // ['verified-badge', 'crown-effect', 'animated-name', 'reaction-trail']
+  
+  // Currently active items (only one visual pack and one title at a time)
+  activeVisualPack: null, // 'neon-lights' | 'festival-stage' | 'club-pulse' | null
+  activeTitle: null, // 'rising-dj' | 'club-dj' | 'superstar-dj' | 'legend-dj' | null
+  
+  // Current party temporary extensions (reset when party ends)
+  partyTimeExtensionMins: 0, // Additional minutes added to party
+  partyPhoneExtensionCount: 0, // Additional phones added to party
+  
+  // Subscription status
+  proSubscriptionActive: false,
+  proSubscriptionEndDate: null,
+  
+  // Party Pass (temporary, per-party)
+  partyPassActiveForCurrentParty: false,
+  partyPassEndTimeForCurrentParty: null
+};
+
+// Visual Pack definitions
+const VISUAL_PACKS = {
+  'neon-lights': {
+    id: 'neon-lights',
+    name: 'Neon Lights',
+    price: 3.99,
+    currency: '£',
+    description: 'Vibrant neon light show',
+    previewColor: '#5AA9FF'
+  },
+  'festival-stage': {
+    id: 'festival-stage',
+    name: 'Festival Stage',
+    price: 4.99,
+    currency: '£',
+    description: 'Epic festival vibes',
+    previewColor: '#8B7CFF'
+  },
+  'club-pulse': {
+    id: 'club-pulse',
+    name: 'Club Pulse',
+    price: 2.99,
+    currency: '£',
+    description: 'Underground club energy',
+    previewColor: '#FF6B9D'
+  }
+};
+
+// DJ Title definitions
+const DJ_TITLES = {
+  'rising-dj': {
+    id: 'rising-dj',
+    name: 'Rising DJ',
+    price: 0.99,
+    currency: '£',
+    description: 'Starting your journey'
+  },
+  'club-dj': {
+    id: 'club-dj',
+    name: 'Club DJ',
+    price: 1.49,
+    currency: '£',
+    description: 'Making moves'
+  },
+  'superstar-dj': {
+    id: 'superstar-dj',
+    name: 'Superstar DJ',
+    price: 2.49,
+    currency: '£',
+    description: 'On top of the scene'
+  },
+  'legend-dj': {
+    id: 'legend-dj',
+    name: 'Legend DJ',
+    price: 3.49,
+    currency: '£',
+    description: 'Hall of fame status'
+  }
+};
+
+// Profile Upgrade definitions (stackable)
+const PROFILE_UPGRADES = {
+  'verified-badge': {
+    id: 'verified-badge',
+    name: 'Verified DJ Badge',
+    price: 1.99,
+    currency: '£',
+    description: 'Show you\'re legit',
+    icon: '✓'
+  },
+  'crown-effect': {
+    id: 'crown-effect',
+    name: 'Crown Effect',
+    price: 2.99,
+    currency: '£',
+    description: 'Royalty vibes',
+    icon: '👑'
+  },
+  'animated-name': {
+    id: 'animated-name',
+    name: 'Animated Name',
+    price: 2.49,
+    currency: '£',
+    description: 'Make your name pop',
+    icon: '✨'
+  },
+  'reaction-trail': {
+    id: 'reaction-trail',
+    name: 'Reaction Trail',
+    price: 1.99,
+    currency: '£',
+    description: 'Leave your mark',
+    icon: '🌟'
+  }
+};
+
+// Party Extension definitions
+const PARTY_EXTENSIONS = {
+  'time-30': {
+    id: 'time-30',
+    name: 'Add 30 Minutes',
+    price: 0.99,
+    currency: '£',
+    description: 'Keep the party going',
+    extensionMinutes: 30
+  },
+  'phones-5': {
+    id: 'phones-5',
+    name: 'Add 5 More Phones',
+    price: 1.49,
+    currency: '£',
+    description: 'Bring more friends',
+    extensionPhones: 5
+  }
+};
+
 // Client-side party code generator for offline fallback
 function generatePartyCode() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -1021,6 +1174,14 @@ function showPartyEnded(status) {
     partyMetaEl.style.color = "var(--danger, #ff5a6a)";
   }
   
+  // Show end-of-party upsell after a short delay
+  setTimeout(() => {
+    showEndOfPartyUpsell();
+  }, 2000);
+  
+  // Reset party monetization
+  resetPartyMonetization();
+  
   // For guests, show on their screen too
   const guestPartyStatusEl = el("guestPartyStatusText");
   if (guestPartyStatusEl && !state.isHost) {
@@ -1864,7 +2025,7 @@ function setupGuestMessageButtons() {
       
       // Check tier permissions for preset messages
       if (state.userTier === USER_TIER.FREE) {
-        toast("Upgrade to Party Pass or Pro to send messages", "warning");
+        showUpsellModal('Unlock Messages', 'Unlock messages with Pro!');
         return;
       }
       
@@ -5047,6 +5208,312 @@ function showProfile() {
   showView('viewProfile');
 }
 
+// ============================================================================
+// MONETIZATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Load monetization state from localStorage
+ */
+function loadMonetizationState() {
+  const user = getCurrentUser();
+  if (!user) return;
+  
+  const saved = localStorage.getItem(`monetization_${user.email}`);
+  if (saved) {
+    const data = JSON.parse(saved);
+    monetizationState.ownedVisualPacks = data.ownedVisualPacks || [];
+    monetizationState.ownedTitles = data.ownedTitles || [];
+    monetizationState.ownedProfileUpgrades = data.ownedProfileUpgrades || [];
+    monetizationState.activeVisualPack = data.activeVisualPack || null;
+    monetizationState.activeTitle = data.activeTitle || null;
+    monetizationState.proSubscriptionActive = data.proSubscriptionActive || false;
+    monetizationState.proSubscriptionEndDate = data.proSubscriptionEndDate || null;
+  }
+}
+
+/**
+ * Save monetization state to localStorage
+ */
+function saveMonetizationState() {
+  const user = getCurrentUser();
+  if (!user) return;
+  
+  const data = {
+    ownedVisualPacks: monetizationState.ownedVisualPacks,
+    ownedTitles: monetizationState.ownedTitles,
+    ownedProfileUpgrades: monetizationState.ownedProfileUpgrades,
+    activeVisualPack: monetizationState.activeVisualPack,
+    activeTitle: monetizationState.activeTitle,
+    proSubscriptionActive: monetizationState.proSubscriptionActive,
+    proSubscriptionEndDate: monetizationState.proSubscriptionEndDate
+  };
+  
+  localStorage.setItem(`monetization_${user.email}`, JSON.stringify(data));
+}
+
+/**
+ * Purchase a visual pack
+ */
+function purchaseVisualPack(packId) {
+  const pack = VISUAL_PACKS[packId];
+  if (!pack) return { success: false, error: 'Pack not found' };
+  
+  if (monetizationState.ownedVisualPacks.includes(packId)) {
+    return { success: false, error: 'Already owned' };
+  }
+  
+  // Simulate payment (in real app, this would call payment API)
+  monetizationState.ownedVisualPacks.push(packId);
+  
+  // Auto-activate if it's the first pack
+  if (!monetizationState.activeVisualPack) {
+    monetizationState.activeVisualPack = packId;
+  }
+  
+  saveMonetizationState();
+  return { success: true, pack };
+}
+
+/**
+ * Activate a visual pack (can only have one active at a time)
+ */
+function activateVisualPack(packId) {
+  if (!monetizationState.ownedVisualPacks.includes(packId)) {
+    return { success: false, error: 'Pack not owned' };
+  }
+  
+  monetizationState.activeVisualPack = packId;
+  saveMonetizationState();
+  applyActiveVisualPack();
+  return { success: true };
+}
+
+/**
+ * Apply the active visual pack to the UI
+ */
+function applyActiveVisualPack() {
+  const packId = monetizationState.activeVisualPack;
+  if (!packId) return;
+  
+  const pack = VISUAL_PACKS[packId];
+  if (!pack) return;
+  
+  // Apply visual pack styling to the body or main visual area
+  document.documentElement.style.setProperty('--visual-pack-primary', pack.previewColor);
+  
+  // Update visual stage if present
+  const visualStage = document.querySelector('.visual-stage');
+  if (visualStage) {
+    visualStage.setAttribute('data-pack', packId);
+  }
+}
+
+/**
+ * Purchase a DJ title
+ */
+function purchaseTitle(titleId) {
+  const title = DJ_TITLES[titleId];
+  if (!title) return { success: false, error: 'Title not found' };
+  
+  if (monetizationState.ownedTitles.includes(titleId)) {
+    return { success: false, error: 'Already owned' };
+  }
+  
+  monetizationState.ownedTitles.push(titleId);
+  
+  // Auto-activate if it's the first title
+  if (!monetizationState.activeTitle) {
+    monetizationState.activeTitle = titleId;
+  }
+  
+  saveMonetizationState();
+  return { success: true, title };
+}
+
+/**
+ * Activate a title (can only have one active at a time)
+ */
+function activateTitle(titleId) {
+  if (!monetizationState.ownedTitles.includes(titleId)) {
+    return { success: false, error: 'Title not owned' };
+  }
+  
+  monetizationState.activeTitle = titleId;
+  saveMonetizationState();
+  updateDJTitleDisplay();
+  return { success: true };
+}
+
+/**
+ * Update DJ title display
+ */
+function updateDJTitleDisplay() {
+  const titleId = monetizationState.activeTitle;
+  if (!titleId) return;
+  
+  const title = DJ_TITLES[titleId];
+  if (!title) return;
+  
+  // Update DJ name display to include title
+  const djTitleEl = document.getElementById('djTitle');
+  if (djTitleEl) {
+    djTitleEl.textContent = title.name;
+  }
+}
+
+/**
+ * Purchase a profile upgrade (stackable)
+ */
+function purchaseProfileUpgrade(upgradeId) {
+  const upgrade = PROFILE_UPGRADES[upgradeId];
+  if (!upgrade) return { success: false, error: 'Upgrade not found' };
+  
+  if (monetizationState.ownedProfileUpgrades.includes(upgradeId)) {
+    return { success: false, error: 'Already owned' };
+  }
+  
+  monetizationState.ownedProfileUpgrades.push(upgradeId);
+  saveMonetizationState();
+  applyProfileUpgrades();
+  return { success: true, upgrade };
+}
+
+/**
+ * Apply all owned profile upgrades to the UI
+ */
+function applyProfileUpgrades() {
+  const profileHeader = document.querySelector('.profile-header');
+  if (!profileHeader) return;
+  
+  // Remove existing upgrade badges
+  const existingBadges = profileHeader.querySelectorAll('.upgrade-profile-badge');
+  existingBadges.forEach(badge => badge.remove());
+  
+  // Add all owned upgrade badges
+  monetizationState.ownedProfileUpgrades.forEach(upgradeId => {
+    const upgrade = PROFILE_UPGRADES[upgradeId];
+    if (!upgrade) return;
+    
+    const badge = document.createElement('span');
+    badge.className = 'upgrade-profile-badge';
+    badge.textContent = upgrade.icon;
+    badge.title = upgrade.name;
+    profileHeader.appendChild(badge);
+  });
+}
+
+/**
+ * Purchase party extension (applies to current party only)
+ */
+function purchasePartyExtension(extensionId) {
+  const extension = PARTY_EXTENSIONS[extensionId];
+  if (!extension) return { success: false, error: 'Extension not found' };
+  
+  if (extension.extensionMinutes) {
+    monetizationState.partyTimeExtensionMins += extension.extensionMinutes;
+    // Apply time extension to current party
+    if (state.partyPassEndTime) {
+      state.partyPassEndTime += extension.extensionMinutes * 60 * 1000;
+    }
+  }
+  
+  if (extension.extensionPhones) {
+    monetizationState.partyPhoneExtensionCount += extension.extensionPhones;
+  }
+  
+  return { success: true, extension };
+}
+
+/**
+ * Purchase Pro subscription
+ */
+function purchaseProSubscription() {
+  monetizationState.proSubscriptionActive = true;
+  // Set subscription end date to 30 days from now
+  const endDate = new Date();
+  endDate.setDate(endDate.getDate() + 30);
+  monetizationState.proSubscriptionEndDate = endDate.toISOString();
+  
+  saveMonetizationState();
+  updateUserTier();
+  return { success: true };
+}
+
+/**
+ * Purchase Party Pass (temporary, for current party)
+ */
+function purchasePartyPass() {
+  monetizationState.partyPassActiveForCurrentParty = true;
+  // Set Party Pass end time to 2 hours from now
+  const endTime = Date.now() + (2 * 60 * 60 * 1000);
+  monetizationState.partyPassEndTimeForCurrentParty = endTime;
+  state.partyPassActive = true;
+  state.partyPassEndTime = endTime;
+  
+  updateUserTier();
+  return { success: true };
+}
+
+/**
+ * Update user tier based on subscription/party pass status
+ */
+function updateUserTier() {
+  if (monetizationState.proSubscriptionActive) {
+    state.userTier = USER_TIER.PRO;
+  } else if (monetizationState.partyPassActiveForCurrentParty) {
+    state.userTier = USER_TIER.PARTY_PASS;
+  } else {
+    state.userTier = USER_TIER.FREE;
+  }
+  
+  // Update UI
+  updateTierDisplay();
+}
+
+/**
+ * Update tier display in header
+ */
+function updateTierDisplay() {
+  const planPill = document.getElementById('planPill');
+  if (!planPill) return;
+  
+  const limits = {
+    [USER_TIER.FREE]: `Free · ${FREE_LIMIT} phones`,
+    [USER_TIER.PARTY_PASS]: `Party Pass · ${PARTY_PASS_LIMIT + monetizationState.partyPhoneExtensionCount} phones`,
+    [USER_TIER.PRO]: `Pro · ${PRO_LIMIT} phones`
+  };
+  
+  planPill.textContent = limits[state.userTier] || 'Free · 2 phones';
+}
+
+/**
+ * Get current phone limit based on tier and extensions
+ */
+function getCurrentPhoneLimit() {
+  let baseLimit;
+  if (state.userTier === USER_TIER.PRO) {
+    baseLimit = PRO_LIMIT;
+  } else if (state.userTier === USER_TIER.PARTY_PASS) {
+    baseLimit = PARTY_PASS_LIMIT;
+  } else {
+    baseLimit = FREE_LIMIT;
+  }
+  
+  return baseLimit + monetizationState.partyPhoneExtensionCount;
+}
+
+/**
+ * Reset party-specific monetization items
+ */
+function resetPartyMonetization() {
+  monetizationState.partyPassActiveForCurrentParty = false;
+  monetizationState.partyPassEndTimeForCurrentParty = null;
+  monetizationState.partyTimeExtensionMins = 0;
+  monetizationState.partyPhoneExtensionCount = 0;
+  updateUserTier();
+}
+
 /**
  * Simple toast notification
  */
@@ -5113,4 +5580,488 @@ if (promoBtn) {
     alert("🎉 Pro unlocked for this party!");
     updateUI?.();
   };
+}
+
+// ============================================================================
+// MONETIZATION UI INITIALIZATION
+// ============================================================================
+
+/**
+ * Initialize monetization screens and event handlers
+ */
+function initMonetizationUI() {
+  // Load saved monetization state
+  loadMonetizationState();
+  
+  // Main Upgrade Hub button
+  const btnUpgradeHub = document.getElementById('btnUpgradeHub');
+  if (btnUpgradeHub) {
+    btnUpgradeHub.addEventListener('click', showUpgradeHub);
+  }
+  
+  // Close buttons
+  document.getElementById('btnCloseUpgradeHub')?.addEventListener('click', () => {
+    showView('viewLanding');
+  });
+  
+  document.getElementById('btnCloseVisualPacks')?.addEventListener('click', () => {
+    showView('viewUpgradeHub');
+  });
+  
+  document.getElementById('btnCloseProfileUpgrades')?.addEventListener('click', () => {
+    showView('viewUpgradeHub');
+  });
+  
+  document.getElementById('btnClosePartyExtensions')?.addEventListener('click', () => {
+    showView('viewUpgradeHub');
+  });
+  
+  document.getElementById('btnCloseDjTitles')?.addEventListener('click', () => {
+    showView('viewUpgradeHub');
+  });
+  
+  // Primary upgrade buttons
+  document.getElementById('btnPurchaseProSub')?.addEventListener('click', () => {
+    initiateCheckout('pro-subscription', 'Pro Subscription', 9.99);
+  });
+  
+  document.getElementById('btnPurchasePartyPass')?.addEventListener('click', () => {
+    initiateCheckout('party-pass', 'Party Pass (2 hours)', 2.99);
+  });
+  
+  document.getElementById('btnContinueFree')?.addEventListener('click', () => {
+    showToast('✅ Continuing with Free mode');
+    showView('viewLanding');
+  });
+  
+  // Add-ons store navigation buttons
+  document.getElementById('btnOpenVisualPacks')?.addEventListener('click', () => {
+    showVisualPackStore();
+  });
+  
+  document.getElementById('btnOpenProfileUpgrades')?.addEventListener('click', () => {
+    showProfileUpgradesStore();
+  });
+  
+  document.getElementById('btnOpenDjTitles')?.addEventListener('click', () => {
+    showDjTitleStore();
+  });
+  
+  document.getElementById('btnOpenPartyExtensions')?.addEventListener('click', () => {
+    showPartyExtensionsStore();
+  });
+  
+  document.getElementById('btnOpenHypeEffects')?.addEventListener('click', () => {
+    showToast('🔥 Hype Effects coming soon!');
+  });
+  
+  // Visual Pack purchase buttons
+  document.querySelectorAll('.btn-buy-pack').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const packId = e.target.dataset.packId;
+      const pack = VISUAL_PACKS[packId];
+      if (pack) {
+        initiateCheckout('visual-pack', pack.name, pack.price, packId);
+      }
+    });
+  });
+  
+  // Visual Pack activate buttons
+  document.querySelectorAll('.btn-activate-pack').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const packId = e.target.dataset.packId;
+      const result = activateVisualPack(packId);
+      if (result.success) {
+        showToast('✅ Visual pack activated!');
+        updateVisualPackStore();
+      }
+    });
+  });
+  
+  // Profile Upgrade purchase buttons
+  document.querySelectorAll('.btn-buy-upgrade').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const upgradeId = e.target.dataset.upgradeId;
+      const upgrade = PROFILE_UPGRADES[upgradeId];
+      if (upgrade) {
+        initiateCheckout('profile-upgrade', upgrade.name, upgrade.price, upgradeId);
+      }
+    });
+  });
+  
+  // DJ Title purchase buttons
+  document.querySelectorAll('.btn-buy-title').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const titleId = e.target.dataset.titleId;
+      const title = DJ_TITLES[titleId];
+      if (title) {
+        initiateCheckout('dj-title', title.name, title.price, titleId);
+      }
+    });
+  });
+  
+  // DJ Title activate buttons
+  document.querySelectorAll('.btn-activate-title').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const titleId = e.target.dataset.titleId;
+      const result = activateTitle(titleId);
+      if (result.success) {
+        showToast('✅ Title activated!');
+        updateDjTitleStore();
+      }
+    });
+  });
+  
+  // Party Extension purchase buttons
+  document.querySelectorAll('.btn-buy-extension').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const extensionId = e.target.dataset.extensionId;
+      const extension = PARTY_EXTENSIONS[extensionId];
+      if (extension) {
+        initiateCheckout('party-extension', extension.name, extension.price, extensionId);
+      }
+    });
+  });
+  
+  // Checkout flow buttons
+  document.getElementById('btnConfirmPurchase')?.addEventListener('click', () => {
+    showCheckoutStep('checkoutPayment');
+  });
+  
+  document.getElementById('btnCancelCheckout')?.addEventListener('click', () => {
+    closeCheckout();
+  });
+  
+  document.getElementById('btnBackToConfirm')?.addEventListener('click', () => {
+    showCheckoutStep('checkoutConfirmation');
+  });
+  
+  document.getElementById('btnProcessPayment')?.addEventListener('click', () => {
+    processCheckoutPayment();
+  });
+  
+  document.getElementById('btnCloseCheckoutSuccess')?.addEventListener('click', () => {
+    closeCheckout();
+  });
+  
+  // Upsell modal buttons
+  document.getElementById('btnUpsellUpgrade')?.addEventListener('click', () => {
+    closeUpsellModal();
+    showUpgradeHub();
+  });
+  
+  document.getElementById('btnUpsellClose')?.addEventListener('click', () => {
+    closeUpsellModal();
+  });
+}
+
+// Checkout state
+let currentCheckout = null;
+
+/**
+ * Show Upgrade Hub
+ */
+function showUpgradeHub() {
+  // Update current status card
+  const isPro = monetizationState.proSubscriptionActive;
+  document.getElementById('currentStatusFree').classList.toggle('hidden', isPro);
+  document.getElementById('currentStatusPro').classList.toggle('hidden', !isPro);
+  
+  showView('viewUpgradeHub');
+}
+
+/**
+ * Show Visual Pack Store
+ */
+function showVisualPackStore() {
+  updateVisualPackStore();
+  showView('viewVisualPackStore');
+}
+
+/**
+ * Update Visual Pack Store UI
+ */
+function updateVisualPackStore() {
+  document.querySelectorAll('.store-item[data-pack-id]').forEach(item => {
+    const packId = item.dataset.packId;
+    const owned = monetizationState.ownedVisualPacks.includes(packId);
+    const active = monetizationState.activeVisualPack === packId;
+    
+    const buyBtn = item.querySelector('.btn-buy-pack');
+    const activateBtn = item.querySelector('.btn-activate-pack');
+    
+    buyBtn.classList.toggle('hidden', owned);
+    activateBtn.classList.toggle('hidden', !owned);
+    
+    if (active) {
+      activateBtn.textContent = 'ACTIVE';
+      activateBtn.disabled = true;
+    } else {
+      activateBtn.textContent = 'Set Active';
+      activateBtn.disabled = false;
+    }
+  });
+}
+
+/**
+ * Show Profile Upgrades Store
+ */
+function showProfileUpgradesStore() {
+  updateProfileUpgradesStore();
+  showView('viewProfileUpgrades');
+}
+
+/**
+ * Update Profile Upgrades Store UI
+ */
+function updateProfileUpgradesStore() {
+  document.querySelectorAll('.store-item[data-upgrade-id]').forEach(item => {
+    const upgradeId = item.dataset.upgradeId;
+    const owned = monetizationState.ownedProfileUpgrades.includes(upgradeId);
+    
+    const buyBtn = item.querySelector('.btn-buy-upgrade');
+    const ownedBadge = item.querySelector('.owned-badge');
+    
+    buyBtn.classList.toggle('hidden', owned);
+    ownedBadge.classList.toggle('hidden', !owned);
+  });
+}
+
+/**
+ * Show DJ Title Store
+ */
+function showDjTitleStore() {
+  updateDjTitleStore();
+  showView('viewDjTitleStore');
+}
+
+/**
+ * Update DJ Title Store UI
+ */
+function updateDjTitleStore() {
+  document.querySelectorAll('.store-item[data-title-id]').forEach(item => {
+    const titleId = item.dataset.titleId;
+    const owned = monetizationState.ownedTitles.includes(titleId);
+    const active = monetizationState.activeTitle === titleId;
+    
+    const buyBtn = item.querySelector('.btn-buy-title');
+    const activateBtn = item.querySelector('.btn-activate-title');
+    
+    buyBtn.classList.toggle('hidden', owned);
+    activateBtn.classList.toggle('hidden', !owned);
+    
+    if (active) {
+      activateBtn.textContent = 'ACTIVE';
+      activateBtn.disabled = true;
+    } else {
+      activateBtn.textContent = 'Activate';
+      activateBtn.disabled = false;
+    }
+  });
+}
+
+/**
+ * Show Party Extensions Store
+ */
+function showPartyExtensionsStore() {
+  showView('viewPartyExtensions');
+}
+
+/**
+ * Initiate checkout flow
+ */
+function initiateCheckout(type, name, price, itemId = null) {
+  currentCheckout = { type, name, price, itemId };
+  
+  // Update preview - sanitize name by using textContent
+  const preview = document.getElementById('checkoutItemPreview');
+  preview.innerHTML = '';
+  
+  const nameEl = document.createElement('h3');
+  nameEl.textContent = name; // Safe: uses textContent instead of innerHTML
+  preview.appendChild(nameEl);
+  
+  const priceEl = document.createElement('p');
+  priceEl.className = 'checkout-price';
+  priceEl.textContent = `£${price.toFixed(2)}`;
+  preview.appendChild(priceEl);
+  
+  // Show checkout modal
+  showCheckoutStep('checkoutConfirmation');
+  document.getElementById('modalCheckout').classList.remove('hidden');
+}
+
+/**
+ * Show checkout step
+ */
+function showCheckoutStep(stepId) {
+  document.querySelectorAll('.checkout-step').forEach(step => {
+    step.classList.add('hidden');
+  });
+  document.getElementById(stepId).classList.remove('hidden');
+}
+
+/**
+ * Process checkout payment
+ */
+function processCheckoutPayment() {
+  if (!currentCheckout) return;
+  
+  // Simulate payment processing
+  setTimeout(() => {
+    // Process the purchase based on type
+    let result = { success: false };
+    
+    switch (currentCheckout.type) {
+      case 'pro-subscription':
+        result = purchaseProSubscription();
+        break;
+      case 'party-pass':
+        result = purchasePartyPass();
+        break;
+      case 'visual-pack':
+        result = purchaseVisualPack(currentCheckout.itemId);
+        break;
+      case 'dj-title':
+        result = purchaseTitle(currentCheckout.itemId);
+        break;
+      case 'profile-upgrade':
+        result = purchaseProfileUpgrade(currentCheckout.itemId);
+        break;
+      case 'party-extension':
+        result = purchasePartyExtension(currentCheckout.itemId);
+        break;
+    }
+    
+    if (result.success) {
+      showCheckoutStep('checkoutSuccess');
+      
+      // Update relevant store UIs
+      updateVisualPackStore();
+      updateProfileUpgradesStore();
+      updateDjTitleStore();
+      
+      // Apply changes immediately
+      applyActiveVisualPack();
+      applyProfileUpgrades();
+      updateDJTitleDisplay();
+      updateTierDisplay();
+    } else {
+      showToast('❌ Purchase failed: ' + (result.error || 'Unknown error'));
+      closeCheckout();
+    }
+  }, 1000);
+}
+
+/**
+ * Close checkout modal
+ */
+function closeCheckout() {
+  document.getElementById('modalCheckout').classList.add('hidden');
+  currentCheckout = null;
+}
+
+/**
+ * Show upsell modal
+ */
+function showUpsellModal(title, message) {
+  const titleEl = document.getElementById('upsellTitle');
+  const messageEl = document.getElementById('upsellMessage');
+  
+  // Safe: using textContent
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  
+  document.getElementById('modalUpsell').classList.remove('hidden');
+}
+
+/**
+ * Close upsell modal
+ */
+function closeUpsellModal() {
+  document.getElementById('modalUpsell').classList.add('hidden');
+}
+
+/**
+ * Add upsell to guest message attempt (when trying to send text in free mode)
+ */
+function checkGuestMessageUpsell() {
+  if (state.userTier === USER_TIER.FREE) {
+    showUpsellModal('Unlock Messages', 'Unlock messages with Pro!');
+    return false; // Block the message
+  }
+  return true; // Allow the message
+}
+
+/**
+ * Add upsell when phone limit reached
+ */
+function checkPhoneLimitUpsell(currentCount) {
+  const limit = getCurrentPhoneLimit();
+  if (currentCount >= limit) {
+    showUpsellModal('Phone Limit Reached', `Upgrade to connect more phones! Current limit: ${limit}`);
+    return false; // Block joining
+  }
+  return true; // Allow joining
+}
+
+/**
+ * Show end-of-party upsell
+ */
+function showEndOfPartyUpsell() {
+  showUpsellModal('Great Party!', 'Want more features next time? Check out our upgrade options!');
+}
+
+/**
+ * Add upgrade button to profile page
+ */
+function addProfileUpgradeButton() {
+  const user = getCurrentUser();
+  if (!user) return;
+  
+  if (!monetizationState.proSubscriptionActive) {
+    // Add upgrade button to profile if not already present
+    const profileContainer = document.querySelector('#viewProfile .profile-container');
+    if (profileContainer && !document.getElementById('btnProfileUpgrade')) {
+      const upgradeBtn = document.createElement('button');
+      upgradeBtn.id = 'btnProfileUpgrade';
+      upgradeBtn.className = 'btn primary full-width';
+      upgradeBtn.textContent = '⭐ Upgrade to Pro';
+      upgradeBtn.addEventListener('click', showUpgradeHub);
+      
+      const settingsCard = profileContainer.querySelector('.glass-card:last-child');
+      if (settingsCard) {
+        profileContainer.insertBefore(upgradeBtn, settingsCard);
+      }
+    }
+  }
+}
+
+/**
+ * Add upgrade button to host lobby
+ */
+function addHostLobbyUpgradeButton() {
+  if (!monetizationState.proSubscriptionActive && !monetizationState.partyPassActiveForCurrentParty) {
+    const hostView = document.getElementById('viewHome');
+    if (hostView && !document.getElementById('btnHostUpgrade')) {
+      const upgradeBtn = document.createElement('button');
+      upgradeBtn.id = 'btnHostUpgrade';
+      upgradeBtn.className = 'btn btn-party-pass';
+      upgradeBtn.textContent = '🎉 Upgrade This Party';
+      upgradeBtn.addEventListener('click', showUpgradeHub);
+      
+      // Insert after party code display
+      const codeDisplay = hostView.querySelector('.party-code');
+      if (codeDisplay && codeDisplay.parentElement) {
+        codeDisplay.parentElement.insertBefore(upgradeBtn, codeDisplay.nextSibling);
+      }
+    }
+  }
+}
+
+// Initialize monetization UI when DOM is loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMonetizationUI);
+} else {
+  initMonetizationUI();
 }
