@@ -10,10 +10,14 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
     "express": "^4.19.2",
     "ioredis": "^5.9.2",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "nanoid": "^3.3.11",
+    "pg": "^8.18.0",
     "ws": "^8.17.1"
   },
   "devDependencies": {

@@ -7,6 +7,12 @@ const { URL } = require("url");
 const multer = require("multer");
 const fs = require("fs");
 const { nanoid } = require('nanoid');
+const cookieParser = require('cookie-parser');
+
+// Import auth and database modules
+const db = require('./database');
+const authMiddleware = require('./auth-middleware');
+const storeCatalog = require('./store-catalog');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -205,6 +211,9 @@ if (redis) {
 // Parse JSON bodies
 app.use(express.json());
 
+// Parse cookies for JWT authentication
+app.use(cookieParser());
+
 // Add version header to all responses
 app.use((req, res, next) => {
   res.setHeader("X-App-Version", APP_VERSION);
@@ -387,6 +396,401 @@ app.get("/api/routes", (req, res) => {
     routes: routes,
     totalRoutes: routes.length
   });
+});
+
+// ============================================================================
+// AUTHENTICATION ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/auth/signup
+ * Create new user account
+ */
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const { email, password, djName } = req.body;
+
+    // Validate input
+    if (!authMiddleware.isValidEmail(email)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    if (!authMiddleware.isValidPassword(password)) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    if (!djName || djName.trim().length === 0) {
+      return res.status(400).json({ error: 'DJ name is required' });
+    }
+
+    // Check if email already exists
+    const existingUser = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Hash password
+    const passwordHash = await authMiddleware.hashPassword(password);
+
+    // Create user
+    const result = await db.query(
+      `INSERT INTO users (email, password_hash, dj_name)
+       VALUES ($1, $2, $3)
+       RETURNING id, email, dj_name, created_at`,
+      [email.toLowerCase(), passwordHash, djName.trim()]
+    );
+
+    const user = result.rows[0];
+
+    // Create DJ profile for user
+    await db.query(
+      `INSERT INTO dj_profiles (user_id, dj_score, dj_rank)
+       VALUES ($1, 0, 'Bedroom DJ')`,
+      [user.id]
+    );
+
+    // Generate JWT token
+    const token = authMiddleware.generateToken({
+      userId: user.id,
+      email: user.email
+    });
+
+    // Set HTTP-only cookie
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: 'lax'
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        djName: user.dj_name,
+        createdAt: user.created_at
+      }
+    });
+  } catch (error) {
+    console.error('[Auth] Signup error:', error);
+    res.status(500).json({ error: 'Failed to create account' });
+  }
+});
+
+/**
+ * POST /api/auth/login
+ * Log in existing user
+ */
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate input
+    if (!authMiddleware.isValidEmail(email)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    // Find user
+    const result = await db.query(
+      'SELECT id, email, password_hash, dj_name FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = result.rows[0];
+
+    // Verify password
+    const isValid = await authMiddleware.verifyPassword(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Update last login
+    await db.query(
+      'UPDATE users SET last_login = NOW() WHERE id = $1',
+      [user.id]
+    );
+
+    // Generate JWT token
+    const token = authMiddleware.generateToken({
+      userId: user.id,
+      email: user.email
+    });
+
+    // Set HTTP-only cookie
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: 'lax'
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        djName: user.dj_name
+      }
+    });
+  } catch (error) {
+    console.error('[Auth] Login error:', error);
+    res.status(500).json({ error: 'Failed to log in' });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Log out current user
+ */
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie('auth_token');
+  res.json({ success: true });
+});
+
+/**
+ * GET /api/me
+ * Get current user info with tier and entitlements
+ */
+app.get("/api/me", authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get user basic info
+    const userResult = await db.query(
+      'SELECT id, email, dj_name, created_at FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Get DJ profile
+    const profileResult = await db.query(
+      `SELECT dj_score, dj_rank, active_visual_pack, active_title,
+              verified_badge, crown_effect, animated_name, reaction_trail
+       FROM dj_profiles WHERE user_id = $1`,
+      [userId]
+    );
+
+    const profile = profileResult.rows[0] || {
+      dj_score: 0,
+      dj_rank: 'Bedroom DJ',
+      active_visual_pack: null,
+      active_title: null,
+      verified_badge: false,
+      crown_effect: false,
+      animated_name: false,
+      reaction_trail: false
+    };
+
+    // Get active subscription
+    const subResult = await db.query(
+      `SELECT status, current_period_end
+       FROM subscriptions
+       WHERE user_id = $1 AND status = 'active'
+       ORDER BY current_period_end DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    const hasProSubscription = subResult.rows.length > 0 &&
+      new Date(subResult.rows[0].current_period_end) > new Date();
+
+    // Get owned entitlements
+    const entitlementsResult = await db.query(
+      'SELECT item_type, item_key FROM entitlements WHERE user_id = $1 AND owned = true',
+      [userId]
+    );
+
+    const entitlements = entitlementsResult.rows;
+
+    // Determine tier (PRO if subscription active, else FREE for now)
+    const tier = hasProSubscription ? 'PRO' : 'FREE';
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        djName: user.dj_name,
+        createdAt: user.created_at
+      },
+      tier,
+      profile: {
+        djScore: profile.dj_score,
+        djRank: profile.dj_rank,
+        activeVisualPack: profile.active_visual_pack,
+        activeTitle: profile.active_title,
+        verifiedBadge: profile.verified_badge,
+        crownEffect: profile.crown_effect,
+        animatedName: profile.animated_name,
+        reactionTrail: profile.reaction_trail
+      },
+      entitlements: entitlements.map(e => ({
+        type: e.item_type,
+        key: e.item_key
+      }))
+    });
+  } catch (error) {
+    console.error('[Auth] Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user info' });
+  }
+});
+
+// ============================================================================
+// STORE ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/store
+ * Get store catalog
+ */
+app.get("/api/store", authMiddleware.optionalAuth, (req, res) => {
+  const catalog = storeCatalog.getStoreCatalog();
+  res.json(catalog);
+});
+
+/**
+ * POST /api/purchase
+ * Process a purchase
+ */
+app.post("/api/purchase", authMiddleware.requireAuth, async (req, res) => {
+  const client = await db.getClient();
+  
+  try {
+    const { itemId, partyCode } = req.body;
+    const userId = req.user.userId;
+
+    // Get item from catalog
+    const item = storeCatalog.getItemById(itemId);
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    await client.query('BEGIN');
+
+    // Record purchase
+    const expiresAt = item.duration ?
+      new Date(Date.now() + item.duration * 1000) : null;
+
+    const purchaseKind = item.permanent ? 'permanent' :
+      (item.type === storeCatalog.STORE_CATEGORIES.SUBSCRIPTIONS ? 'subscription' : 'party_temp');
+
+    await client.query(
+      `INSERT INTO purchases (user_id, purchase_kind, item_type, item_key, price_gbp, party_code, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, purchaseKind, item.type, item.id, item.price, partyCode || null, expiresAt]
+    );
+
+    // Grant entitlement for permanent items
+    if (item.permanent) {
+      await client.query(
+        `INSERT INTO entitlements (user_id, item_type, item_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, item_type, item_key) DO NOTHING`,
+        [userId, item.type, item.id]
+      );
+    }
+
+    // Apply item effect based on type
+    if (item.type === storeCatalog.STORE_CATEGORIES.VISUAL_PACKS) {
+      // Replace active visual pack
+      await client.query(
+        'UPDATE dj_profiles SET active_visual_pack = $1, updated_at = NOW() WHERE user_id = $2',
+        [item.id, userId]
+      );
+    } else if (item.type === storeCatalog.STORE_CATEGORIES.DJ_TITLES) {
+      // Replace active title
+      await client.query(
+        'UPDATE dj_profiles SET active_title = $1, updated_at = NOW() WHERE user_id = $2',
+        [item.id, userId]
+      );
+    } else if (item.type === storeCatalog.STORE_CATEGORIES.PROFILE_UPGRADES) {
+      // Stack profile upgrades
+      const updates = {};
+      if (item.id === 'verified_badge') updates.verified_badge = true;
+      if (item.id === 'crown_effect') updates.crown_effect = true;
+      if (item.id === 'animated_name') updates.animated_name = true;
+      if (item.id === 'reaction_trail') updates.reaction_trail = true;
+
+      if (Object.keys(updates).length > 0) {
+        const setClause = Object.keys(updates).map((key, i) => `${key} = $${i + 1}`).join(', ');
+        const values = [...Object.values(updates), userId];
+        await client.query(
+          `UPDATE dj_profiles SET ${setClause}, updated_at = NOW() WHERE user_id = $${values.length}`,
+          values
+        );
+      }
+    } else if (item.type === storeCatalog.STORE_CATEGORIES.SUBSCRIPTIONS) {
+      // Handle subscription
+      if (item.id === 'party_pass') {
+        // Party Pass is handled per-party
+        if (partyCode && redis) {
+          const partyKey = `party:${partyCode}`;
+          const partyPassExpires = Date.now() + item.duration * 1000;
+          await redis.hset(partyKey, 'partyPassExpiresAt', partyPassExpires);
+          await redis.hset(partyKey, 'maxPhones', item.maxPhones);
+        }
+      } else if (item.id === 'pro_monthly') {
+        // Create/update Pro subscription
+        const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await client.query(
+          `INSERT INTO subscriptions (user_id, status, current_period_start, current_period_end)
+           VALUES ($1, 'active', NOW(), $2)
+           ON CONFLICT (id) DO UPDATE SET
+             status = 'active',
+             current_period_start = NOW(),
+             current_period_end = $2,
+             updated_at = NOW()`,
+          [userId, periodEnd]
+        );
+      }
+    } else if (item.type === storeCatalog.STORE_CATEGORIES.PARTY_EXTENSIONS) {
+      // Party extensions - apply to Redis party
+      if (partyCode && redis) {
+        const partyKey = `party:${partyCode}`;
+        
+        if (item.id === 'add_30min') {
+          const currentExpiry = await redis.hget(partyKey, 'partyPassExpiresAt');
+          const newExpiry = (parseInt(currentExpiry) || Date.now()) + 30 * 60 * 1000;
+          await redis.hset(partyKey, 'partyPassExpiresAt', newExpiry);
+        } else if (item.id === 'add_5phones') {
+          const currentMax = await redis.hget(partyKey, 'maxPhones');
+          const newMax = (parseInt(currentMax) || 2) + 5;
+          await redis.hset(partyKey, 'maxPhones', newMax);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Purchase successful',
+      item: {
+        id: item.id,
+        name: item.name,
+        type: item.type
+      }
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[Store] Purchase error:', error);
+    res.status(500).json({ error: 'Failed to process purchase' });
+  } finally {
+    client.release();
+  }
 });
 
 // Track file registry for TTL cleanup
@@ -1896,6 +2300,23 @@ async function startServer() {
   console.log(`   Instance ID: ${INSTANCE_ID}`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Version: ${APP_VERSION}`);
+  
+  // Initialize database schema
+  console.log("⏳ Initializing database...");
+  try {
+    const dbHealth = await db.healthCheck();
+    if (dbHealth.healthy) {
+      console.log("✅ Database connected successfully");
+      await db.initializeSchema();
+      console.log("✅ Database schema initialized");
+    } else {
+      console.warn(`⚠️  Database health check failed: ${dbHealth.error}`);
+      console.warn("   Authentication features will not be available");
+    }
+  } catch (err) {
+    console.warn(`⚠️  Database initialization error: ${err.message}`);
+    console.warn("   Authentication features will not be available");
+  }
   
   // Wait for Redis to be ready (with timeout)
   if (redis) {
