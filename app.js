@@ -1372,6 +1372,7 @@ function playGuestAudio() {
 
 // Drift correction - runs every 5 seconds
 let driftCorrectionInterval = null;
+let lastDriftValue = 0; // Track last drift for UI updates
 
 function startDriftCorrection(startAtServerMs, startPositionSec) {
   // Clear any existing interval
@@ -1393,8 +1394,12 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     // Calculate drift
     const currentSec = state.guestAudioElement.currentTime;
     const drift = Math.abs(currentSec - idealSec);
+    lastDriftValue = drift;
     
     console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
+    
+    // Update drift UI
+    updateGuestSyncQuality(drift);
     
     // Correct if drift > threshold
     if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
@@ -1410,6 +1415,66 @@ function stopDriftCorrection() {
     driftCorrectionInterval = null;
     console.log("[Drift Correction] Stopped");
   }
+}
+
+// Update guest sync quality indicator based on drift
+function updateGuestSyncQuality(drift) {
+  const driftValueEl = el("guestDriftValue");
+  const qualityBadgeEl = el("guestSyncQuality");
+  
+  if (driftValueEl) {
+    driftValueEl.textContent = drift.toFixed(2);
+  }
+  
+  if (qualityBadgeEl) {
+    // Remove all quality classes
+    qualityBadgeEl.classList.remove("medium", "bad");
+    
+    // Classify sync quality based on drift
+    if (drift < 0.15) {
+      // Good sync (< 150ms)
+      qualityBadgeEl.textContent = "Good";
+    } else if (drift < 0.5) {
+      // Medium sync (150-500ms)
+      qualityBadgeEl.textContent = "Medium";
+      qualityBadgeEl.classList.add("medium");
+    } else {
+      // Bad sync (> 500ms)
+      qualityBadgeEl.textContent = "Bad";
+      qualityBadgeEl.classList.add("bad");
+    }
+  }
+}
+
+// Manual resync function for guests
+function manualResyncGuest() {
+  console.log("[Guest] Manual resync triggered");
+  
+  // Show feedback
+  toast("Resyncing audio...");
+  
+  // Force re-sync by reloading current playback state
+  if (state.guestAudioElement && state.snapshot && state.snapshot.startAtServerMs) {
+    const elapsedSec = (Date.now() - state.snapshot.startAtServerMs) / 1000;
+    const idealSec = (state.snapshot.startPositionSec || 0) + elapsedSec;
+    
+    console.log("[Guest] Jumping to ideal position:", idealSec.toFixed(2));
+    state.guestAudioElement.currentTime = idealSec;
+    
+    toast("✓ Resynced!", "success");
+  } else {
+    console.warn("[Guest] Cannot resync - no active playback");
+    toast("No active playback to resync", "warning");
+  }
+}
+
+// Report out of sync to host
+function reportOutOfSync() {
+  console.log("[Guest] Reporting out of sync");
+  toast("Out of sync report sent to DJ");
+  
+  // TODO: Send WebSocket message to host about sync issue
+  // For now, just show feedback to user
 }
 
 // Cleanup guest audio element
@@ -2213,6 +2278,11 @@ async function uploadTrackToServer(file) {
         musicState.uploadProgress = percentComplete;
         if (uploadProgressEl) {
           uploadProgressEl.textContent = `Uploading: ${percentComplete}%`;
+        }
+        // Update progress bar
+        const progressBarEl = el("uploadProgressBar");
+        if (progressBarEl) {
+          progressBarEl.style.width = `${percentComplete}%`;
         }
         console.log(`[Upload] Progress: ${percentComplete}%`);
       }
@@ -3233,6 +3303,22 @@ function attemptAddPhone() {
       } else {
         showLanding();
       }
+    };
+  }
+
+  // Guest resync button handler
+  const btnGuestResync = el("btnGuestResync");
+  if (btnGuestResync) {
+    btnGuestResync.onclick = () => {
+      manualResyncGuest();
+    };
+  }
+
+  // Report out of sync button handler
+  const btnReportOutOfSync = el("btnReportOutOfSync");
+  if (btnReportOutOfSync) {
+    btnReportOutOfSync.onclick = () => {
+      reportOutOfSync();
     };
   }
 

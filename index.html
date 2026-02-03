@@ -244,7 +244,12 @@
             
             <!-- Upload Status -->
             <div class="hidden" id="uploadStatus">
-              <div id="uploadProgress">Preparing upload...</div>
+              <div class="upload-progress-container">
+                <div class="upload-progress-bar">
+                  <div class="upload-progress-fill" id="uploadProgressBar" style="width: 0%"></div>
+                </div>
+                <div class="upload-progress-text" id="uploadProgress">Preparing upload...</div>
+              </div>
             </div>
             
             <div class="tiny muted music-helper">
@@ -720,6 +725,35 @@
           <span class="volume-value" id="guestVolumeValue">80%</span>
         </div>
         <div class="tiny muted">Adjust volume on your device only</div>
+      </div>
+
+      <!-- Guest Sync Controls -->
+      <div class="glass-card guest-sync-controls">
+        <h4 class="section-title-small">🎵 Sync Controls</h4>
+        
+        <!-- Sync Quality Indicator -->
+        <div class="sync-quality-section">
+          <div class="sync-quality-header">
+            <span class="sync-quality-label">Sync Quality:</span>
+            <span class="sync-quality-badge" id="guestSyncQuality">Good</span>
+          </div>
+          <div class="sync-drift-info">
+            <span class="tiny muted">Drift: <span id="guestDriftValue">0.00</span>s</span>
+          </div>
+        </div>
+
+        <!-- Resync Button -->
+        <button class="btn-resync" id="btnGuestResync">
+          <span class="resync-icon">🔄</span>
+          <span>Tap to Resync</span>
+        </button>
+
+        <!-- Report Out of Sync Button -->
+        <button class="btn-report-sync secondary" id="btnReportOutOfSync">
+          <span>⚠️ Report Out of Sync</span>
+        </button>
+
+        <div class="tiny muted">Use resync if audio feels off</div>
       </div>
 
       <!-- Guest Messages to Host -->
