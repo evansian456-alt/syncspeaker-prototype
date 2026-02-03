@@ -2462,13 +2462,18 @@ async function uploadTrackToServer(file) {
               
               // Broadcast TRACK_SELECTED to guests with trackId and trackUrl
               if (state.isHost && state.ws) {
-                state.nowPlayingFilename = file.name;
-                send({ 
-                  t: "HOST_TRACK_SELECTED", 
-                  trackId: response.trackId,
-                  trackUrl: response.trackUrl,
-                  filename: file.name 
-                });
+                try {
+                  send({ 
+                    t: "HOST_TRACK_SELECTED", 
+                    trackId: response.trackId,
+                    trackUrl: response.trackUrl,
+                    filename: file.name 
+                  });
+                  // Only update state after successful send
+                  state.nowPlayingFilename = file.name;
+                } catch (e) {
+                  console.error("[Upload] Error broadcasting track selected:", e);
+                }
               }
               
               // Hide upload status after 2 seconds

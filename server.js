@@ -389,6 +389,11 @@ app.get("/api/routes", (req, res) => {
   });
 });
 
+// Track file registry for TTL cleanup
+// Map of trackId -> { filename, originalName, uploadedAt, filepath, contentType, sizeBytes }
+const uploadedTracks = new Map();
+const TRACK_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 // POST /api/upload-track - Upload audio file from host
 app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
   const timestamp = new Date().toISOString();
@@ -449,11 +454,6 @@ app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
     });
   }
 });
-
-// Track file registry for TTL cleanup
-// Map of trackId -> { filename, uploadedAt, filepath }
-const uploadedTracks = new Map();
-const TRACK_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Endpoint to stream audio tracks with Range support (required for seeking and mobile playback)
 app.get("/api/track/:trackId", async (req, res) => {
@@ -1878,6 +1878,12 @@ function cleanupExpiredTracks() {
   }
 }
 
+// Combined cleanup job for parties and tracks
+function runCleanupJobs() {
+  cleanupExpiredParties();
+  cleanupExpiredTracks();
+}
+
 // Start cleanup interval
 let cleanupInterval;
 
@@ -1939,10 +1945,7 @@ async function startServer() {
   });
   
   // Start cleanup interval
-  cleanupInterval = setInterval(() => {
-    cleanupExpiredParties();
-    cleanupExpiredTracks();
-  }, CLEANUP_INTERVAL_MS);
+  cleanupInterval = setInterval(runCleanupJobs, CLEANUP_INTERVAL_MS);
   console.log(`[Server] Party cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${PARTY_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
   console.log(`[Server] Track cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${TRACK_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
   
