@@ -136,7 +136,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should include created parties in the list', async () => {
       // Create a party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Get debug info
@@ -153,7 +154,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should show party age in minutes', async () => {
       // Create a party
-      await request(app).post('/api/create-party');
+      await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       
       // Get debug info
       const response = await request(app).get('/api/debug/parties');
@@ -170,7 +172,8 @@ describe('Server HTTP Endpoints', () => {
   describe('GET /api/debug/party/:code', () => {
     it('should return party info for existing party', async () => {
       // Create a party first
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Get debug info for that specific party
@@ -197,7 +200,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should normalize party code (uppercase)', async () => {
       // Create a party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Query with lowercase code
@@ -209,7 +213,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should include ageMs for existing party', async () => {
       // Create a party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Wait a bit
@@ -226,7 +231,8 @@ describe('Server HTTP Endpoints', () => {
   describe('Guest Join Party Bug Fix', () => {
     it('should allow guest to join immediately after party creation', async () => {
       // Host creates party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
@@ -241,7 +247,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should allow guest to join after short delay', async () => {
       // Host creates party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
@@ -270,7 +277,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should normalize party code on join (uppercase + trim)', async () => {
       // Host creates party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
@@ -285,7 +293,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should persist party to Redis before responding', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
@@ -298,7 +307,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should include instanceId and redisStatus in debug endpoint', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
       
@@ -313,8 +323,28 @@ describe('Server HTTP Endpoints', () => {
   });
 
   describe('POST /api/create-party', () => {
-    it('should create a new party and return party code', async () => {
+    it('should reject party creation without DJ name', async () => {
       const response = await request(app).post('/api/create-party');
+      
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toBe('DJ name is required to create a party');
+    });
+
+    it('should reject party creation with empty DJ name', async () => {
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: '' });
+      
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toBe('DJ name is required to create a party');
+    });
+
+    it('should create a new party with DJ name and return party code', async () => {
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ Alex' });
       
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('partyCode');
@@ -322,15 +352,21 @@ describe('Server HTTP Endpoints', () => {
     });
 
     it('should return a 6-character party code', async () => {
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       
       expect(response.body.partyCode).toHaveLength(6);
       expect(response.body.partyCode).toMatch(/^[A-Z0-9]{6}$/);
     });
 
     it('should return a unique hostId', async () => {
-      const response1 = await request(app).post('/api/create-party');
-      const response2 = await request(app).post('/api/create-party');
+      const response1 = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ Test1' });
+      const response2 = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ Test2' });
       
       expect(response1.body.hostId).toBeDefined();
       expect(response2.body.hostId).toBeDefined();
@@ -342,7 +378,9 @@ describe('Server HTTP Endpoints', () => {
       
       // Create multiple parties
       for (let i = 0; i < 10; i++) {
-        const response = await request(app).post('/api/create-party');
+        const response = await request(app)
+          .post('/api/create-party')
+          .send({ djName: `DJ Test${i}` });
         codes.add(response.body.partyCode);
       }
       
@@ -351,7 +389,9 @@ describe('Server HTTP Endpoints', () => {
     });
 
     it('should store party in parties map', async () => {
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ TestStore' });
       const partyCode = response.body.partyCode;
       
       expect(parties.has(partyCode)).toBe(true);
@@ -364,7 +404,9 @@ describe('Server HTTP Endpoints', () => {
     });
 
     it('should return JSON content type', async () => {
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ TestJSON' });
       expect(response.headers['content-type']).toMatch(/json/);
     });
   });
@@ -373,8 +415,10 @@ describe('Server HTTP Endpoints', () => {
     let partyCode;
 
     beforeEach(async () => {
-      // Create a party to join
-      const response = await request(app).post('/api/create-party');
+      // Create a party to join with DJ name
+      const response = await request(app)
+        .post('/api/create-party')
+        .send({ djName: 'DJ TestHost' });
       partyCode = response.body.partyCode;
     });
 
@@ -388,6 +432,15 @@ describe('Server HTTP Endpoints', () => {
       expect(response.body).toHaveProperty('guestId');
       expect(response.body).toHaveProperty('nickname');
       expect(response.body).toHaveProperty('partyCode', partyCode);
+    });
+
+    it('should return DJ name when joining party', async () => {
+      const response = await request(app)
+        .post('/api/join-party')
+        .send({ partyCode });
+      
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('djName', 'DJ TestHost');
     });
 
     it('should return 400 if party code is missing', async () => {
@@ -462,7 +515,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should allow joining a party immediately after creation (no race condition)', async () => {
       // Create a party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       expect(createResponse.status).toBe(200);
       const newPartyCode = createResponse.body.partyCode;
       
@@ -479,7 +533,8 @@ describe('Server HTTP Endpoints', () => {
 
     it('should handle slow Redis gracefully', async () => {
       // Create a party first
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const testCode = createResponse.body.partyCode;
       
       // Mock a slow Redis response by temporarily slowing down get
@@ -513,7 +568,8 @@ describe('Server HTTP Endpoints', () => {
 
     beforeEach(async () => {
       // Create a party to query
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       partyCode = response.body.partyCode;
     });
 
@@ -620,7 +676,8 @@ describe('Party Storage and Sync', () => {
   describe('Party TTL and Cleanup', () => {
     it('should store createdAt timestamp when creating a party', async () => {
       const beforeCreate = Date.now();
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const afterCreate = Date.now();
       
       expect(response.status).toBe(200);
@@ -635,7 +692,8 @@ describe('Party Storage and Sync', () => {
 
     it('should include party age in join response logs', async () => {
       // Create a party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Wait a small amount of time
@@ -668,9 +726,12 @@ describe('Party Storage and Sync', () => {
 
     it('should handle multiple parties in storage', async () => {
       // Create multiple parties
-      const party1 = await request(app).post('/api/create-party');
-      const party2 = await request(app).post('/api/create-party');
-      const party3 = await request(app).post('/api/create-party');
+      const party1 = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
+      const party2 = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
+      const party3 = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       
       // Verify all parties are in storage
       expect(parties.size).toBe(3);
@@ -697,7 +758,8 @@ describe('Party Storage and Sync', () => {
 
   describe('Enhanced Logging', () => {
     it('should log timestamp when creating party', async () => {
-      const response = await request(app).post('/api/create-party');
+      const response = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       
       expect(response.status).toBe(200);
       // Verify response includes expected fields
@@ -706,7 +768,8 @@ describe('Party Storage and Sync', () => {
     });
 
     it('should log timestamp and party details when joining party', async () => {
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       const joinResponse = await request(app)
@@ -730,7 +793,8 @@ describe('Production Scenarios', () => {
     it('should allow party created via HTTP to be discovered via GET /api/party/:code', async () => {
       // Simulate first request: Create party
       const createResponse = await request(app)
-        .post('/api/create-party');
+        .post('/api/create-party')
+          .send({ djName: 'DJ Test' });
       
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
@@ -752,7 +816,8 @@ describe('Production Scenarios', () => {
     it('should persist party in Redis for cross-instance lookup', async () => {
       // Create party
       const createResponse = await request(app)
-        .post('/api/create-party');
+        .post('/api/create-party')
+          .send({ djName: 'DJ Test' });
       
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
@@ -771,7 +836,8 @@ describe('Production Scenarios', () => {
     it('should allow guests to join party created on different instance', async () => {
       // Instance 1: Create party
       const createResponse = await request(app)
-        .post('/api/create-party');
+        .post('/api/create-party')
+          .send({ djName: 'DJ Test' });
       
       expect(createResponse.status).toBe(200);
       const partyCode = createResponse.body.partyCode;
@@ -908,7 +974,8 @@ describe('Party Management Endpoints', () => {
   describe('POST /api/leave-party', () => {
     it('should remove guest from party', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Join party as guest
@@ -960,7 +1027,8 @@ describe('Party Management Endpoints', () => {
   describe('POST /api/end-party', () => {
     it('should mark party as ended', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // End party
@@ -998,7 +1066,8 @@ describe('Party Management Endpoints', () => {
 
     it('should prevent joining ended party', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // End party
@@ -1019,7 +1088,8 @@ describe('Party Management Endpoints', () => {
   describe('GET /api/party', () => {
     it('should return party state with guests', async () => {
       // Create party
-      const createResponse = await request(app).post('/api/create-party');
+      const createResponse = await request(app).post('/api/create-party')
+        .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
       
       // Join as guest
