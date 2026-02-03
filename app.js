@@ -3391,8 +3391,8 @@ function attemptAddPhone() {
   };
 
   el("btnSelectPro").onclick = () => {
-    console.log("[UI] Pro tier clicked");
-    alert("Pro subscription required. This is a demo - please enable Pro mode in settings.");
+    console.log("[UI] Pro tier selected");
+    showPayment();
   };
 
   el("btnBackToLanding").onclick = () => {
