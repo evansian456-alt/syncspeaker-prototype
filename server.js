@@ -2545,6 +2545,9 @@ function handleMessage(ws, msg) {
     case "CHAT_MODE_SET":
       handleChatModeSet(ws, msg);
       break;
+    case "HOST_BROADCAST_MESSAGE":
+      handleHostBroadcastMessage(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -3256,6 +3259,37 @@ function handleChatModeSet(ws, msg) {
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
+    }
+  });
+}
+
+function handleHostBroadcastMessage(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can broadcast messages
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can broadcast messages" }));
+    return;
+  }
+  
+  const messageText = (msg.message || "").trim().substring(0, 100);
+  
+  console.log(`[Party] Host broadcasting message "${messageText}" in party ${client.party}`);
+  
+  // Broadcast to all members (including guests only, not back to host)
+  const broadcastMsg = JSON.stringify({ 
+    t: "HOST_BROADCAST_MESSAGE", 
+    message: messageText
+  });
+  
+  party.members.forEach(m => {
+    // Send to guests only (not to host)
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(broadcastMsg);
     }
   });
 }

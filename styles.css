@@ -2521,6 +2521,115 @@ h2,h3{margin:0}
   font-weight: 500;
 }
 
+/* DJ Preset Messages Section */
+.dj-preset-messages-section {
+  margin: 30px 0;
+  padding: 20px;
+  background: rgba(18,24,35,0.6);
+  border: 2px solid rgba(100,221,23,0.3);
+  border-radius: var(--radius-lg);
+}
+
+.dj-preset-messages-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #64dd17;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(100,221,23,0.2);
+}
+
+.dj-preset-message-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 640px) {
+  .dj-preset-message-buttons {
+    grid-template-columns: 1fr;
+  }
+}
+
+.btn-dj-preset-message {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(100,221,23,0.15) 0%, rgba(139,195,74,0.15) 100%);
+  border: 2px solid rgba(100,221,23,0.3);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.btn-dj-preset-message:hover {
+  background: linear-gradient(135deg, rgba(100,221,23,0.25) 0%, rgba(139,195,74,0.25) 100%);
+  border-color: rgba(100,221,23,0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(100,221,23,0.3);
+}
+
+.btn-dj-preset-message:active,
+.btn-dj-preset-message.btn-sending {
+  transform: scale(0.95);
+  background: linear-gradient(135deg, rgba(100,221,23,0.35) 0%, rgba(139,195,74,0.35) 100%);
+  border-color: rgba(100,221,23,0.7);
+}
+
+/* Guest DJ Messages Display */
+.guest-dj-messages {
+  margin-bottom: 20px;
+}
+
+.guest-dj-messages-header {
+  margin-bottom: 15px;
+}
+
+.guest-dj-messages-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(18,24,35,0.4);
+  border-radius: var(--radius-sm);
+}
+
+.guest-no-dj-messages {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 20px;
+}
+
+.guest-dj-message {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(100,221,23,0.15) 0%, rgba(139,195,74,0.15) 100%);
+  border: 2px solid rgba(100,221,23,0.3);
+  border-radius: var(--radius-sm);
+  animation: messageSlideIn 0.3s ease;
+  box-shadow: 0 2px 8px rgba(100,221,23,0.2);
+}
+
+.guest-dj-message-text {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  text-shadow: 0 0 8px rgba(100,221,23,0.2);
+}
+
+.guest-dj-message.fade-out {
+  animation: messageFadeOut 0.3s ease;
+}
+
 /* DJ Screen Crowd Energy */
 .dj-crowd-energy {
   margin: 30px 0;

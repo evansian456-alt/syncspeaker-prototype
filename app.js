@@ -678,6 +678,14 @@ function handleServer(msg) {
     return;
   }
   
+  // DJ broadcast messages to guests
+  if (msg.t === "HOST_BROADCAST_MESSAGE") {
+    if (!state.isHost) {
+      displayHostBroadcastMessage(msg.message);
+    }
+    return;
+  }
+  
   // Chat mode update
   if (msg.t === "CHAT_MODE_SET") {
     state.chatMode = msg.mode;
@@ -1860,6 +1868,72 @@ function displayDjMessage(message, type = "system") {
   }
 }
 
+// Display host broadcast message on guest screen
+function displayHostBroadcastMessage(message) {
+  console.log("[Host Broadcast]", message);
+  
+  // Show as toast with DJ icon
+  toast(`📢 ${message}`, 5000);
+  
+  // Show the DJ messages card if hidden
+  const djMessagesCard = el("guestDjMessagesCard");
+  if (djMessagesCard) {
+    djMessagesCard.classList.remove("hidden");
+  }
+  
+  // Display in guest DJ messages container
+  const messagesContainer = el("guestDjMessagesContainer");
+  const noMessagesEl = el("guestNoDjMessages");
+  
+  if (messagesContainer) {
+    // Hide "no messages" text
+    if (noMessagesEl) {
+      noMessagesEl.style.display = "none";
+    }
+    
+    // Create message element
+    const messageEl = document.createElement("div");
+    messageEl.className = "guest-dj-message";
+    messageEl.innerHTML = `
+      <div class="guest-dj-message-text">${escapeHtml(message)}</div>
+    `;
+    
+    // Add to container
+    messagesContainer.appendChild(messageEl);
+    
+    // Keep only last 5 messages
+    setTimeout(() => {
+      const messages = messagesContainer.querySelectorAll(".guest-dj-message");
+      if (messages.length > 5) {
+        messages[0].classList.add("fade-out");
+        setTimeout(() => {
+          messages[0].remove();
+          
+          // Show "no messages" if container is empty
+          const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
+          if (remainingMessages.length === 0 && noMessagesEl) {
+            noMessagesEl.style.display = "block";
+          }
+        }, 300);
+      }
+    }, 100);
+    
+    // Auto-remove after 30 seconds
+    setTimeout(() => {
+      messageEl.classList.add("fade-out");
+      setTimeout(() => {
+        messageEl.remove();
+        
+        // Show "no messages" if container is empty
+        const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
+        if (remainingMessages.length === 0 && noMessagesEl) {
+          noMessagesEl.style.display = "block";
+        }
+      }, 300);
+    }, 30000);
+  }
+}
+
 function setupGuestVolumeControl() {
   const sliderEl = el("guestVolumeSlider");
   const valueEl = el("guestVolumeValue");
@@ -1928,6 +2002,16 @@ function updateDjScreen() {
     } else {
       djUpNextEl.classList.add("hidden");
       djUpNextTrackEl.textContent = "No track queued";
+    }
+  }
+  
+  // Show/hide DJ preset messages section based on tier
+  const djPresetMessagesSection = el("djPresetMessagesSection");
+  if (djPresetMessagesSection) {
+    if (state.partyPassActive || state.partyPro) {
+      djPresetMessagesSection.classList.remove("hidden");
+    } else {
+      djPresetMessagesSection.classList.add("hidden");
     }
   }
 }
@@ -2172,6 +2256,48 @@ function setupEmojiReactionButtons() {
         }, 300);
         
         toast(`Sent: ${emoji}`);
+      }
+    };
+  });
+}
+
+function setupDjPresetMessageButtons() {
+  const presetMessageButtons = document.querySelectorAll(".btn-dj-preset-message");
+  
+  presetMessageButtons.forEach(btn => {
+    btn.onclick = () => {
+      // Check spam cooldown
+      const now = Date.now();
+      if (now - state.lastMessageTimestamp < state.messageCooldownMs) {
+        const remainingMs = state.messageCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
+        return;
+      }
+      
+      // Only host can send DJ preset messages
+      if (!state.isHost) {
+        toast("Only the DJ can send these messages", "warning");
+        return;
+      }
+      
+      // Check tier (Party Pass or Pro only)
+      if (!state.partyPassActive && !state.partyPro) {
+        showUpsellModal('Unlock DJ Messages', 'Send messages to all guests with Party Pass or Pro!');
+        return;
+      }
+      
+      const message = btn.getAttribute("data-message");
+      if (message && state.ws) {
+        send({ t: "HOST_BROADCAST_MESSAGE", message: message });
+        state.lastMessageTimestamp = now;
+        
+        // Visual feedback
+        btn.classList.add("btn-sending");
+        setTimeout(() => {
+          btn.classList.remove("btn-sending");
+        }, 300);
+        
+        toast(`Sent to all guests: ${message}`);
       }
     };
   });
@@ -4158,6 +4284,9 @@ function attemptAddPhone() {
   
   // Setup emoji reaction buttons
   setupEmojiReactionButtons();
+  
+  // Setup DJ preset message buttons
+  setupDjPresetMessageButtons();
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();
