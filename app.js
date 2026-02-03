@@ -1256,7 +1256,19 @@ function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosi
   // Create or reuse audio element
   if (!state.guestAudioElement) {
     state.guestAudioElement = new Audio();
-    state.guestAudioElement.volume = state.guestVolume / 100;
+    // Safe volume start - prevent audio blasting
+    // Start at 50% volume or user's saved preference (whichever is lower)
+    const safeVolume = Math.min(state.guestVolume, 50);
+    state.guestAudioElement.volume = safeVolume / 100;
+    state.guestVolume = safeVolume; // Update state to match
+    
+    // Update volume slider if exists
+    const volumeSlider = el("guestVolumeSlider");
+    const volumeValue = el("guestVolumeValue");
+    if (volumeSlider) volumeSlider.value = safeVolume;
+    if (volumeValue) volumeValue.textContent = `${safeVolume}%`;
+    
+    console.log(`[Guest Audio] Safe volume start at ${safeVolume}%`);
     
     // Add event listeners
     state.guestAudioElement.addEventListener('loadeddata', () => {
@@ -1892,6 +1904,44 @@ function setupChatModeSelector() {
       }
     });
   });
+}
+
+// Automated hype messages
+const hypeMessages = {
+  trackStart: [
+    "🔥 Let's go!",
+    "🎵 Here we go!",
+    "💥 Drop incoming!",
+    "🎉 Time to vibe!",
+    "✨ New track energy!"
+  ],
+  guestJoin: [
+    "👋 Welcome to the party!",
+    "🎉 Someone joined!",
+    "✨ New energy in the room!",
+    "👥 Squad getting bigger!"
+  ],
+  peakEnergy: [
+    "🔥🔥🔥 The energy!",
+    "💥 Everyone's vibing!",
+    "🎉 This is the moment!",
+    "⚡ Peak hype achieved!"
+  ]
+};
+
+// Send automated hype message
+function sendAutoHypeMessage(eventType) {
+  if (!state.isHost || !state.ws) return;
+  
+  const messages = hypeMessages[eventType];
+  if (!messages || messages.length === 0) return;
+  
+  // Pick a random message from the category
+  const message = messages[Math.floor(Math.random() * messages.length)];
+  
+  // Send as DJ message
+  send({ t: "DJ_MESSAGE", message: message, isHype: true });
+  console.log(`[Hype] Auto-sent: ${message}`);
 }
 
 function updateChatModeUI() {
