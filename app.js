@@ -6,6 +6,13 @@ const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
 const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 
+// User tier constants
+const USER_TIER = {
+  FREE: 'FREE',
+  PARTY_PASS: 'PARTY_PASS',
+  PRO: 'PRO'
+};
+
 // Music player state
 const musicState = {
   selectedFile: null,
@@ -48,6 +55,7 @@ const state = {
   partyStatusPollingInProgress: false, // Flag to prevent overlapping polling requests
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
+  userTier: USER_TIER.FREE, // User's subscription tier
   // Guest-specific state
   nowPlayingFilename: null,
   upNextFilename: null,
@@ -82,7 +90,10 @@ const state = {
   nextGuestNumber: 1,
   guestNickname: null,
   lastDjMessageTimestamp: 0, // Track last DJ message to avoid duplicates
-  isReconnecting: false // Track if currently in reconnect flow
+  isReconnecting: false, // Track if currently in reconnect flow
+  // Message spam prevention
+  lastMessageTimestamp: 0,
+  messageCooldownMs: 2000 // 2 second cooldown between messages
 };
 
 // Client-side party code generator for offline fallback
@@ -1019,6 +1030,9 @@ function showGuest() {
   // Update party status
   updateGuestPartyStatus();
   
+  // Update tier badge and messaging permissions
+  updateGuestTierUI();
+  
   // Initialize guest UI
   updateGuestNowPlaying(state.nowPlayingFilename);
   updateGuestUpNext(state.upNextFilename);
@@ -1117,6 +1131,35 @@ function updateGuestPartyStatus() {
     statusTextEl.textContent = "Free Plan";
     if (timerEl) timerEl.classList.add("hidden");
   }
+}
+
+// Update guest tier UI based on user's subscription tier
+function updateGuestTierUI() {
+  // Update tier based on party status
+  if (state.partyPassActive) {
+    state.userTier = USER_TIER.PARTY_PASS;
+  } else if (state.isPro || state.partyPro) {
+    state.userTier = USER_TIER.PRO;
+  } else {
+    state.userTier = USER_TIER.FREE;
+  }
+  
+  // Show/hide text message buttons based on tier and chat mode
+  const textMessagesEl = el("guestTextMessages");
+  if (textMessagesEl) {
+    // FREE tier: hide text messages (emoji only)
+    // PARTY_PASS: show preset messages
+    // PRO: show preset messages (custom text would need separate input)
+    // Also respect chat mode
+    if (state.userTier === USER_TIER.FREE || state.chatMode === "EMOJI_ONLY" || state.chatMode === "LOCKED") {
+      textMessagesEl.style.display = "none";
+    } else {
+      textMessagesEl.style.display = "block";
+    }
+  }
+  
+  console.log(`[Guest] Tier updated to: ${state.userTier}, Chat mode: ${state.chatMode}`);
+}
 }
 
 function updateGuestNowPlaying(filename) {
@@ -1756,9 +1799,35 @@ function setupGuestMessageButtons() {
   
   messageButtons.forEach(btn => {
     btn.onclick = () => {
+      // Check spam cooldown
+      const now = Date.now();
+      if (now - state.lastMessageTimestamp < state.messageCooldownMs) {
+        const remainingMs = state.messageCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
+        return;
+      }
+      
+      // Check tier permissions for preset messages
+      if (state.userTier === USER_TIER.FREE) {
+        toast("Upgrade to Party Pass or Pro to send messages", "warning");
+        return;
+      }
+      
+      // Check chat mode
+      if (state.chatMode === "LOCKED") {
+        toast("Chat is locked by DJ", "warning");
+        return;
+      }
+      
+      if (state.chatMode === "EMOJI_ONLY") {
+        toast("DJ has enabled emoji-only mode", "warning");
+        return;
+      }
+      
       const message = btn.getAttribute("data-message");
       if (message && state.ws) {
         send({ t: "GUEST_MESSAGE", message: message, isEmoji: false });
+        state.lastMessageTimestamp = now;
         
         // Visual feedback
         btn.classList.add("btn-sending");
@@ -1777,10 +1846,27 @@ function setupEmojiReactionButtons() {
   
   emojiButtons.forEach(btn => {
     btn.onclick = () => {
+      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      const now = Date.now();
+      const emojiCooldownMs = 1000;
+      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
+        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+        return;
+      }
+      
+      // Check chat mode (emojis blocked only in LOCKED mode)
+      if (state.chatMode === "LOCKED") {
+        toast("Chat is locked by DJ", "warning");
+        return;
+      }
+      
+      // All tiers can send emojis (unless chat is locked)
       const emoji = btn.getAttribute("data-emoji");
       const message = btn.getAttribute("data-message") || emoji;
       if (message && state.ws) {
         send({ t: "GUEST_MESSAGE", message: message, isEmoji: true });
+        state.lastMessageTimestamp = now;
         
         // Visual feedback
         btn.classList.add("btn-sending");
@@ -1846,9 +1932,12 @@ function updateChatModeUI() {
       text.textContent = `Chat: ${mode.replace("_", " ")}`;
     }
     
-    // Control visibility and interactivity
+    // Control visibility based on BOTH chat mode AND user tier
     if (textMessages) {
-      if (mode === "OPEN") {
+      // Show text messages only if:
+      // - Chat mode is OPEN AND
+      // - User tier is PARTY_PASS or PRO (not FREE)
+      if (mode === "OPEN" && (state.userTier === USER_TIER.PARTY_PASS || state.userTier === USER_TIER.PRO)) {
         textMessages.style.display = "flex";
         textMessages.classList.remove("disabled");
       } else {
