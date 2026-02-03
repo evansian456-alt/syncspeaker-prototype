@@ -4317,6 +4317,58 @@ body {
   border-color: rgba(255, 90, 106, 0.5);
 }
 
+/* Guest Playback Buttons */
+.guest-playback-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.btn-guest-play,
+.btn-guest-pause {
+  flex: 1;
+  padding: 14px 20px;
+  border-radius: 14px;
+  border: 2px solid rgba(90, 169, 255, 0.4);
+  background: linear-gradient(135deg, rgba(90,169,255,0.2) 0%, rgba(139,124,255,0.2) 100%);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.btn-guest-play:hover,
+.btn-guest-pause:hover {
+  background: linear-gradient(135deg, rgba(90,169,255,0.3) 0%, rgba(139,124,255,0.3) 100%);
+  border-color: rgba(90, 169, 255, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(90,169,255,0.3);
+}
+
+.btn-guest-play:active,
+.btn-guest-pause:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 640px) {
+  .guest-playback-buttons {
+    flex-direction: column;
+  }
+  
+  .btn-guest-play,
+  .btn-guest-pause {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+}
+
 /* ============================================
    TIER SELECTION SCREEN
    ============================================ */

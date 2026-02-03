@@ -657,6 +657,21 @@ function handleServer(msg) {
     return;
   }
   
+  // Guest playback requests
+  if (msg.t === "GUEST_PLAY_REQUEST") {
+    if (state.isHost) {
+      handleGuestPlayRequest(msg.guestName, msg.guestId);
+    }
+    return;
+  }
+  
+  if (msg.t === "GUEST_PAUSE_REQUEST") {
+    if (state.isHost) {
+      handleGuestPauseRequest(msg.guestName, msg.guestId);
+    }
+    return;
+  }
+  
   // DJ auto-generated messages
   if (msg.t === "DJ_MESSAGE") {
     displayDjMessage(msg.message, msg.type);
@@ -1095,11 +1110,19 @@ function startGuestPartyStatusPolling() {
         }
         
         // Update snapshot with party data
+        const previousChatMode = state.chatMode;
         state.snapshot.guestCount = newGuestCount;
         state.snapshot.chatMode = data.chatMode;
         state.snapshot.status = data.status;
         state.snapshot.expiresAt = data.expiresAt;
         state.snapshot.timeRemainingMs = data.timeRemainingMs;
+        
+        // Update chat mode if changed
+        if (data.chatMode && data.chatMode !== previousChatMode) {
+          console.log(`[Polling] Chat mode changed: ${previousChatMode} → ${data.chatMode}`);
+          state.chatMode = data.chatMode;
+          updateChatModeUI();
+        }
         
         // Log when guests join or leave
         if (newGuestCount !== previousGuestCount) {
@@ -1258,6 +1281,9 @@ function showGuest() {
   
   // Update tier badge and messaging permissions
   updateGuestTierUI();
+  
+  // Update chat mode UI to show/hide preset messages
+  updateChatModeUI();
   
   // Initialize guest UI
   updateGuestNowPlaying(state.nowPlayingFilename);
@@ -1995,6 +2021,40 @@ function handleGuestMessageReceived(message, guestName, guestId, isEmoji) {
   
   // Show toast notification
   toast(`${guestName}: ${message}`);
+}
+
+function handleGuestPlayRequest(guestName, guestId) {
+  console.log(`[DJ] Guest "${guestName}" requested to play music`);
+  
+  // Show toast notification to host
+  toast(`▶️ ${guestName} wants to start the music`, "info");
+  
+  // Auto-play if there's a track available
+  const btnDjPlay = el("btnDjPlay");
+  if (btnDjPlay && !btnDjPlay.disabled) {
+    // Simulate click on play button
+    btnDjPlay.click();
+    toast(`✓ Playing music for ${guestName}`, "success");
+  } else {
+    toast(`⚠️ No track available to play`, "warning");
+  }
+}
+
+function handleGuestPauseRequest(guestName, guestId) {
+  console.log(`[DJ] Guest "${guestName}" requested to pause music`);
+  
+  // Show toast notification to host
+  toast(`⏸️ ${guestName} wants to stop the music`, "info");
+  
+  // Auto-pause if music is playing
+  const btnDjPause = el("btnDjPause");
+  if (btnDjPause && !btnDjPause.disabled) {
+    // Simulate click on pause button
+    btnDjPause.click();
+    toast(`✓ Paused music for ${guestName}`, "success");
+  } else {
+    toast(`⚠️ No music playing to pause`, "warning");
+  }
 }
 
 function createEmojiReactionEffect(emoji) {
@@ -3663,6 +3723,12 @@ function attemptAddPhone() {
         console.log("[DJ Identity] Joined party with DJ:", data.djName);
       }
       
+      // Store chat mode from join response
+      if (data.chatMode) {
+        state.chatMode = data.chatMode;
+        console.log("[Chat Mode] Initial chat mode:", data.chatMode);
+      }
+      
       // Set state for joined party
       state.code = code;
       state.isHost = false;
@@ -3823,6 +3889,35 @@ function attemptAddPhone() {
   if (btnReportOutOfSync) {
     btnReportOutOfSync.onclick = () => {
       reportOutOfSync();
+    };
+  }
+
+  // Guest playback control buttons
+  const btnGuestPlay = el("btnGuestPlay");
+  if (btnGuestPlay) {
+    btnGuestPlay.onclick = () => {
+      // Send request to host to start music
+      if (state.ws && state.connected) {
+        send({ t: "GUEST_PLAY_REQUEST" });
+        toast("▶️ Requested DJ to play music");
+        console.log("[Guest] Sent play request to host");
+      } else {
+        toast("Not connected to party", "warning");
+      }
+    };
+  }
+
+  const btnGuestPause = el("btnGuestPause");
+  if (btnGuestPause) {
+    btnGuestPause.onclick = () => {
+      // Send request to host to pause music
+      if (state.ws && state.connected) {
+        send({ t: "GUEST_PAUSE_REQUEST" });
+        toast("⏸️ Requested DJ to pause music");
+        console.log("[Guest] Sent pause request to host");
+      } else {
+        toast("Not connected to party", "warning");
+      }
     };
   }
 
