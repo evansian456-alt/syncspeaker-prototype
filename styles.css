@@ -3832,3 +3832,149 @@ body {
     bottom: 15px;
   }
 }
+
+/* Upload status styles */
+#uploadStatus {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-align: center;
+}
+
+#uploadProgress {
+  font-size: 0.95em;
+  color: #00ff88;
+}
+
+/* Guest queue display */
+.guest-queue-container {
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.guest-queue-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #00ff88;
+}
+
+#guestQueueList {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.queue-item {
+  padding: 8px 12px;
+  margin-bottom: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.queue-number {
+  font-weight: 600;
+  color: #00ff88;
+  min-width: 25px;
+}
+
+.queue-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-empty {
+  padding: 20px;
+  text-align: center;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* Guest sync debug display */
+.guest-sync-debug {
+  margin-top: 15px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  font-size: 0.85em;
+  font-family: monospace;
+  text-align: left;
+}
+
+.guest-sync-debug > div {
+  margin: 3px 0;
+}
+
+/* Guest tap overlay improvements */
+.guest-tap-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.guest-tap-content {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 40px;
+  border-radius: 20px;
+  text-align: center;
+  max-width: 400px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.guest-tap-icon {
+  font-size: 4em;
+  margin-bottom: 20px;
+  animation: bounce 1s ease-in-out infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.guest-tap-title {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.guest-tap-filename {
+  font-size: 1.1em;
+  margin-bottom: 20px;
+  opacity: 0.9;
+}
+
+.guest-tap-button {
+  padding: 15px 40px;
+  font-size: 1.2em;
+  margin-bottom: 15px;
+  background: #00ff88;
+  color: #000;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.guest-tap-button:hover {
+  background: #00dd77;
+}
+
+.guest-tap-note {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
