@@ -2718,7 +2718,7 @@ function attemptAddPhone() {
       // Get and validate host name (required for DJ identity)
       const hostNameInput = el("hostName").value.trim();
       if (!hostNameInput) {
-        updateStatus("Please enter your DJ name", true);
+        updateStatus("Please enter your name (it will be prefixed with 'DJ')", true);
         throw new Error("DJ name is required to start a party");
       }
       
@@ -2988,8 +2988,8 @@ function attemptAddPhone() {
       }
       
       // Store DJ name for display
-      if (data.djName) {
-        state.djName = data.djName;
+      if (data.djName && data.djName.trim()) {
+        state.djName = data.djName.trim();
         console.log("[DJ Identity] Joined party with DJ:", data.djName);
       }
       

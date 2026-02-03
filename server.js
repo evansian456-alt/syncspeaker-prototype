@@ -939,7 +939,7 @@ app.post("/api/join-party", async (req, res) => {
       guestId,
       nickname: guestNickname,
       partyCode: code,
-      djName: partyData.djName || "DJ" // Return DJ name to guest
+      djName: partyData.djName || "DJ" // Fallback for backward compatibility with old parties
     });
     console.log("[join-party] end (success)");
     
