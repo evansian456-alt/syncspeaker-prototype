@@ -6,6 +6,7 @@ const Redis = require("ioredis");
 const { URL } = require("url");
 const multer = require("multer");
 const fs = require("fs");
+const { nanoid } = require('nanoid');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -227,11 +228,12 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Generate unique filename: timestamp-random-originalname
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    // Generate unique filename using nanoid for collision resistance
+    const uniqueId = nanoid(12);
     const ext = path.extname(file.originalname);
     const nameWithoutExt = path.basename(file.originalname, ext);
-    cb(null, nameWithoutExt + '-' + uniqueSuffix + ext);
+    // Format: originalname-uniqueid.ext
+    cb(null, `${nameWithoutExt}-${uniqueId}${ext}`);
   }
 });
 

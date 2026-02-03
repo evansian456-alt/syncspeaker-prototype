@@ -3,6 +3,8 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
+const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
+const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 
 // Music player state
 const musicState = {
@@ -1222,6 +1224,10 @@ function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosi
 
 // Show "Tap to Play" button for guest with sync info
 function showGuestTapToPlay(filename, startAtServerMs, startPositionSec) {
+  // Determine if this is a mid-track join or fresh start
+  const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+  const isMidTrackJoin = elapsedSec > 2; // If more than 2 seconds elapsed, it's mid-track
+  
   // Create overlay if it doesn't exist
   let overlay = el("guestTapOverlay");
   if (!overlay) {
@@ -1231,7 +1237,7 @@ function showGuestTapToPlay(filename, startAtServerMs, startPositionSec) {
     overlay.innerHTML = `
       <div class="guest-tap-content">
         <div class="guest-tap-icon">🎵</div>
-        <div class="guest-tap-title">Host is already playing</div>
+        <div class="guest-tap-title" id="guestTapTitle"></div>
         <div class="guest-tap-filename"></div>
         <button class="btn btn-primary guest-tap-button">Tap to Sync</button>
         <div class="guest-tap-note">Browser requires user interaction to play audio</div>
@@ -1250,6 +1256,12 @@ function showGuestTapToPlay(filename, startAtServerMs, startPositionSec) {
     tapBtn.onclick = () => {
       playGuestAudio();
     };
+  }
+  
+  // Update title based on mid-track join status
+  const titleEl = overlay.querySelector("#guestTapTitle");
+  if (titleEl) {
+    titleEl.textContent = isMidTrackJoin ? "Host is already playing" : "Track Started!";
   }
   
   // Update filename
@@ -1363,12 +1375,12 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     
     console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
     
-    // Correct if drift > 0.25 seconds
-    if (drift > 0.25) {
+    // Correct if drift > threshold
+    if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
       console.log("[Drift Correction] Correcting drift of", drift.toFixed(3), "seconds");
       state.guestAudioElement.currentTime = idealSec;
     }
-  }, 5000); // Every 5 seconds
+  }, DRIFT_CORRECTION_INTERVAL_MS);
 }
 
 function stopDriftCorrection() {
@@ -2187,30 +2199,58 @@ async function uploadTrackToServer(file) {
           const response = JSON.parse(xhr.responseText);
           console.log(`[Upload] Upload complete:`, response);
           
-          // Get duration from audio element
+          // Wait for audio metadata to get accurate duration
           const audioEl = musicState.audioElement;
-          const durationMs = audioEl && audioEl.duration ? Math.round(audioEl.duration * 1000) : null;
-          
-          // Store track info
-          musicState.currentTrack = {
-            trackId: response.trackId,
-            trackUrl: response.trackUrl,
-            title: response.title,
-            durationMs: durationMs,
-            uploadStatus: 'ready',
-            filename: response.filename
-          };
-          
-          updateMusicStatus(`✓ Ready: ${file.name}`);
-          if (uploadProgressEl) {
-            uploadProgressEl.textContent = `✓ Ready`;
+          if (audioEl) {
+            const handleMetadata = () => {
+              const durationMs = audioEl.duration ? Math.round(audioEl.duration * 1000) : null;
+              
+              // Store track info
+              musicState.currentTrack = {
+                trackId: response.trackId,
+                trackUrl: response.trackUrl,
+                title: response.title,
+                durationMs: durationMs,
+                uploadStatus: 'ready',
+                filename: response.filename
+              };
+              
+              updateMusicStatus(`✓ Ready: ${file.name}`);
+              if (uploadProgressEl) {
+                uploadProgressEl.textContent = `✓ Ready`;
+              }
+              toast(`✓ Track uploaded and ready`);
+              
+              // Hide upload status after 2 seconds
+              setTimeout(() => {
+                if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
+              }, 2000);
+            };
+            
+            if (audioEl.readyState >= 1) {
+              // Metadata already loaded
+              handleMetadata();
+            } else {
+              // Wait for metadata
+              audioEl.addEventListener('loadedmetadata', handleMetadata, { once: true });
+            }
+          } else {
+            // No audio element - store without duration
+            musicState.currentTrack = {
+              trackId: response.trackId,
+              trackUrl: response.trackUrl,
+              title: response.title,
+              durationMs: null,
+              uploadStatus: 'ready',
+              filename: response.filename
+            };
+            
+            updateMusicStatus(`✓ Ready: ${file.name}`);
+            if (uploadProgressEl) {
+              uploadProgressEl.textContent = `✓ Ready`;
+            }
+            toast(`✓ Track uploaded and ready`);
           }
-          toast(`✓ Track uploaded and ready`);
-          
-          // Hide upload status after 2 seconds
-          setTimeout(() => {
-            if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
-          }, 2000);
           
         } catch (e) {
           console.error(`[Upload] Error parsing response:`, e);
