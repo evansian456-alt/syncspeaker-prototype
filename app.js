@@ -1110,7 +1110,7 @@ function startGuestPartyStatusPolling() {
         }
         
         // Update snapshot with party data
-        const previousChatMode = state.chatMode;
+        const previousChatMode = state.chatMode || "OPEN";
         state.snapshot.guestCount = newGuestCount;
         state.snapshot.chatMode = data.chatMode;
         state.snapshot.status = data.status;
