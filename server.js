@@ -4,6 +4,8 @@ const WebSocket = require("ws");
 const { customAlphabet } = require("nanoid");
 const Redis = require("ioredis");
 const { URL } = require("url");
+const multer = require("multer");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -211,6 +213,43 @@ app.use((req, res, next) => {
 // Serve static files from the repo root
 app.use(express.static(__dirname));
 
+// Serve uploaded files from the uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    // Ensure uploads directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename: timestamp-random-originalname
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const nameWithoutExt = path.basename(file.originalname, ext);
+    cb(null, nameWithoutExt + '-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB max file size
+  },
+  fileFilter: function (req, file, cb) {
+    // Accept audio files only
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'));
+    }
+  }
+});
+
 // Helper function to extract registered routes from Express app
 // Returns: Array of objects with {path: string, methods: string} properties
 // Note: Uses Express internal _router property - may break in future Express versions
@@ -346,6 +385,55 @@ app.get("/api/routes", (req, res) => {
     routes: routes,
     totalRoutes: routes.length
   });
+});
+
+// POST /api/upload-track - Upload audio file from host
+app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/upload-track at ${timestamp}`);
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+    
+    // Generate unique track ID
+    const trackId = customAlphabet('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ', 12)();
+    
+    // Get file info
+    const filename = req.file.filename;
+    const originalName = req.file.originalname;
+    const sizeBytes = req.file.size;
+    const contentType = req.file.mimetype;
+    
+    // Construct URL for accessing the file
+    // In production, this should be the full HTTPS URL
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const trackUrl = `${protocol}://${host}/uploads/${filename}`;
+    
+    console.log(`[HTTP] Track uploaded: ${trackId}, file: ${originalName}, size: ${sizeBytes} bytes`);
+    
+    // For now, we can't easily get duration without audio processing library
+    // We'll set it to null and let the client determine it
+    const durationMs = null;
+    
+    res.json({
+      trackId,
+      trackUrl,
+      title: originalName,
+      sizeBytes,
+      contentType,
+      durationMs,
+      filename
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error uploading track:`, error);
+    res.status(500).json({ 
+      error: 'Failed to upload track',
+      details: error.message 
+    });
+  }
 });
 
 // Debug endpoint to list active parties
@@ -679,7 +767,9 @@ app.post("/api/create-party", async (req, res) => {
       members: [],
       chatMode: "OPEN",
       createdAt,
-      hostId
+      hostId,
+      queue: [], // Track queue (max 5)
+      currentTrack: null // Current playing track
     });
     
     const totalParties = parties.size;
@@ -1042,8 +1132,9 @@ app.get("/api/party-state", async (req, res) => {
     const party = parties.get(code);
     const currentTrack = party?.currentTrack || null;
     const djMessages = party?.djMessages || [];
+    const queue = party?.queue || [];
     
-    console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || 'none'}`);
+    console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || 'none'}, queue length: ${queue.length}`);
     
     // Return enhanced party state with playback info
     res.json({
@@ -1059,11 +1150,18 @@ app.get("/api/party-state", async (req, res) => {
       serverTime: now,
       // Playback state
       currentTrack: currentTrack ? {
-        url: currentTrack.url,
-        filename: currentTrack.filename,
+        trackId: currentTrack.trackId,
+        url: currentTrack.url || currentTrack.trackUrl,
+        filename: currentTrack.filename || currentTrack.title,
+        title: currentTrack.title,
+        durationMs: currentTrack.durationMs,
         startAtServerMs: currentTrack.startAtServerMs,
-        startPosition: currentTrack.startPosition
+        startPosition: currentTrack.startPosition || currentTrack.startPositionSec,
+        startPositionSec: currentTrack.startPositionSec || currentTrack.startPosition,
+        status: currentTrack.status || 'playing'
       } : null,
+      // Queue
+      queue: queue,
       // DJ auto-messages
       djMessages: djMessages
     });
@@ -1355,6 +1453,218 @@ app.get("/api/party/:code", async (req, res) => {
     guestCount: guestCount,
     instanceId: INSTANCE_ID
   });
+});
+
+// POST /api/party/:code/start-track - Start playing a track
+app.post("/api/party/:code/start-track", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { trackId, startPositionSec, trackUrl, title, durationMs } = req.body;
+  
+  console.log(`[HTTP] POST /api/party/${code}/start-track at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  if (!trackId) {
+    return res.status(400).json({ error: 'trackId is required' });
+  }
+  
+  try {
+    // Get party from memory (for WebSocket)
+    const party = parties.get(code);
+    if (!party) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // Update currentTrack in party state
+    party.currentTrack = {
+      trackId,
+      trackUrl: trackUrl || null,
+      title: title || 'Unknown Track',
+      durationMs: durationMs || null,
+      startAtServerMs: Date.now(),
+      startPositionSec: startPositionSec || 0,
+      status: 'playing'
+    };
+    
+    console.log(`[HTTP] Started track ${trackId} in party ${code}, position: ${startPositionSec}s`);
+    
+    // Broadcast TRACK_STARTED to all guests
+    const message = JSON.stringify({
+      t: 'TRACK_STARTED',
+      trackId,
+      trackUrl: trackUrl || null,
+      title: title || 'Unknown Track',
+      durationMs: durationMs || null,
+      startAtServerMs: party.currentTrack.startAtServerMs,
+      startPositionSec: party.currentTrack.startPositionSec
+    });
+    
+    party.members.forEach(m => {
+      if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+        m.ws.send(message);
+      }
+    });
+    
+    res.json({ 
+      success: true,
+      currentTrack: party.currentTrack
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error starting track:`, error);
+    res.status(500).json({ 
+      error: 'Failed to start track',
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/party/:code/queue-track - Add track to queue
+app.post("/api/party/:code/queue-track", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { trackId, trackUrl, title, durationMs } = req.body;
+  
+  console.log(`[HTTP] POST /api/party/${code}/queue-track at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  if (!trackId) {
+    return res.status(400).json({ error: 'trackId is required' });
+  }
+  
+  try {
+    // Get party from memory
+    const party = parties.get(code);
+    if (!party) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // Initialize queue if it doesn't exist
+    if (!party.queue) {
+      party.queue = [];
+    }
+    
+    // Check queue limit
+    if (party.queue.length >= 5) {
+      return res.status(400).json({ error: 'Queue is full (max 5 tracks)' });
+    }
+    
+    // Add track to queue
+    const queuedTrack = {
+      trackId,
+      trackUrl: trackUrl || null,
+      title: title || 'Unknown Track',
+      durationMs: durationMs || null
+    };
+    
+    party.queue.push(queuedTrack);
+    
+    console.log(`[HTTP] Queued track ${trackId} in party ${code}, queue length: ${party.queue.length}`);
+    
+    // Broadcast QUEUE_UPDATED to all members
+    const message = JSON.stringify({
+      t: 'QUEUE_UPDATED',
+      queue: party.queue
+    });
+    
+    party.members.forEach(m => {
+      if (m.ws.readyState === WebSocket.OPEN) {
+        m.ws.send(message);
+      }
+    });
+    
+    res.json({ 
+      success: true,
+      queue: party.queue
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error queueing track:`, error);
+    res.status(500).json({ 
+      error: 'Failed to queue track',
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/party/:code/play-next - Play next track from queue
+app.post("/api/party/:code/play-next", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  
+  console.log(`[HTTP] POST /api/party/${code}/play-next at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  try {
+    // Get party from memory
+    const party = parties.get(code);
+    if (!party) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // Initialize queue if it doesn't exist
+    if (!party.queue) {
+      party.queue = [];
+    }
+    
+    // Check if queue has tracks
+    if (party.queue.length === 0) {
+      return res.status(400).json({ error: 'Queue is empty' });
+    }
+    
+    // Get first track from queue
+    const nextTrack = party.queue.shift();
+    
+    // Set as currentTrack
+    party.currentTrack = {
+      trackId: nextTrack.trackId,
+      trackUrl: nextTrack.trackUrl,
+      title: nextTrack.title,
+      durationMs: nextTrack.durationMs,
+      startAtServerMs: Date.now(),
+      startPositionSec: 0,
+      status: 'playing'
+    };
+    
+    console.log(`[HTTP] Playing next track ${nextTrack.trackId} in party ${code}`);
+    
+    // Broadcast TRACK_CHANGED to all members
+    const message = JSON.stringify({
+      t: 'TRACK_CHANGED',
+      trackId: nextTrack.trackId,
+      trackUrl: nextTrack.trackUrl,
+      title: nextTrack.title,
+      durationMs: nextTrack.durationMs,
+      startAtServerMs: party.currentTrack.startAtServerMs,
+      startPositionSec: 0,
+      queue: party.queue
+    });
+    
+    party.members.forEach(m => {
+      if (m.ws.readyState === WebSocket.OPEN) {
+        m.ws.send(message);
+      }
+    });
+    
+    res.json({ 
+      success: true,
+      currentTrack: party.currentTrack,
+      queue: party.queue
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error playing next track:`, error);
+    res.status(500).json({ 
+      error: 'Failed to play next track',
+      details: error.message 
+    });
+  }
 });
 
 // GET /api/party/:code/members - Get party members for polling
@@ -1708,6 +2018,7 @@ async function handleCreate(ws, msg) {
     hostId,
     djMessages: [], // Array of DJ auto-generated messages
     currentTrack: null, // Current playing track info
+    queue: [], // Track queue (max 5)
     timeoutWarningTimer: null // Timer for timeout warning
   });
   

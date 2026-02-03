@@ -12,6 +12,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "ioredis": "^5.9.2",
+    "multer": "^2.0.2",
     "nanoid": "^3.3.11",
     "ws": "^8.17.1"
   },
@@ -35,6 +36,8 @@
     "transformIgnorePatterns": [
       "node_modules/(?!(nanoid)/)"
     ],
-    "setupFilesAfterEnv": ["./jest.setup.js"]
+    "setupFilesAfterEnv": [
+      "./jest.setup.js"
+    ]
   }
 }
