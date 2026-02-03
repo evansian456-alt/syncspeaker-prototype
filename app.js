@@ -80,7 +80,8 @@ const state = {
   // Guest counter for anonymous names
   nextGuestNumber: 1,
   guestNickname: null,
-  lastDjMessageTimestamp: 0 // Track last DJ message to avoid duplicates
+  lastDjMessageTimestamp: 0, // Track last DJ message to avoid duplicates
+  isReconnecting: false // Track if currently in reconnect flow
 };
 
 // Client-side party code generator for offline fallback
@@ -529,6 +530,20 @@ function showLanding() {
   
   // Cleanup guest audio element
   cleanupGuestAudio();
+  
+  // Clear guest session from localStorage (only if not navigating back from reconnect check)
+  if (!state.isReconnecting) {
+    try {
+      const session = localStorage.getItem('syncSpeakerGuestSession');
+      if (session) {
+        console.log("[Guest] Clearing session - returning to landing");
+        localStorage.removeItem('syncSpeakerGuestSession');
+      }
+    } catch (error) {
+      console.warn("[Guest] Failed to clear session:", error);
+    }
+  }
+  state.isReconnecting = false;
   
   // Clear Party Pass state when leaving party
   if (state.partyPassTimerInterval) {
@@ -2998,6 +3013,20 @@ function attemptAddPhone() {
       state.isHost = false;
       state.connected = true;
       
+      // Save guest session to localStorage for auto-reconnect
+      try {
+        const guestSession = {
+          partyCode: code,
+          guestId: data.guestId,
+          nickname: data.nickname,
+          joinedAt: Date.now()
+        };
+        localStorage.setItem('syncSpeakerGuestSession', JSON.stringify(guestSession));
+        console.log("[Guest] Session saved for auto-reconnect:", guestSession);
+      } catch (error) {
+        console.warn("[Guest] Failed to save session to localStorage:", error);
+      }
+      
       updateStatus(`✓ Joined party ${code}`);
       
       // Transition to guest view immediately (HTTP-based join)
@@ -3107,6 +3136,14 @@ function attemptAddPhone() {
         }
       } catch (error) {
         console.error("[Party] Error leaving party:", error);
+      }
+      
+      // Clear guest session from localStorage
+      try {
+        localStorage.removeItem('syncSpeakerGuestSession');
+        console.log("[Guest] Session cleared from localStorage");
+      } catch (error) {
+        console.warn("[Guest] Failed to clear session from localStorage:", error);
       }
       
       // Close WebSocket if connected
@@ -3897,6 +3934,139 @@ function initializeAllFeatures() {
   initSessionStats();
   
   console.log("[Features] All 9 features initialized");
+  
+  // Check for auto-reconnect after features are initialized
+  checkAutoReconnect();
+}
+
+// Auto-reconnect functionality for guests
+async function checkAutoReconnect() {
+  try {
+    const sessionData = localStorage.getItem('syncSpeakerGuestSession');
+    if (!sessionData) {
+      console.log("[Guest] No saved session found");
+      return;
+    }
+    
+    const session = JSON.parse(sessionData);
+    const { partyCode, guestId, nickname, joinedAt } = session;
+    
+    // Validate required session properties
+    if (!partyCode || !nickname || !joinedAt) {
+      console.log("[Guest] Invalid session data, missing required properties");
+      localStorage.removeItem('syncSpeakerGuestSession');
+      return;
+    }
+    
+    // Check if session is recent (within 24 hours)
+    const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const sessionAge = Date.now() - joinedAt;
+    
+    if (sessionAge > SESSION_EXPIRY_MS) {
+      console.log("[Guest] Session expired, clearing");
+      localStorage.removeItem('syncSpeakerGuestSession');
+      return;
+    }
+    
+    console.log("[Guest] Found recent session:", session);
+    
+    // First check if party still exists
+    const partyCheckResponse = await fetch(`/api/party?code=${encodeURIComponent(partyCode)}`);
+    if (!partyCheckResponse.ok) {
+      console.log("[Guest] Party no longer exists, clearing session");
+      localStorage.removeItem('syncSpeakerGuestSession');
+      return;
+    }
+    
+    const partyData = await partyCheckResponse.json();
+    if (!partyData.exists || partyData.status === 'ended' || partyData.status === 'expired') {
+      console.log("[Guest] Party has ended or expired, clearing session");
+      localStorage.removeItem('syncSpeakerGuestSession');
+      return;
+    }
+    
+    // Show reconnect prompt
+    // Note: Using native confirm() for simplicity. Could be replaced with custom modal for better accessibility.
+    const shouldReconnect = confirm(`Reconnect to party ${partyCode}?\n\nYou were previously in this party as "${nickname}".`);
+    
+    if (shouldReconnect) {
+      console.log("[Guest] User chose to reconnect");
+      state.isReconnecting = true;
+      
+      // Pre-fill the join code input
+      const joinCodeInput = el("joinCode");
+      if (joinCodeInput) {
+        joinCodeInput.value = partyCode;
+      }
+      
+      // Auto-trigger join
+      try {
+        const response = await fetch("/api/join-party", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            partyCode: partyCode,
+            nickname: nickname
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: "Failed to parse error response" }));
+          throw new Error(errorData.error || "Failed to reconnect");
+        }
+        
+        const data = await response.json();
+        console.log("[Guest] Reconnected successfully:", data);
+        
+        // Update state with fresh data from server
+        if (data.guestId) {
+          state.clientId = data.guestId;
+        }
+        if (data.nickname) {
+          state.guestNickname = data.nickname;
+        }
+        state.code = partyCode;
+        state.isHost = false;
+        state.connected = true;
+        
+        // Save updated session with new values from server
+        const updatedSession = {
+          partyCode: partyCode,
+          guestId: data.guestId,
+          nickname: data.nickname,
+          joinedAt: Date.now()
+        };
+        localStorage.setItem('syncSpeakerGuestSession', JSON.stringify(updatedSession));
+        
+        // Show guest view
+        showGuest();
+        toast(`Reconnected to party ${partyCode}`);
+        
+        // Try WebSocket connection (optional)
+        try {
+          send({ t: "JOIN", code: partyCode, name: nickname, isPro: state.isPro || false });
+        } catch (wsError) {
+          console.warn("[Guest] WebSocket not available, using polling only:", wsError);
+        }
+        
+      } catch (error) {
+        console.error("[Guest] Reconnect failed:", error);
+        toast(error.message || "Failed to reconnect");
+        localStorage.removeItem('syncSpeakerGuestSession');
+        state.isReconnecting = false;
+      }
+    } else {
+      console.log("[Guest] User declined to reconnect, clearing session");
+      localStorage.removeItem('syncSpeakerGuestSession');
+    }
+    
+  } catch (error) {
+    console.error("[Guest] Error checking auto-reconnect:", error);
+    // Clear potentially corrupted session data
+    localStorage.removeItem('syncSpeakerGuestSession');
+  }
 }
 
 // Call initialization when DOM is ready
