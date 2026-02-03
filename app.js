@@ -3919,6 +3919,13 @@ async function checkAutoReconnect() {
     const session = JSON.parse(sessionData);
     const { partyCode, guestId, nickname, joinedAt } = session;
     
+    // Validate required session properties
+    if (!partyCode || !nickname || !joinedAt) {
+      console.log("[Guest] Invalid session data, missing required properties");
+      localStorage.removeItem('syncSpeakerGuestSession');
+      return;
+    }
+    
     // Check if session is recent (within 24 hours)
     const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
     const sessionAge = Date.now() - joinedAt;
@@ -4007,9 +4014,7 @@ async function checkAutoReconnect() {
         
         // Try WebSocket connection (optional)
         try {
-          // Ensure isPro is set before sending
-          const isPro = state.isPro || false;
-          send({ t: "JOIN", code: partyCode, name: nickname, isPro: isPro });
+          send({ t: "JOIN", code: partyCode, name: nickname, isPro: state.isPro || false });
         } catch (wsError) {
           console.warn("[Guest] WebSocket not available, using polling only:", wsError);
         }
