@@ -15,6 +15,7 @@ const musicState = {
   fileInputInitialized: false, // Track if file input handler has been set up
   queuedFile: null, // Next track to play
   queuedObjectURL: null, // Object URL for queued track
+  queuedTrack: null, // Uploaded track info for queued track { trackId, trackUrl, title, durationMs, uploadStatus }
   // Track upload and queue state
   currentTrack: null, // { trackId, trackUrl, title, durationMs, uploadStatus: 'uploading'|'ready'|'error' }
   queue: [], // Array of track objects (max 5)
@@ -2003,10 +2004,16 @@ function playQueuedTrack() {
   // Move queued track to current
   musicState.selectedFile = musicState.queuedFile;
   musicState.currentObjectURL = musicState.queuedObjectURL;
+  
+  // Move queued track upload info to current
+  if (musicState.queuedTrack) {
+    musicState.currentTrack = musicState.queuedTrack;
+  }
 
   // Clear queue
   musicState.queuedFile = null;
   musicState.queuedObjectURL = null;
+  musicState.queuedTrack = null;
 
   // Update audio element
   const audioEl = musicState.audioElement;
@@ -2300,6 +2307,66 @@ async function uploadTrackToServer(file) {
     updateMusicStatus(`Upload error: ${error.message}`);
     toast(`Upload failed: ${error.message}`);
     if (uploadStatusEl) uploadStatusEl.classList.add("hidden");
+  }
+}
+
+// Upload queued track to server for guest streaming
+async function uploadQueuedTrackToServer(file) {
+  if (!file) return;
+  
+  console.log(`[Upload Queue] Starting upload for queued track: ${file.name}`);
+  
+  try {
+    const formData = new FormData();
+    formData.append('audio', file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    // Track upload progress
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = Math.round((e.loaded / e.total) * 100);
+        console.log(`[Upload Queue] Progress: ${percentComplete}%`);
+      }
+    });
+    
+    // Handle completion
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          console.log(`[Upload Queue] Upload complete:`, response);
+          
+          // Store queued track info
+          musicState.queuedTrack = {
+            trackId: response.trackId,
+            trackUrl: response.trackUrl,
+            title: response.title,
+            durationMs: null,
+            uploadStatus: 'ready',
+            filename: response.filename
+          };
+          
+          console.log(`[Upload Queue] Queued track ready for streaming`);
+        } catch (e) {
+          console.error(`[Upload Queue] Error parsing response:`, e);
+        }
+      } else {
+        console.error(`[Upload Queue] Upload failed with status ${xhr.status}`);
+      }
+    });
+    
+    // Handle errors
+    xhr.addEventListener('error', () => {
+      console.error(`[Upload Queue] Network error`);
+    });
+    
+    // Send request
+    xhr.open('POST', '/api/upload-track');
+    xhr.send(formData);
+    
+  } catch (error) {
+    console.error(`[Upload Queue] Error uploading queued track:`, error);
   }
 }
 
@@ -3370,6 +3437,11 @@ function attemptAddPhone() {
 
       toast(`✓ Queued: ${file.name}`);
       console.log(`[DJ Queue] Queued next track: ${file.name}`);
+      
+      // AUTO-UPLOAD queued file for guest streaming
+      if (state.isHost) {
+        uploadQueuedTrackToServer(file);
+      }
       
       // Update DJ screen to show queued track
       updateDjScreen();
