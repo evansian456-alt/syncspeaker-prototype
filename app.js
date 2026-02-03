@@ -2314,8 +2314,13 @@ function updateDebugState() {
   
   // Update error fields
   if (debugLastErrorEl) {
-    debugLastErrorEl.textContent = debugState.lastError || "None";
-    debugLastErrorEl.style.color = debugState.lastError ? "#f00" : "#0f0";
+    if (debugState.lastError) {
+      debugLastErrorEl.textContent = debugState.lastError;
+      debugLastErrorEl.style.color = "#f00"; // Red for errors
+    } else {
+      debugLastErrorEl.textContent = "None";
+      debugLastErrorEl.style.color = "#888"; // Gray for no error (neutral)
+    }
   }
   
   if (debugLastApiCallEl) {

@@ -3203,12 +3203,17 @@ function isRedisReady() {
 
 // Process-level error handlers to prevent crashes
 // These catch unhandled errors that could cause the server to exit
+// NOTE: According to Node.js best practices, uncaughtException should trigger graceful shutdown.
+// However, for Railway deployment where automatic restarts are handled by the platform,
+// we log the error and continue to maintain visibility. In a production environment without
+// platform-managed restarts, consider implementing graceful shutdown with process.exit(1).
 process.on('uncaughtException', (err, origin) => {
   console.error(`❌ [CRITICAL] Uncaught Exception at ${origin}:`, err);
   console.error(`   Instance: ${INSTANCE_ID}, Version: ${APP_VERSION}`);
   console.error(`   Stack:`, err.stack);
-  // Log but don't exit - let Railway handle restart if needed
-  // In production, you might want to implement graceful shutdown here
+  // Log the error for debugging. Railway/platform monitors will detect the error in logs.
+  // For self-hosted deployments, consider adding graceful shutdown here:
+  // setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason, promise) => {

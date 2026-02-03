@@ -110,7 +110,7 @@ async function testHealthEndpoint() {
 async function testCreateParty(iteration) {
   try {
     const result = await makeRequest('POST', '/api/create-party', {
-      name: `TestHost${iteration}`,
+      djName: `DJ Test ${iteration}`,
       isPro: false
     });
     
@@ -119,13 +119,13 @@ async function testCreateParty(iteration) {
       return null;
     }
     
-    if (!result.body.code) {
+    if (!result.body.partyCode) {
       fail(`Create party #${iteration}`, 'Missing party code');
       return null;
     }
     
     pass(`Create party #${iteration}`);
-    return result.body.code;
+    return result.body.partyCode;
   } catch (error) {
     fail(`Create party #${iteration}`, error.message);
     return null;
