@@ -3083,7 +3083,11 @@ function attemptAddPhone() {
     console.log("[UI] Party Pass payment completed (demo)");
     state.userTier = USER_TIER.PARTY_PASS;
     state.partyPassActive = true;
-    state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours
+    state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours from now
+    
+    // Notify user about Party Pass activation
+    toast("🎉 Party Pass activated! You have 2 hours of party time.");
+    
     showHome();
   };
 
