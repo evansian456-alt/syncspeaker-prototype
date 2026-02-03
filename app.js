@@ -2039,9 +2039,8 @@ function playQueuedTrack() {
         
         // Broadcast to guests
         if (state.isHost && state.ws) {
-          // Get track URL from input if provided
-          const trackUrlInput = el("trackUrlInput");
-          const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+          // Use auto-uploaded track URL from musicState
+          const trackUrl = musicState.currentTrack ? musicState.currentTrack.trackUrl : null;
           
           send({ 
             t: "HOST_PLAY",
@@ -3191,9 +3190,8 @@ function attemptAddPhone() {
           
           // Broadcast PLAY to guests
           if (state.isHost && state.ws) {
-            // Get track URL from input if provided
-            const trackUrlInput = el("trackUrlInput");
-            const trackUrl = trackUrlInput && trackUrlInput.value.trim() ? trackUrlInput.value.trim() : null;
+            // Use auto-uploaded track URL from musicState
+            const trackUrl = musicState.currentTrack ? musicState.currentTrack.trackUrl : null;
             
             send({ 
               t: "HOST_PLAY",
@@ -3203,7 +3201,7 @@ function attemptAddPhone() {
             });
             
             if (!trackUrl) {
-              console.log("[Music] No track URL provided - guests won't hear audio");
+              console.log("[Music] Track still uploading or upload failed - guests won't hear audio yet");
             }
           }
           
