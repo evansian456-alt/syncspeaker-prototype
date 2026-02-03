@@ -1016,7 +1016,7 @@ function showGuest() {
   
   // Update guest meta with DJ name if available
   if (state.djName) {
-    el("guestMeta").textContent = `Listening to ${state.djName} · You: ${state.guestNickname || state.name}`;
+    el("guestMeta").textContent = `You are listening to ${state.djName} · You: ${state.guestNickname || state.name}`;
   } else {
     el("guestMeta").textContent = `You: ${state.guestNickname || state.name}`;
   }
@@ -1159,7 +1159,6 @@ function updateGuestTierUI() {
   }
   
   console.log(`[Guest] Tier updated to: ${state.userTier}, Chat mode: ${state.chatMode}`);
-}
 }
 
 function updateGuestNowPlaying(filename) {
