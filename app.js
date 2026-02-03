@@ -6,6 +6,13 @@ const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
 const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 
+// User tier constants
+const USER_TIER = {
+  FREE: 'FREE',
+  PARTY_PASS: 'PARTY_PASS',
+  PRO: 'PRO'
+};
+
 // Music player state
 const musicState = {
   selectedFile: null,
@@ -48,6 +55,7 @@ const state = {
   partyStatusPollingInProgress: false, // Flag to prevent overlapping polling requests
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
+  userTier: USER_TIER.FREE, // User's subscription tier
   // Guest-specific state
   nowPlayingFilename: null,
   upNextFilename: null,
@@ -82,7 +90,10 @@ const state = {
   nextGuestNumber: 1,
   guestNickname: null,
   lastDjMessageTimestamp: 0, // Track last DJ message to avoid duplicates
-  isReconnecting: false // Track if currently in reconnect flow
+  isReconnecting: false, // Track if currently in reconnect flow
+  // Message spam prevention
+  lastMessageTimestamp: 0,
+  messageCooldownMs: 2000 // 2 second cooldown between messages
 };
 
 // Client-side party code generator for offline fallback
@@ -1019,6 +1030,9 @@ function showGuest() {
   // Update party status
   updateGuestPartyStatus();
   
+  // Update tier badge and messaging permissions
+  updateGuestTierUI();
+  
   // Initialize guest UI
   updateGuestNowPlaying(state.nowPlayingFilename);
   updateGuestUpNext(state.upNextFilename);
@@ -1119,6 +1133,35 @@ function updateGuestPartyStatus() {
   }
 }
 
+// Update guest tier UI based on user's subscription tier
+function updateGuestTierUI() {
+  // Update tier based on party status
+  if (state.partyPassActive) {
+    state.userTier = USER_TIER.PARTY_PASS;
+  } else if (state.isPro || state.partyPro) {
+    state.userTier = USER_TIER.PRO;
+  } else {
+    state.userTier = USER_TIER.FREE;
+  }
+  
+  // Show/hide text message buttons based on tier and chat mode
+  const textMessagesEl = el("guestTextMessages");
+  if (textMessagesEl) {
+    // FREE tier: hide text messages (emoji only)
+    // PARTY_PASS: show preset messages
+    // PRO: show preset messages (custom text would need separate input)
+    // Also respect chat mode
+    if (state.userTier === USER_TIER.FREE || state.chatMode === "EMOJI_ONLY" || state.chatMode === "LOCKED") {
+      textMessagesEl.style.display = "none";
+    } else {
+      textMessagesEl.style.display = "block";
+    }
+  }
+  
+  console.log(`[Guest] Tier updated to: ${state.userTier}, Chat mode: ${state.chatMode}`);
+}
+}
+
 function updateGuestNowPlaying(filename) {
   const filenameEl = el("guestNowPlayingFilename");
   if (!filenameEl) return;
@@ -1213,7 +1256,19 @@ function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosi
   // Create or reuse audio element
   if (!state.guestAudioElement) {
     state.guestAudioElement = new Audio();
-    state.guestAudioElement.volume = state.guestVolume / 100;
+    // Safe volume start - prevent audio blasting
+    // Start at 50% volume or user's saved preference (whichever is lower)
+    const safeVolume = Math.min(state.guestVolume, 50);
+    state.guestAudioElement.volume = safeVolume / 100;
+    state.guestVolume = safeVolume; // Update state to match
+    
+    // Update volume slider if exists
+    const volumeSlider = el("guestVolumeSlider");
+    const volumeValue = el("guestVolumeValue");
+    if (volumeSlider) volumeSlider.value = safeVolume;
+    if (volumeValue) volumeValue.textContent = `${safeVolume}%`;
+    
+    console.log(`[Guest Audio] Safe volume start at ${safeVolume}%`);
     
     // Add event listeners
     state.guestAudioElement.addEventListener('loadeddata', () => {
@@ -1372,6 +1427,7 @@ function playGuestAudio() {
 
 // Drift correction - runs every 5 seconds
 let driftCorrectionInterval = null;
+let lastDriftValue = 0; // Track last drift for UI updates
 
 function startDriftCorrection(startAtServerMs, startPositionSec) {
   // Clear any existing interval
@@ -1393,8 +1449,12 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     // Calculate drift
     const currentSec = state.guestAudioElement.currentTime;
     const drift = Math.abs(currentSec - idealSec);
+    lastDriftValue = drift;
     
     console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
+    
+    // Update drift UI
+    updateGuestSyncQuality(drift);
     
     // Correct if drift > threshold
     if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
@@ -1410,6 +1470,66 @@ function stopDriftCorrection() {
     driftCorrectionInterval = null;
     console.log("[Drift Correction] Stopped");
   }
+}
+
+// Update guest sync quality indicator based on drift
+function updateGuestSyncQuality(drift) {
+  const driftValueEl = el("guestDriftValue");
+  const qualityBadgeEl = el("guestSyncQuality");
+  
+  if (driftValueEl) {
+    driftValueEl.textContent = drift.toFixed(2);
+  }
+  
+  if (qualityBadgeEl) {
+    // Remove all quality classes
+    qualityBadgeEl.classList.remove("medium", "bad");
+    
+    // Classify sync quality based on drift
+    if (drift < 0.15) {
+      // Good sync (< 150ms)
+      qualityBadgeEl.textContent = "Good";
+    } else if (drift < 0.5) {
+      // Medium sync (150-500ms)
+      qualityBadgeEl.textContent = "Medium";
+      qualityBadgeEl.classList.add("medium");
+    } else {
+      // Bad sync (> 500ms)
+      qualityBadgeEl.textContent = "Bad";
+      qualityBadgeEl.classList.add("bad");
+    }
+  }
+}
+
+// Manual resync function for guests
+function manualResyncGuest() {
+  console.log("[Guest] Manual resync triggered");
+  
+  // Show feedback
+  toast("Resyncing audio...");
+  
+  // Force re-sync by reloading current playback state
+  if (state.guestAudioElement && state.snapshot && state.snapshot.startAtServerMs) {
+    const elapsedSec = (Date.now() - state.snapshot.startAtServerMs) / 1000;
+    const idealSec = (state.snapshot.startPositionSec || 0) + elapsedSec;
+    
+    console.log("[Guest] Jumping to ideal position:", idealSec.toFixed(2));
+    state.guestAudioElement.currentTime = idealSec;
+    
+    toast("✓ Resynced!", "success");
+  } else {
+    console.warn("[Guest] Cannot resync - no active playback");
+    toast("No active playback to resync", "warning");
+  }
+}
+
+// Report out of sync to host
+function reportOutOfSync() {
+  console.log("[Guest] Reporting out of sync");
+  toast("Out of sync report sent to DJ");
+  
+  // TODO: Send WebSocket message to host about sync issue
+  // For now, just show feedback to user
 }
 
 // Cleanup guest audio element
@@ -1691,9 +1811,35 @@ function setupGuestMessageButtons() {
   
   messageButtons.forEach(btn => {
     btn.onclick = () => {
+      // Check spam cooldown
+      const now = Date.now();
+      if (now - state.lastMessageTimestamp < state.messageCooldownMs) {
+        const remainingMs = state.messageCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
+        return;
+      }
+      
+      // Check tier permissions for preset messages
+      if (state.userTier === USER_TIER.FREE) {
+        toast("Upgrade to Party Pass or Pro to send messages", "warning");
+        return;
+      }
+      
+      // Check chat mode
+      if (state.chatMode === "LOCKED") {
+        toast("Chat is locked by DJ", "warning");
+        return;
+      }
+      
+      if (state.chatMode === "EMOJI_ONLY") {
+        toast("DJ has enabled emoji-only mode", "warning");
+        return;
+      }
+      
       const message = btn.getAttribute("data-message");
       if (message && state.ws) {
         send({ t: "GUEST_MESSAGE", message: message, isEmoji: false });
+        state.lastMessageTimestamp = now;
         
         // Visual feedback
         btn.classList.add("btn-sending");
@@ -1712,10 +1858,27 @@ function setupEmojiReactionButtons() {
   
   emojiButtons.forEach(btn => {
     btn.onclick = () => {
+      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      const now = Date.now();
+      const emojiCooldownMs = 1000;
+      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
+        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+        return;
+      }
+      
+      // Check chat mode (emojis blocked only in LOCKED mode)
+      if (state.chatMode === "LOCKED") {
+        toast("Chat is locked by DJ", "warning");
+        return;
+      }
+      
+      // All tiers can send emojis (unless chat is locked)
       const emoji = btn.getAttribute("data-emoji");
       const message = btn.getAttribute("data-message") || emoji;
       if (message && state.ws) {
         send({ t: "GUEST_MESSAGE", message: message, isEmoji: true });
+        state.lastMessageTimestamp = now;
         
         // Visual feedback
         btn.classList.add("btn-sending");
@@ -1741,6 +1904,44 @@ function setupChatModeSelector() {
       }
     });
   });
+}
+
+// Automated hype messages
+const hypeMessages = {
+  trackStart: [
+    "🔥 Let's go!",
+    "🎵 Here we go!",
+    "💥 Drop incoming!",
+    "🎉 Time to vibe!",
+    "✨ New track energy!"
+  ],
+  guestJoin: [
+    "👋 Welcome to the party!",
+    "🎉 Someone joined!",
+    "✨ New energy in the room!",
+    "👥 Squad getting bigger!"
+  ],
+  peakEnergy: [
+    "🔥🔥🔥 The energy!",
+    "💥 Everyone's vibing!",
+    "🎉 This is the moment!",
+    "⚡ Peak hype achieved!"
+  ]
+};
+
+// Send automated hype message
+function sendAutoHypeMessage(eventType) {
+  if (!state.isHost || !state.ws) return;
+  
+  const messages = hypeMessages[eventType];
+  if (!messages || messages.length === 0) return;
+  
+  // Pick a random message from the category
+  const message = messages[Math.floor(Math.random() * messages.length)];
+  
+  // Send as DJ message
+  send({ t: "DJ_MESSAGE", message: message, isHype: true });
+  console.log(`[Hype] Auto-sent: ${message}`);
 }
 
 function updateChatModeUI() {
@@ -1781,9 +1982,12 @@ function updateChatModeUI() {
       text.textContent = `Chat: ${mode.replace("_", " ")}`;
     }
     
-    // Control visibility and interactivity
+    // Control visibility based on BOTH chat mode AND user tier
     if (textMessages) {
-      if (mode === "OPEN") {
+      // Show text messages only if:
+      // - Chat mode is OPEN AND
+      // - User tier is PARTY_PASS or PRO (not FREE)
+      if (mode === "OPEN" && (state.userTier === USER_TIER.PARTY_PASS || state.userTier === USER_TIER.PRO)) {
         textMessages.style.display = "flex";
         textMessages.classList.remove("disabled");
       } else {
@@ -2213,6 +2417,11 @@ async function uploadTrackToServer(file) {
         musicState.uploadProgress = percentComplete;
         if (uploadProgressEl) {
           uploadProgressEl.textContent = `Uploading: ${percentComplete}%`;
+        }
+        // Update progress bar
+        const progressBarEl = el("uploadProgressBar");
+        if (progressBarEl) {
+          progressBarEl.style.width = `${percentComplete}%`;
         }
         console.log(`[Upload] Progress: ${percentComplete}%`);
       }
@@ -3233,6 +3442,22 @@ function attemptAddPhone() {
       } else {
         showLanding();
       }
+    };
+  }
+
+  // Guest resync button handler
+  const btnGuestResync = el("btnGuestResync");
+  if (btnGuestResync) {
+    btnGuestResync.onclick = () => {
+      manualResyncGuest();
+    };
+  }
+
+  // Report out of sync button handler
+  const btnReportOutOfSync = el("btnReportOutOfSync");
+  if (btnReportOutOfSync) {
+    btnReportOutOfSync.onclick = () => {
+      reportOutOfSync();
     };
   }
 
