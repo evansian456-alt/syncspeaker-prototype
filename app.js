@@ -638,8 +638,15 @@ function showParty() {
     const djMomentsCard = el("djMomentsCard");
     const hostGiftSection = el("hostGiftSection");
     
-    if (crowdEnergyCard) crowdEnergyCard.classList.remove("hidden");
-    if (djMomentsCard) djMomentsCard.classList.remove("hidden");
+    // DJ Profile features (Crowd Energy & DJ Moments) only for PARTY_PASS and PRO
+    if (state.userTier === USER_TIER.PARTY_PASS || state.userTier === USER_TIER.PRO || state.partyPassActive || state.partyPro) {
+      if (crowdEnergyCard) crowdEnergyCard.classList.remove("hidden");
+      if (djMomentsCard) djMomentsCard.classList.remove("hidden");
+    } else {
+      // FREE tier: hide DJ profile features
+      if (crowdEnergyCard) crowdEnergyCard.classList.add("hidden");
+      if (djMomentsCard) djMomentsCard.classList.add("hidden");
+    }
     
     // Show gift section only if not already Pro
     if (hostGiftSection && !state.partyPassActive && !state.partyPro) {
