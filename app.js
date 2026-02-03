@@ -3206,16 +3206,51 @@ function attemptAddPhone() {
   // Initialize music player
   initializeMusicPlayer();
 
-  // Landing page navigation
-  el("btnLandingStart").onclick = () => {
-    console.log("[UI] Landing: Start Party clicked");
-    showChooseTier();
-  };
+  // NEW: Landing page auth buttons
+  const btnLandingCreateAccount = el("btnLandingCreateAccount");
+  const btnLandingSignIn = el("btnLandingSignIn");
+  
+  if (btnLandingCreateAccount) {
+    btnLandingCreateAccount.onclick = () => {
+      console.log("[UI] Landing: Create Account clicked");
+      showView('viewSignup');
+    };
+  }
+  
+  if (btnLandingSignIn) {
+    btnLandingSignIn.onclick = () => {
+      console.log("[UI] Landing: Sign In clicked");
+      showView('viewLogin');
+    };
+  }
 
-  el("btnLandingJoin").onclick = () => {
-    console.log("[UI] Landing: Join Party clicked");
-    showHome();
-  };
+  // OLD Landing page navigation - keep for backward compatibility
+  const btnLandingStart = el("btnLandingStart");
+  const btnLandingJoin = el("btnLandingJoin");
+  
+  if (btnLandingStart) {
+    btnLandingStart.onclick = () => {
+      console.log("[UI] Landing: Start Party clicked");
+      // Enforce authentication
+      if (!isLoggedIn()) {
+        showView('viewSignup');
+        return;
+      }
+      showChooseTier();
+    };
+  }
+
+  if (btnLandingJoin) {
+    btnLandingJoin.onclick = () => {
+      console.log("[UI] Landing: Join Party clicked");
+      // Enforce authentication
+      if (!isLoggedIn()) {
+        showView('viewSignup');
+        return;
+      }
+      showHome();
+    };
+  }
 
   // Tier selection handlers
   el("btnSelectFree").onclick = () => {
@@ -5028,8 +5063,9 @@ function handleLogin() {
   if (result.success) {
     state.userTier = result.user.tier;
     updateUIForLoggedInUser(result.user);
-    showView('viewLanding');
-    showToast('✅ Logged in successfully!');
+    // Redirect to home to start using the app
+    showHome();
+    showToast('✅ Welcome back!');
   } else {
     errorEl.textContent = result.error;
     errorEl.classList.remove('hidden');
@@ -5042,8 +5078,15 @@ function handleLogin() {
 function handleSignup() {
   const email = document.getElementById('signupEmail').value;
   const password = document.getElementById('signupPassword').value;
-  const djName = document.getElementById('signupDjName').value;
+  const djName = document.getElementById('signupDjName').value.trim();
   const errorEl = document.getElementById('signupError');
+  
+  // Validate DJ name is required
+  if (!djName) {
+    errorEl.textContent = 'DJ Name is required';
+    errorEl.classList.remove('hidden');
+    return;
+  }
   
   const result = signUp(email, password, djName);
   
@@ -5053,8 +5096,9 @@ function handleSignup() {
     if (loginResult.success) {
       state.userTier = loginResult.user.tier;
       updateUIForLoggedInUser(loginResult.user);
-      showView('viewLanding');
-      showToast('✅ Account created successfully!');
+      // Redirect to home to start using the app
+      showHome();
+      showToast('✅ Welcome to SyncSpeaker! Account created successfully!');
     }
   } else {
     errorEl.textContent = result.error;
