@@ -678,7 +678,16 @@ function deletePartyFromFallback(code) {
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  
+  // Extract DJ name from request body
+  const { djName } = req.body;
+  
+  // Validate DJ name is provided
+  if (!djName || !djName.trim()) {
+    console.log("[HTTP] Party creation rejected: DJ name is required");
+    return res.status(400).json({ error: "DJ name is required to create a party" });
+  }
   
   // Determine storage backend: prefer Redis, fallback to local storage if Redis unavailable
   const useRedis = redis && redisReady;
@@ -732,6 +741,7 @@ app.post("/api/create-party", async (req, res) => {
     
     // Create party data for storage (only serializable data)
     const partyData = {
+      djName: djName.trim(), // Store DJ name in party state
       chatMode: "OPEN",
       createdAt,
       hostId,
@@ -928,7 +938,8 @@ app.post("/api/join-party", async (req, res) => {
       ok: true,
       guestId,
       nickname: guestNickname,
-      partyCode: code
+      partyCode: code,
+      djName: partyData.djName || "DJ" // Fallback for backward compatibility with old parties
     });
     console.log("[join-party] end (success)");
     
