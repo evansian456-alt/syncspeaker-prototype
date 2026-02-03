@@ -98,7 +98,20 @@ const state = {
   messageCooldownMs: 2000 // 2 second cooldown between messages
 };
 
-// Monetization state
+/**
+ * Monetization state - manages user purchases and subscriptions
+ * 
+ * Storage rules:
+ * - Visual packs, titles, and profile upgrades are stored permanently to user account
+ * - Party Pass and party extensions are temporary (reset when party ends)
+ * 
+ * Mutually exclusive items:
+ * - Only ONE visual pack can be active at a time (user can switch between owned packs)
+ * - Only ONE DJ title can be active at a time (user can switch between owned titles)
+ * 
+ * Stackable items:
+ * - All owned profile upgrades display together on profile and DJ screen
+ */
 const monetizationState = {
   // User's purchased items
   ownedVisualPacks: [], // ['neon-lights', 'festival-stage', 'club-pulse']
@@ -5374,7 +5387,7 @@ function applyProfileUpgrades() {
   if (!profileHeader) return;
   
   // Remove existing upgrade badges
-  const existingBadges = profileHeader.querySelectorAll('.upgrade-badge');
+  const existingBadges = profileHeader.querySelectorAll('.upgrade-profile-badge');
   existingBadges.forEach(badge => badge.remove());
   
   // Add all owned upgrade badges
@@ -5383,7 +5396,7 @@ function applyProfileUpgrades() {
     if (!upgrade) return;
     
     const badge = document.createElement('span');
-    badge.className = 'upgrade-badge';
+    badge.className = 'upgrade-profile-badge';
     badge.textContent = upgrade.icon;
     badge.title = upgrade.name;
     profileHeader.appendChild(badge);
@@ -5860,12 +5873,18 @@ function showPartyExtensionsStore() {
 function initiateCheckout(type, name, price, itemId = null) {
   currentCheckout = { type, name, price, itemId };
   
-  // Update preview
+  // Update preview - sanitize name by using textContent
   const preview = document.getElementById('checkoutItemPreview');
-  preview.innerHTML = `
-    <h3>${name}</h3>
-    <p class="checkout-price">£${price.toFixed(2)}</p>
-  `;
+  preview.innerHTML = '';
+  
+  const nameEl = document.createElement('h3');
+  nameEl.textContent = name; // Safe: uses textContent instead of innerHTML
+  preview.appendChild(nameEl);
+  
+  const priceEl = document.createElement('p');
+  priceEl.className = 'checkout-price';
+  priceEl.textContent = `£${price.toFixed(2)}`;
+  preview.appendChild(priceEl);
   
   // Show checkout modal
   showCheckoutStep('checkoutConfirmation');
@@ -5946,8 +5965,13 @@ function closeCheckout() {
  * Show upsell modal
  */
 function showUpsellModal(title, message) {
-  document.getElementById('upsellTitle').textContent = title;
-  document.getElementById('upsellMessage').textContent = message;
+  const titleEl = document.getElementById('upsellTitle');
+  const messageEl = document.getElementById('upsellMessage');
+  
+  // Safe: using textContent
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  
   document.getElementById('modalUpsell').classList.remove('hidden');
 }
 

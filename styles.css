@@ -5196,8 +5196,8 @@ body.light-mode .input-field {
   background: linear-gradient(135deg, #FF6B9D, #8B7CFF);
 }
 
-/* Profile Upgrade Badges */
-.upgrade-badge {
+/* Profile Upgrade Badges (emoji icons on profile) */
+.upgrade-profile-badge {
   display: inline-block;
   font-size: 20px;
   margin: 0 5px;
