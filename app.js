@@ -1891,6 +1891,15 @@ function displayHostBroadcastMessage(message) {
       noMessagesEl.style.display = "none";
     }
     
+    // Check if we need to remove old messages before adding new one
+    const existingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
+    if (existingMessages.length >= 5) {
+      existingMessages[0].classList.add("fade-out");
+      setTimeout(() => {
+        existingMessages[0].remove();
+      }, 300);
+    }
+    
     // Create message element
     const messageEl = document.createElement("div");
     messageEl.className = "guest-dj-message";
@@ -1898,39 +1907,33 @@ function displayHostBroadcastMessage(message) {
       <div class="guest-dj-message-text">${escapeHtml(message)}</div>
     `;
     
+    // Store timeout ID on the element for cleanup
+    messageEl.dataset.timeoutSet = 'true';
+    
     // Add to container
     messagesContainer.appendChild(messageEl);
     
-    // Keep only last 5 messages
-    setTimeout(() => {
-      const messages = messagesContainer.querySelectorAll(".guest-dj-message");
-      if (messages.length > 5) {
-        messages[0].classList.add("fade-out");
+    // Auto-remove after 30 seconds
+    const autoRemoveTimeout = setTimeout(() => {
+      // Check if element still exists in DOM before removing
+      if (messageEl.parentNode) {
+        messageEl.classList.add("fade-out");
         setTimeout(() => {
-          messages[0].remove();
-          
-          // Show "no messages" if container is empty
-          const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
-          if (remainingMessages.length === 0 && noMessagesEl) {
-            noMessagesEl.style.display = "block";
+          if (messageEl.parentNode) {
+            messageEl.remove();
+            
+            // Show "no messages" if container is empty
+            const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
+            if (remainingMessages.length === 0 && noMessagesEl) {
+              noMessagesEl.style.display = "block";
+            }
           }
         }, 300);
       }
-    }, 100);
-    
-    // Auto-remove after 30 seconds
-    setTimeout(() => {
-      messageEl.classList.add("fade-out");
-      setTimeout(() => {
-        messageEl.remove();
-        
-        // Show "no messages" if container is empty
-        const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
-        if (remainingMessages.length === 0 && noMessagesEl) {
-          noMessagesEl.style.display = "block";
-        }
-      }, 300);
     }, 30000);
+    
+    // Store timeout ID for potential cleanup
+    messageEl.dataset.autoRemoveTimeout = autoRemoveTimeout;
   }
 }
 
