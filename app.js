@@ -4505,6 +4505,9 @@ function updateBoostsUI() {
 
 function initializeAllFeatures() {
   initAuth();
+  initNetworkMonitoring();
+  initAccessibility();
+  initModeration();
   initCrowdEnergyMeter();
   initDJMoments();
   initPartyRecap();
@@ -4515,7 +4518,7 @@ function initializeAllFeatures() {
   initSessionStats();
   initBoostAddons();
   
-  console.log("[Features] All features initialized (including auth)");
+  console.log("[Features] All features initialized (including auth, network, accessibility, moderation)");
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();

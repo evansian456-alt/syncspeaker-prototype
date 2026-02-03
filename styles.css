@@ -4742,3 +4742,78 @@ body {
   width: 100%;
 }
 
+/* ============================================
+   ACCESSIBILITY FEATURES
+   ============================================ */
+body.reduced-animations *,
+body.reduced-animations *::before,
+body.reduced-animations *::after {
+  animation-duration: 0.01s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01s !important;
+}
+
+body.large-text {
+  font-size: 18px;
+}
+
+body.large-text h1 {
+  font-size: 42px;
+}
+
+body.large-text h2 {
+  font-size: 32px;
+}
+
+body.large-text h3 {
+  font-size: 24px;
+}
+
+body.large-text .btn {
+  font-size: 18px;
+  padding: 14px 24px;
+}
+
+body.high-contrast {
+  --brand: #00BFFF;
+  --danger: #FF0000;
+}
+
+body.high-contrast .glass-card {
+  background: rgba(0, 0, 0, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+body.light-mode {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  color: #1a1a1a;
+}
+
+body.light-mode .glass-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: #1a1a1a;
+}
+
+body.light-mode .btn {
+  color: #1a1a1a;
+}
+
+body.light-mode .input-field {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1a1a1a;
+}
+
+/* ============================================
+   CONNECTION INDICATOR
+   ============================================ */
+#connectionIndicator {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  margin-right: 8px;
+}
+
+

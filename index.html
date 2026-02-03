@@ -16,6 +16,7 @@
       </div>
     </div>
     <div class="header-right">
+      <span id="connectionIndicator">● Connected</span>
       <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
       <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
       <button class="btn-account" id="btnAccount" title="Account">👤</button>
@@ -497,7 +498,11 @@
               <div class="lbl">Party code</div>
               <div class="code" id="partyCode">------</div>
             </div>
-            <button class="btn" id="btnCopy">Copy</button>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn" id="btnCopy">Copy</button>
+              <button class="btn" id="btnShowQR" title="Show QR Code">📱</button>
+              <button class="btn" id="btnShare" title="Share">📤</button>
+            </div>
           </div>
           <div class="tiny muted">Share code with friends.</div>
           <div class="party-info-footer">
@@ -1076,6 +1081,14 @@
     </div>
   </div>
 
+  <div class="modal hidden" id="modalQRCode">
+    <div class="modalCard">
+      <h3>📱 Join Party</h3>
+      <div id="qrCodeContainer"></div>
+      <button class="btn primary full-width" id="btnCloseQR">Close</button>
+    </div>
+  </div>
+
   <div class="toast hidden" id="toast"></div>
 
    <!-- Party End Recap Modal -->
@@ -1418,6 +1431,10 @@
   </section>
 
   <script src="auth.js"></script>
+  <script src="visual-stage.js"></script>
+  <script src="moderation.js"></script>
+  <script src="network-accessibility.js"></script>
+  <script src="qr-deeplink.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
