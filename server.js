@@ -8,6 +8,7 @@ const multer = require("multer");
 const fs = require("fs");
 const { nanoid } = require('nanoid');
 const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
 
 // Import auth and database modules
 const db = require('./database');
@@ -399,6 +400,28 @@ app.get("/api/routes", (req, res) => {
 });
 
 // ============================================================================
+// RATE LIMITERS
+// ============================================================================
+
+// Rate limiter for auth endpoints (stricter)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: 'Too many authentication attempts, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiter for purchase endpoints
+const purchaseLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 requests per minute
+  message: 'Too many purchase requests, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ============================================================================
 // AUTHENTICATION ENDPOINTS
 // ============================================================================
 
@@ -406,7 +429,7 @@ app.get("/api/routes", (req, res) => {
  * POST /api/auth/signup
  * Create new user account
  */
-app.post("/api/auth/signup", async (req, res) => {
+app.post("/api/auth/signup", authLimiter, async (req, res) => {
   try {
     const { email, password, djName } = req.body;
 
@@ -486,7 +509,7 @@ app.post("/api/auth/signup", async (req, res) => {
  * POST /api/auth/login
  * Log in existing user
  */
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -665,7 +688,7 @@ app.get("/api/store", authMiddleware.optionalAuth, (req, res) => {
  * POST /api/purchase
  * Process a purchase
  */
-app.post("/api/purchase", authMiddleware.requireAuth, async (req, res) => {
+app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (req, res) => {
   const client = await db.getClient();
   
   try {
