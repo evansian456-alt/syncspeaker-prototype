@@ -1503,7 +1503,8 @@ app.post("/api/join-party", async (req, res) => {
       guestId,
       nickname: guestNickname,
       partyCode: code,
-      djName: partyData.djName || "DJ" // Fallback for backward compatibility with old parties
+      djName: partyData.djName || "DJ", // Fallback for backward compatibility with old parties
+      chatMode: partyData.chatMode || "OPEN" // Include chat mode for initial setup
     });
     console.log("[join-party] end (success)");
     
@@ -2535,6 +2536,12 @@ function handleMessage(ws, msg) {
     case "GUEST_MESSAGE":
       handleGuestMessage(ws, msg);
       break;
+    case "GUEST_PLAY_REQUEST":
+      handleGuestPlayRequest(ws, msg);
+      break;
+    case "GUEST_PAUSE_REQUEST":
+      handleGuestPauseRequest(ws, msg);
+      break;
     case "CHAT_MODE_SET":
       handleChatModeSet(ws, msg);
       break;
@@ -3159,6 +3166,62 @@ function handleGuestMessage(ws, msg) {
     guestName: guestName,
     guestId: member.id,
     isEmoji: isEmoji
+  });
+  
+  if (party.host && party.host.readyState === WebSocket.OPEN) {
+    party.host.send(message);
+  }
+}
+
+function handleGuestPlayRequest(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only guests can send playback requests (not host)
+  const member = party.members.find(m => m.ws === ws);
+  if (!member || member.isHost) {
+    return; // Silently ignore if host sends this
+  }
+  
+  const guestName = member.name || "Guest";
+  console.log(`[Party] Guest "${guestName}" requested to play music in party ${client.party}`);
+  
+  // Send notification to host
+  const message = JSON.stringify({ 
+    t: "GUEST_PLAY_REQUEST", 
+    guestName: guestName,
+    guestId: member.id
+  });
+  
+  if (party.host && party.host.readyState === WebSocket.OPEN) {
+    party.host.send(message);
+  }
+}
+
+function handleGuestPauseRequest(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only guests can send playback requests (not host)
+  const member = party.members.find(m => m.ws === ws);
+  if (!member || member.isHost) {
+    return; // Silently ignore if host sends this
+  }
+  
+  const guestName = member.name || "Guest";
+  console.log(`[Party] Guest "${guestName}" requested to pause music in party ${client.party}`);
+  
+  // Send notification to host
+  const message = JSON.stringify({ 
+    t: "GUEST_PAUSE_REQUEST", 
+    guestName: guestName,
+    guestId: member.id
   });
   
   if (party.host && party.host.readyState === WebSocket.OPEN) {
