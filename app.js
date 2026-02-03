@@ -1161,6 +1161,14 @@ function showPartyEnded(status) {
     partyMetaEl.style.color = "var(--danger, #ff5a6a)";
   }
   
+  // Show end-of-party upsell after a short delay
+  setTimeout(() => {
+    showEndOfPartyUpsell();
+  }, 2000);
+  
+  // Reset party monetization
+  resetPartyMonetization();
+  
   // For guests, show on their screen too
   const guestPartyStatusEl = el("guestPartyStatusText");
   if (guestPartyStatusEl && !state.isHost) {
@@ -2004,7 +2012,7 @@ function setupGuestMessageButtons() {
       
       // Check tier permissions for preset messages
       if (state.userTier === USER_TIER.FREE) {
-        toast("Upgrade to Party Pass or Pro to send messages", "warning");
+        showUpsellModal('Unlock Messages', 'Unlock messages with Pro!');
         return;
       }
       
