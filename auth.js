@@ -16,6 +16,15 @@ const TIER = {
 };
 
 /**
+ * Initialize authentication system (stub for now)
+ */
+function initAuth() {
+  console.log('[Auth] Auth system ready');
+  // Auth system is passive - just needs functions available
+  // UI bindings are handled in app.js initializeAuth()
+}
+
+/**
  * Get all users from storage
  */
 function getAllUsers() {

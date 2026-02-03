@@ -4504,10 +4504,31 @@ function updateBoostsUI() {
 // ========================================
 
 function initializeAllFeatures() {
-  initAuth();
-  initNetworkMonitoring();
-  initAccessibility();
-  initModeration();
+  // Initialize auth if available
+  if (typeof initAuth === 'function') {
+    initAuth();
+  }
+  
+  // Initialize auth UI bindings
+  if (typeof initializeAuth === 'function') {
+    initializeAuth();
+  }
+  
+  // Initialize network monitoring if available
+  if (typeof initNetworkMonitoring === 'function') {
+    initNetworkMonitoring();
+  }
+  
+  // Initialize accessibility if available
+  if (typeof initAccessibility === 'function') {
+    initAccessibility();
+  }
+  
+  // Initialize moderation if available
+  if (typeof initModeration === 'function') {
+    initModeration();
+  }
+  
   initCrowdEnergyMeter();
   initDJMoments();
   initPartyRecap();
@@ -4518,7 +4539,7 @@ function initializeAllFeatures() {
   initSessionStats();
   initBoostAddons();
   
-  console.log("[Features] All features initialized (including auth, network, accessibility, moderation)");
+  console.log("[Features] All features initialized");
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();
@@ -4657,6 +4678,30 @@ async function checkAutoReconnect() {
 // ============================================
 // AUTHENTICATION INTEGRATION
 // ============================================
+// AUTHENTICATION INTEGRATION
+// ============================================
+
+/**
+ * Show a specific view and hide all others
+ */
+function showView(viewId) {
+  // Hide all main views
+  const views = ['viewLanding', 'viewChooseTier', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile'];
+  
+  views.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('hidden');
+    }
+  });
+  
+  // Show the requested view
+  const targetView = document.getElementById(viewId);
+  if (targetView) {
+    targetView.classList.remove('hidden');
+  }
+}
 
 /**
  * Initialize authentication UI and state
