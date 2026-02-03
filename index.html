@@ -471,6 +471,35 @@
         </div>
       </div>
 
+      <!-- DJ Preset Messages (Party Pass & Pro) -->
+      <div class="dj-preset-messages-section hidden" id="djPresetMessagesSection">
+        <div class="dj-preset-messages-header">
+          <span class="dj-messages-icon">📢</span>
+          <span>SEND TO GUESTS</span>
+        </div>
+        <div class="dj-preset-message-buttons">
+          <button class="btn-dj-preset-message" id="btnDjPresetGreat" data-message="🎉 Great track!">
+            🎉 Great track!
+          </button>
+          <button class="btn-dj-preset-message" id="btnDjPresetHype" data-message="🔥 Let's go!">
+            🔥 Let's go!
+          </button>
+          <button class="btn-dj-preset-message" id="btnDjPresetEnergy" data-message="⚡ Bring the energy!">
+            ⚡ Bring the energy!
+          </button>
+          <button class="btn-dj-preset-message" id="btnDjPresetDrop" data-message="💥 Drop incoming!">
+            💥 Drop incoming!
+          </button>
+          <button class="btn-dj-preset-message" id="btnDjPresetVibes" data-message="✨ Good vibes!">
+            ✨ Good vibes!
+          </button>
+          <button class="btn-dj-preset-message" id="btnDjPresetThanks" data-message="🙏 Thanks for joining!">
+            🙏 Thanks for joining!
+          </button>
+        </div>
+        <div class="tiny muted">Broadcast messages to all guests</div>
+      </div>
+
       <!-- Crowd Energy in DJ View -->
       <div class="dj-crowd-energy">
         <div class="dj-crowd-energy-header">
@@ -737,6 +766,18 @@
         </button>
 
         <div class="tiny muted">Use resync if audio feels off</div>
+      </div>
+
+      <!-- DJ Messages to Guests -->
+      <div class="glass-card guest-dj-messages hidden" id="guestDjMessagesCard">
+        <div class="guest-dj-messages-header">
+          <h4 class="section-title-small">📢 DJ Messages</h4>
+        </div>
+        <div class="guest-dj-messages-container" id="guestDjMessagesContainer">
+          <div class="guest-no-dj-messages" id="guestNoDjMessages">
+            No messages from DJ yet
+          </div>
+        </div>
       </div>
 
       <!-- Guest Messages to Host -->
