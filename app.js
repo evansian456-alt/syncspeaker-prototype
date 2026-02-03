@@ -1023,7 +1023,7 @@ function showGuest() {
   
   // Update guest meta with DJ name if available
   if (state.djName) {
-    el("guestMeta").textContent = `You are listening to ${state.djName} · You: ${state.guestNickname || state.name}`;
+    el("guestMeta").textContent = `Vibing with DJ ${state.djName} 🎧 · You: ${state.guestNickname || state.name}`;
   } else {
     el("guestMeta").textContent = `You: ${state.guestNickname || state.name}`;
   }
@@ -3350,9 +3350,9 @@ function attemptAddPhone() {
       
       // Show welcome message with DJ name
       if (data.djName) {
-        toast(`You are now listening to ${data.djName}`);
+        toast(`Now vibing with DJ ${data.djName}! 🎵🔥`);
       } else {
-        toast(`Joined party ${code}`);
+        toast(`Joined party ${code} – let's go! 🎉`);
       }
       
       // Try to connect via WebSocket for real-time updates (optional fallback)
