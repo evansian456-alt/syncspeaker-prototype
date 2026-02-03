@@ -6,7 +6,15 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'syncspeaker-dev-secret-change-in-production';
+// JWT secret - REQUIRED in production
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET environment variable is required in production');
+  }
+  console.warn('[Auth] WARNING: Using default JWT secret - DO NOT USE IN PRODUCTION');
+  return 'syncspeaker-dev-secret-change-in-production';
+})();
+
 const JWT_EXPIRES_IN = '7d'; // JWT token expires in 7 days
 const SALT_ROUNDS = 10;
 

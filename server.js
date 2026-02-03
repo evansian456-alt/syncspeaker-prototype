@@ -406,7 +406,7 @@ app.get("/api/routes", (req, res) => {
 // Rate limiter for auth endpoints (stricter)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 10, // Limit each IP to 10 requests per windowMs (allows for typos)
   message: 'Too many authentication attempts, please try again later',
   standardHeaders: true,
   legacyHeaders: false,
@@ -768,16 +768,31 @@ app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (re
       } else if (item.id === 'pro_monthly') {
         // Create/update Pro subscription
         const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-        await client.query(
-          `INSERT INTO subscriptions (user_id, status, current_period_start, current_period_end)
-           VALUES ($1, 'active', NOW(), $2)
-           ON CONFLICT (id) DO UPDATE SET
-             status = 'active',
-             current_period_start = NOW(),
-             current_period_end = $2,
-             updated_at = NOW()`,
-          [userId, periodEnd]
+        
+        // Check if user already has an active subscription
+        const existingSub = await client.query(
+          'SELECT id FROM subscriptions WHERE user_id = $1 AND status = \'active\'',
+          [userId]
         );
+        
+        if (existingSub.rows.length > 0) {
+          // Update existing subscription
+          await client.query(
+            `UPDATE subscriptions SET
+              current_period_start = NOW(),
+              current_period_end = $1,
+              updated_at = NOW()
+             WHERE user_id = $2 AND status = 'active'`,
+            [periodEnd, userId]
+          );
+        } else {
+          // Create new subscription
+          await client.query(
+            `INSERT INTO subscriptions (user_id, status, current_period_start, current_period_end)
+             VALUES ($1, 'active', NOW(), $2)`,
+            [userId, periodEnd]
+          );
+        }
       }
     } else if (item.type === storeCatalog.STORE_CATEGORIES.PARTY_EXTENSIONS) {
       // Party extensions - apply to Redis party
