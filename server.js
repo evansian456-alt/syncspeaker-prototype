@@ -408,19 +408,31 @@ app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
     const sizeBytes = req.file.size;
     const contentType = req.file.mimetype;
     
-    // Construct URL for accessing the file
-    // In production, this should be the full HTTPS URL
+    // Construct URL for accessing the file via streaming endpoint
     const protocol = req.protocol;
     const host = req.get('host');
-    const trackUrl = `${protocol}://${host}/uploads/${filename}`;
+    const trackUrl = `${protocol}://${host}/api/track/${trackId}`;
+    
+    // Store track in registry for TTL cleanup
+    const filepath = req.file.path;
+    uploadedTracks.set(trackId, {
+      filename,
+      originalName,
+      uploadedAt: Date.now(),
+      filepath,
+      contentType,
+      sizeBytes
+    });
     
     console.log(`[HTTP] Track uploaded: ${trackId}, file: ${originalName}, size: ${sizeBytes} bytes`);
+    console.log(`[HTTP] Track will be accessible at: ${trackUrl}`);
     
     // For now, we can't easily get duration without audio processing library
     // We'll set it to null and let the client determine it
     const durationMs = null;
     
     res.json({
+      ok: true,
       trackId,
       trackUrl,
       title: originalName,
@@ -433,6 +445,82 @@ app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
     console.error(`[HTTP] Error uploading track:`, error);
     res.status(500).json({ 
       error: 'Failed to upload track',
+      details: error.message 
+    });
+  }
+});
+
+// Track file registry for TTL cleanup
+// Map of trackId -> { filename, uploadedAt, filepath }
+const uploadedTracks = new Map();
+const TRACK_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// Endpoint to stream audio tracks with Range support (required for seeking and mobile playback)
+app.get("/api/track/:trackId", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const trackId = req.params.trackId;
+  console.log(`[HTTP] GET /api/track/${trackId} at ${timestamp}`);
+  
+  try {
+    // Find track in registry
+    const track = uploadedTracks.get(trackId);
+    if (!track) {
+      console.log(`[HTTP] Track not found: ${trackId}`);
+      return res.status(404).json({ error: 'Track not found' });
+    }
+    
+    const filepath = track.filepath;
+    
+    // Check if file exists
+    if (!fs.existsSync(filepath)) {
+      console.log(`[HTTP] Track file missing: ${filepath}`);
+      uploadedTracks.delete(trackId);
+      return res.status(404).json({ error: 'Track file not found' });
+    }
+    
+    // Get file stats
+    const stat = fs.statSync(filepath);
+    const fileSize = stat.size;
+    const contentType = track.contentType || 'audio/mpeg';
+    
+    // Parse Range header
+    const range = req.headers.range;
+    
+    if (range) {
+      // Parse range header (e.g., "bytes=0-1023")
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      
+      const chunksize = (end - start) + 1;
+      const file = fs.createReadStream(filepath, { start, end });
+      
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': contentType,
+      };
+      
+      console.log(`[HTTP] Streaming track ${trackId} with range: ${start}-${end}/${fileSize}`);
+      res.writeHead(206, head);
+      file.pipe(res);
+    } else {
+      // No range header - send entire file
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+      };
+      
+      console.log(`[HTTP] Streaming entire track ${trackId}, size: ${fileSize}`);
+      res.writeHead(200, head);
+      fs.createReadStream(filepath).pipe(res);
+    }
+  } catch (error) {
+    console.error(`[HTTP] Error streaming track ${trackId}:`, error);
+    res.status(500).json({ 
+      error: 'Failed to stream track',
       details: error.message 
     });
   }
@@ -1759,6 +1847,37 @@ function cleanupExpiredParties() {
   }
 }
 
+// Cleanup expired uploaded tracks
+function cleanupExpiredTracks() {
+  const now = Date.now();
+  const expiredTracks = [];
+  
+  for (const [trackId, track] of uploadedTracks.entries()) {
+    if (track.uploadedAt && now - track.uploadedAt > TRACK_TTL_MS) {
+      expiredTracks.push({ trackId, filepath: track.filepath });
+    }
+  }
+  
+  if (expiredTracks.length > 0) {
+    console.log(`[Cleanup] Removing ${expiredTracks.length} expired tracks (instance ${INSTANCE_ID})`);
+    
+    expiredTracks.forEach(({ trackId, filepath }) => {
+      // Delete file from disk
+      try {
+        if (fs.existsSync(filepath)) {
+          fs.unlinkSync(filepath);
+          console.log(`[Cleanup] Deleted track file: ${filepath}`);
+        }
+      } catch (err) {
+        console.error(`[Cleanup] Error deleting track file ${filepath}:`, err.message);
+      }
+      
+      // Remove from registry
+      uploadedTracks.delete(trackId);
+    });
+  }
+}
+
 // Start cleanup interval
 let cleanupInterval;
 
@@ -1820,8 +1939,12 @@ async function startServer() {
   });
   
   // Start cleanup interval
-  cleanupInterval = setInterval(cleanupExpiredParties, CLEANUP_INTERVAL_MS);
+  cleanupInterval = setInterval(() => {
+    cleanupExpiredParties();
+    cleanupExpiredTracks();
+  }, CLEANUP_INTERVAL_MS);
   console.log(`[Server] Party cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${PARTY_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
+  console.log(`[Server] Track cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${TRACK_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
   
   // WebSocket server setup
   wss = new WebSocket.Server({ server });
@@ -2306,24 +2429,30 @@ function handleHostPlay(ws, msg) {
   console.log(`[Party] Host playing in party ${client.party}`);
   
   // Store track info in party state if provided
-  if (msg.trackUrl || msg.filename) {
-    party.currentTrack = {
-      url: msg.trackUrl || null,
-      filename: msg.filename || "Unknown Track",
-      startAtServerMs: Date.now(), // Server timestamp for sync
-      startPosition: msg.startPosition || 0 // Position in seconds
-    };
-    
-    console.log(`[Party] Track info: ${party.currentTrack.filename}, url: ${party.currentTrack.url ? 'provided' : 'local-only'}`);
-  }
+  const trackId = msg.trackId || party.currentTrack?.trackId || null;
+  const trackUrl = msg.trackUrl || party.currentTrack?.trackUrl || null;
+  const filename = msg.filename || party.currentTrack?.filename || "Unknown Track";
+  const startPosition = msg.positionSec || 0;
+  const serverTimestamp = Date.now();
+  
+  party.currentTrack = {
+    trackId,
+    trackUrl,
+    filename,
+    startAtServerMs: serverTimestamp,
+    startPositionSec: startPosition
+  };
+  
+  console.log(`[Party] Track info: ${filename}, trackId: ${trackId}, position: ${startPosition}s`);
   
   // Broadcast to all guests (not host) with track info
   const message = JSON.stringify({ 
     t: "PLAY",
-    trackUrl: party.currentTrack?.url || null,
-    filename: party.currentTrack?.filename || null,
-    startAtServerMs: party.currentTrack?.startAtServerMs || Date.now(),
-    startPosition: party.currentTrack?.startPosition || 0
+    trackId,
+    trackUrl,
+    filename,
+    serverTimestamp,
+    positionSec: startPosition
   });
   
   party.members.forEach(m => {
@@ -2370,11 +2499,26 @@ function handleHostTrackSelected(ws, msg) {
     return;
   }
   
+  const trackId = msg.trackId || null;
+  const trackUrl = msg.trackUrl || null;
   const filename = msg.filename || "Unknown Track";
-  console.log(`[Party] Host selected track "${filename}" in party ${client.party}`);
+  
+  console.log(`[Party] Host selected track "${filename}" (trackId: ${trackId}) in party ${client.party}`);
+  
+  // Store in party state
+  party.currentTrack = {
+    trackId,
+    trackUrl,
+    filename
+  };
   
   // Broadcast to all guests (not host)
-  const message = JSON.stringify({ t: "TRACK_SELECTED", filename });
+  const message = JSON.stringify({ 
+    t: "TRACK_SELECTED", 
+    trackId,
+    trackUrl,
+    filename 
+  });
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
@@ -2420,12 +2564,34 @@ function handleHostTrackChanged(ws, msg) {
     return;
   }
   
+  const trackId = msg.trackId || null;
+  const trackUrl = msg.trackUrl || null;
   const filename = msg.filename || "Unknown Track";
   const nextFilename = msg.nextFilename || null;
-  console.log(`[Party] Host changed to track "${filename}" (next: "${nextFilename}") in party ${client.party}`);
+  const serverTimestamp = Date.now();
+  const positionSec = msg.positionSec || 0;
+  
+  console.log(`[Party] Host changed to track "${filename}" (trackId: ${trackId}, next: "${nextFilename}") in party ${client.party}`);
+  
+  // Update party state
+  party.currentTrack = {
+    trackId,
+    trackUrl,
+    filename,
+    startAtServerMs: serverTimestamp,
+    startPositionSec: positionSec
+  };
   
   // Broadcast to all guests (not host)
-  const message = JSON.stringify({ t: "TRACK_CHANGED", filename, nextFilename });
+  const message = JSON.stringify({ 
+    t: "TRACK_CHANGED", 
+    trackId,
+    trackUrl,
+    filename, 
+    nextFilename,
+    serverTimestamp,
+    positionSec
+  });
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
