@@ -73,6 +73,19 @@ For **multi-device testing** with real-time sync:
 #### Prerequisites
 - Node.js (v14 or higher)
 - Redis server (required for multi-instance party discovery)
+- PostgreSQL 12+ (required for user accounts, subscriptions, and purchases)
+
+#### Database Setup
+See [db/README.md](db/README.md) for database schema setup instructions.
+
+Quick start:
+```bash
+# Create database
+createdb syncspeaker
+
+# Apply schema
+psql -d syncspeaker -f db/schema.sql
+```
 
 #### Redis Setup
 See [REDIS_SETUP.md](REDIS_SETUP.md) for detailed installation and configuration instructions.
@@ -115,7 +128,7 @@ Copy `.env.example` to `.env` and customize if needed:
 cp .env.example .env
 ```
 
-Default configuration connects to Redis at `localhost:6379`. See [REDIS_SETUP.md](REDIS_SETUP.md) for production configuration.
+Default configuration connects to Redis at `localhost:6379` and PostgreSQL at `localhost:5432`. See [REDIS_SETUP.md](REDIS_SETUP.md) and [db/README.md](db/README.md) for production configuration.
 
 ## Production Deployment (Railway)
 
