@@ -19,6 +19,7 @@
       <span id="connectionIndicator">● Connected</span>
       <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
       <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
+      <button class="btn-upgrade" id="btnUpgradeHub" title="Upgrade">⭐</button>
       <button class="btn-account" id="btnAccount" title="Account">👤</button>
       <div class="pill" id="planPill">Free · 2 phones</div>
     </div>
@@ -1429,6 +1430,348 @@
       </div>
     </div>
   </section>
+
+  <!-- ========================================================================
+       MONETIZATION SCREENS
+       ======================================================================== -->
+
+  <!-- SCREEN 1: Main Upgrade Hub -->
+  <section class="card hidden" id="viewUpgradeHub">
+    <div class="monetization-container">
+      <div class="row space">
+        <h1>🎉 Level Up Your Party</h1>
+        <button class="btn" id="btnCloseUpgradeHub">Back</button>
+      </div>
+
+      <!-- A: Current Status Card -->
+      <div class="glass-card current-status-card">
+        <div id="currentStatusFree" class="hidden">
+          <h3>Your Current Plan: FREE</h3>
+          <ul class="tier-features">
+            <li>✓ 2 phones max</li>
+            <li>✓ Emoji reactions only</li>
+            <li>✓ Basic visuals</li>
+            <li>✓ Unlimited time</li>
+          </ul>
+        </div>
+        <div id="currentStatusPro" class="hidden">
+          <h3>🌟 You are PRO – All features unlocked</h3>
+          <p>Enjoy unlimited access to all features!</p>
+        </div>
+      </div>
+
+      <!-- B: Primary Upgrade Cards -->
+      <div class="upgrade-cards-grid">
+        <!-- CARD 1: PRO Subscription -->
+        <div class="upgrade-card pro-card">
+          <div class="upgrade-badge pro">PRO MODE</div>
+          <h2>£9.99 / month</h2>
+          <p class="upgrade-tagline">Go all out with unlimited everything</p>
+          <ul class="tier-features">
+            <li>✓ Up to 10 phones</li>
+            <li>✓ Custom messages</li>
+            <li>✓ Pro visuals</li>
+            <li>✓ No ads</li>
+          </ul>
+          <button class="btn btn-pro" id="btnPurchaseProSub">Go Pro Now</button>
+        </div>
+
+        <!-- CARD 2: Party Pass -->
+        <div class="upgrade-card party-pass-card">
+          <div class="popular-badge">Most popular</div>
+          <div class="upgrade-badge party-pass">PARTY PASS</div>
+          <h2>£2.99 (2 hours)</h2>
+          <p class="upgrade-tagline">Perfect for tonight's party</p>
+          <ul class="tier-features">
+            <li>✓ Up to 4 phones</li>
+            <li>✓ No ads</li>
+            <li>✓ Pro features</li>
+          </ul>
+          <button class="btn btn-party-pass" id="btnPurchasePartyPass">Activate Party Pass</button>
+        </div>
+
+        <!-- CARD 3: Free Mode -->
+        <div class="upgrade-card free-card">
+          <div class="upgrade-badge free">FREE</div>
+          <h2>Free – Unlimited Time – 2 Phones</h2>
+          <p class="upgrade-tagline">Keep it simple and free</p>
+          <button class="btn" id="btnContinueFree">Continue Free</button>
+        </div>
+      </div>
+
+      <!-- C: Add-Ons Store Grid -->
+      <div class="glass-card">
+        <h3>🛍️ Add-Ons Store</h3>
+        <div class="addons-grid">
+          <button class="addon-btn" id="btnOpenVisualPacks">
+            <div class="addon-icon">🎨</div>
+            <div class="addon-name">Visual Packs</div>
+          </button>
+          <button class="addon-btn" id="btnOpenProfileUpgrades">
+            <div class="addon-icon">✨</div>
+            <div class="addon-name">Profile Upgrades</div>
+          </button>
+          <button class="addon-btn" id="btnOpenDjTitles">
+            <div class="addon-icon">🎧</div>
+            <div class="addon-name">DJ Titles</div>
+          </button>
+          <button class="addon-btn" id="btnOpenPartyExtensions">
+            <div class="addon-icon">⚡</div>
+            <div class="addon-name">Party Extensions</div>
+          </button>
+          <button class="addon-btn" id="btnOpenHypeEffects">
+            <div class="addon-icon">🔥</div>
+            <div class="addon-name">Hype Effects</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 2: Visual Pack Store -->
+  <section class="card hidden" id="viewVisualPackStore">
+    <div class="monetization-container">
+      <div class="row space">
+        <h1>🎨 Visual Packs</h1>
+        <button class="btn" id="btnCloseVisualPacks">Back</button>
+      </div>
+
+      <div class="store-grid">
+        <!-- Neon Lights Pack -->
+        <div class="store-item" data-pack-id="neon-lights">
+          <div class="store-preview" style="background: linear-gradient(135deg, #5AA9FF, #8B7CFF);">
+            <div class="preview-animation neon-pulse"></div>
+          </div>
+          <h3>Neon Lights</h3>
+          <p class="store-price">£3.99</p>
+          <p class="store-description">Vibrant neon light show</p>
+          <button class="btn primary btn-buy-pack" data-pack-id="neon-lights">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="neon-lights">Set Active</button>
+        </div>
+
+        <!-- Festival Stage Pack -->
+        <div class="store-item" data-pack-id="festival-stage">
+          <div class="store-preview" style="background: linear-gradient(135deg, #8B7CFF, #FF6B9D);">
+            <div class="preview-animation festival-pulse"></div>
+          </div>
+          <h3>Festival Stage</h3>
+          <p class="store-price">£4.99</p>
+          <p class="store-description">Epic festival vibes</p>
+          <button class="btn primary btn-buy-pack" data-pack-id="festival-stage">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="festival-stage">Set Active</button>
+        </div>
+
+        <!-- Club Pulse Pack -->
+        <div class="store-item" data-pack-id="club-pulse">
+          <div class="store-preview" style="background: linear-gradient(135deg, #FF6B9D, #5AA9FF);">
+            <div class="preview-animation club-pulse"></div>
+          </div>
+          <h3>Club Pulse</h3>
+          <p class="store-price">£2.99</p>
+          <p class="store-description">Underground club energy</p>
+          <button class="btn primary btn-buy-pack" data-pack-id="club-pulse">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="club-pulse">Set Active</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 3: Profile Upgrades Store -->
+  <section class="card hidden" id="viewProfileUpgrades">
+    <div class="monetization-container">
+      <div class="row space">
+        <h1>✨ Profile Upgrades</h1>
+        <button class="btn" id="btnCloseProfileUpgrades">Back</button>
+      </div>
+
+      <p class="muted">All purchased upgrades stack and display together!</p>
+
+      <div class="store-grid">
+        <!-- Verified DJ Badge -->
+        <div class="store-item" data-upgrade-id="verified-badge">
+          <div class="store-icon">✓</div>
+          <h3>Verified DJ Badge</h3>
+          <p class="store-price">£1.99</p>
+          <p class="store-description">Show you're legit</p>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="verified-badge">BUY</button>
+          <div class="owned-badge hidden">OWNED</div>
+        </div>
+
+        <!-- Crown Effect -->
+        <div class="store-item" data-upgrade-id="crown-effect">
+          <div class="store-icon">👑</div>
+          <h3>Crown Effect</h3>
+          <p class="store-price">£2.99</p>
+          <p class="store-description">Royalty vibes</p>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="crown-effect">BUY</button>
+          <div class="owned-badge hidden">OWNED</div>
+        </div>
+
+        <!-- Animated Name -->
+        <div class="store-item" data-upgrade-id="animated-name">
+          <div class="store-icon">✨</div>
+          <h3>Animated Name</h3>
+          <p class="store-price">£2.49</p>
+          <p class="store-description">Make your name pop</p>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="animated-name">BUY</button>
+          <div class="owned-badge hidden">OWNED</div>
+        </div>
+
+        <!-- Reaction Trail -->
+        <div class="store-item" data-upgrade-id="reaction-trail">
+          <div class="store-icon">🌟</div>
+          <h3>Reaction Trail</h3>
+          <p class="store-price">£1.99</p>
+          <p class="store-description">Leave your mark</p>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="reaction-trail">BUY</button>
+          <div class="owned-badge hidden">OWNED</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 4: Party Extensions Store -->
+  <section class="card hidden" id="viewPartyExtensions">
+    <div class="monetization-container">
+      <div class="row space">
+        <h1>⚡ Party Extensions</h1>
+        <button class="btn" id="btnClosePartyExtensions">Back</button>
+      </div>
+
+      <p class="muted">Extensions apply instantly to your current party session!</p>
+
+      <div class="store-grid">
+        <!-- Add 30 Minutes -->
+        <div class="store-item">
+          <div class="store-icon">⏰</div>
+          <h3>Add 30 Minutes</h3>
+          <p class="store-price">£0.99</p>
+          <p class="store-description">Keep the party going</p>
+          <button class="btn primary btn-buy-extension" data-extension-id="time-30">Add Time</button>
+        </div>
+
+        <!-- Add 5 More Phones -->
+        <div class="store-item">
+          <div class="store-icon">📱</div>
+          <h3>Add 5 More Phones</h3>
+          <p class="store-price">£1.49</p>
+          <p class="store-description">Bring more friends</p>
+          <button class="btn primary btn-buy-extension" data-extension-id="phones-5">Add Phones</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 5: DJ Title Store -->
+  <section class="card hidden" id="viewDjTitleStore">
+    <div class="monetization-container">
+      <div class="row space">
+        <h1>🎧 DJ Title Store</h1>
+        <button class="btn" id="btnCloseDjTitles">Back</button>
+      </div>
+
+      <p class="muted">Only one title can be active at a time. Switch anytime!</p>
+
+      <div class="store-grid">
+        <!-- Rising DJ -->
+        <div class="store-item" data-title-id="rising-dj">
+          <div class="title-display">Rising DJ</div>
+          <p class="store-price">£0.99</p>
+          <p class="store-description">Starting your journey</p>
+          <button class="btn primary btn-buy-title" data-title-id="rising-dj">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="rising-dj">Activate</button>
+        </div>
+
+        <!-- Club DJ -->
+        <div class="store-item" data-title-id="club-dj">
+          <div class="title-display">Club DJ</div>
+          <p class="store-price">£1.49</p>
+          <p class="store-description">Making moves</p>
+          <button class="btn primary btn-buy-title" data-title-id="club-dj">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="club-dj">Activate</button>
+        </div>
+
+        <!-- Superstar DJ -->
+        <div class="store-item" data-title-id="superstar-dj">
+          <div class="title-display">Superstar DJ</div>
+          <p class="store-price">£2.49</p>
+          <p class="store-description">On top of the scene</p>
+          <button class="btn primary btn-buy-title" data-title-id="superstar-dj">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="superstar-dj">Activate</button>
+        </div>
+
+        <!-- Legend DJ -->
+        <div class="store-item" data-title-id="legend-dj">
+          <div class="title-display">Legend DJ</div>
+          <p class="store-price">£3.49</p>
+          <p class="store-description">Hall of fame status</p>
+          <button class="btn primary btn-buy-title" data-title-id="legend-dj">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="legend-dj">Activate</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 6: Checkout Flow -->
+  <div class="modal hidden" id="modalCheckout">
+    <div class="modal-content checkout-modal">
+      <!-- Step 1: Confirmation -->
+      <div class="checkout-step" id="checkoutConfirmation">
+        <h2>Confirm Purchase</h2>
+        <div class="checkout-item-preview" id="checkoutItemPreview">
+          <!-- Filled dynamically -->
+        </div>
+        <div class="checkout-actions">
+          <button class="btn primary" id="btnConfirmPurchase">Continue to Payment</button>
+          <button class="btn" id="btnCancelCheckout">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Payment Entry -->
+      <div class="checkout-step hidden" id="checkoutPayment">
+        <h2>Payment Details</h2>
+        <p class="muted">This is a demo - no real payment is processed</p>
+        <div class="form-group">
+          <label>Card Number</label>
+          <input type="text" class="input-field" placeholder="1234 5678 9012 3456" maxlength="19" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Expiry</label>
+            <input type="text" class="input-field" placeholder="MM/YY" maxlength="5" />
+          </div>
+          <div class="form-group">
+            <label>CVV</label>
+            <input type="text" class="input-field" placeholder="123" maxlength="3" />
+          </div>
+        </div>
+        <div class="checkout-actions">
+          <button class="btn primary" id="btnProcessPayment">Process Payment</button>
+          <button class="btn" id="btnBackToConfirm">Back</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Success Screen -->
+      <div class="checkout-step hidden" id="checkoutSuccess">
+        <div class="success-icon">✓</div>
+        <h2>Upgrade Activated</h2>
+        <p class="success-message">Ready to Use Now</p>
+        <button class="btn primary" id="btnCloseCheckoutSuccess">Awesome!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upsell Modal (reusable for various upsell locations) -->
+  <div class="modal hidden" id="modalUpsell">
+    <div class="modal-content upsell-modal">
+      <h2 id="upsellTitle">Unlock Feature</h2>
+      <p id="upsellMessage">Upgrade to unlock this feature!</p>
+      <div class="upsell-actions">
+        <button class="btn primary" id="btnUpsellUpgrade">Upgrade Now</button>
+        <button class="btn" id="btnUpsellClose">Maybe Later</button>
+      </div>
+    </div>
+  </div>
 
   <script src="auth.js"></script>
   <script src="visual-stage.js"></script>
