@@ -692,13 +692,13 @@ function handleServer(msg) {
         }
         
         // If server provides pausedPositionSec, seek to that position
-        if (msg.pausedPositionSec !== undefined && state.guestAudioElement.duration) {
+        if (hasPausedPosition(msg) && state.guestAudioElement.duration) {
           clampAndSeekAudio(state.guestAudioElement, msg.pausedPositionSec);
           console.log("[Guest] Paused at position:", msg.pausedPositionSec.toFixed(2), "s");
         }
         
         // Update dataset for future sync operations
-        if (msg.pausedAtServerMs && msg.pausedPositionSec !== undefined) {
+        if (msg.pausedAtServerMs && hasPausedPosition(msg)) {
           state.guestAudioElement.dataset.startAtServerMs = msg.pausedAtServerMs.toString();
           state.guestAudioElement.dataset.startPositionSec = msg.pausedPositionSec.toString();
         }
@@ -1336,8 +1336,13 @@ function stopPartyStatusPolling() {
   }
 }
 
-// Helper: Check if guest audio should auto-resume
-function shouldResumeGuestAudio() {
+// Helper: Check if track has valid paused position
+function hasPausedPosition(track) {
+  return track && track.pausedPositionSec != null; // Checks for both undefined and null
+}
+
+// Helper: Check if guest audio can auto-resume (is paused and unlocked)
+function canResumeGuestAudio() {
   return state.guestAudioElement && 
          state.guestAudioElement.paused && 
          state.audioUnlocked;
@@ -1358,7 +1363,7 @@ function handlePlayingTrackFromPolling(track) {
       // No URL - host playing local file
       toast("🎵 Host is playing: " + track.filename);
     }
-  } else if (shouldResumeGuestAudio()) {
+  } else if (canResumeGuestAudio()) {
     // Track is same but guest audio is paused while host is playing - resume with sync
     console.log("[Polling] Resuming paused audio to match host playing state");
     const elapsedSec = (Date.now() - track.startAtServerMs) / 1000;
@@ -1376,7 +1381,7 @@ function handlePausedTrackFromPolling(track) {
   if (state.guestAudioElement && !state.guestAudioElement.paused) {
     console.log("[Polling] Pausing guest audio to match host");
     state.guestAudioElement.pause();
-    if (track.pausedPositionSec !== undefined) {
+    if (hasPausedPosition(track)) {
       clampAndSeekAudio(state.guestAudioElement, track.pausedPositionSec);
     }
   }
