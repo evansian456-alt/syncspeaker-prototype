@@ -3938,6 +3938,26 @@ function attemptAddPhone() {
     };
   }
 
+  // NEW PHONE PARTY LANDING PAGE BUTTONS
+  const btnSeePricing = el("btnSeePricing");
+  const btnGetStarted = el("btnGetStarted");
+
+  if (btnSeePricing) {
+    btnSeePricing.onclick = () => {
+      console.log("[UI] See Pricing clicked");
+      showView('viewChooseTier');
+    };
+  }
+
+  if (btnGetStarted) {
+    btnGetStarted.onclick = () => {
+      console.log("[UI] Get Started clicked - going to FREE tier");
+      state.selectedTier = USER_TIER.FREE;
+      state.userTier = USER_TIER.FREE;
+      showAccountCreation();
+    };
+  }
+
   // ACCOUNT CREATION PAGE HANDLERS
   const btnCreateAccountSubmit = el("btnCreateAccountSubmit");
   const btnShowLogin = el("btnShowLogin");
@@ -4064,6 +4084,69 @@ function attemptAddPhone() {
     console.log("[UI] Payment cancelled");
     showChooseTier();
   };
+
+  // PHONE PARTY - Giant Start/Join Buttons
+  const btnShowCreateParty = el("btnShowCreateParty");
+  const btnShowJoinParty = el("btnShowJoinParty");
+  const btnHideCreateParty = el("btnHideCreateParty");
+  const btnHideJoinParty = el("btnHideJoinParty");
+  const createPartySection = el("createPartySection");
+  const joinPartySection = el("joinPartySection");
+
+  if (btnShowCreateParty) {
+    btnShowCreateParty.onclick = () => {
+      console.log("[UI] Show create party form");
+      if (createPartySection) createPartySection.classList.remove("hidden");
+      if (joinPartySection) joinPartySection.classList.add("hidden");
+    };
+  }
+
+  if (btnShowJoinParty) {
+    btnShowJoinParty.onclick = () => {
+      console.log("[UI] Show join party form");
+      if (joinPartySection) joinPartySection.classList.remove("hidden");
+      if (createPartySection) createPartySection.classList.add("hidden");
+    };
+  }
+
+  if (btnHideCreateParty) {
+    btnHideCreateParty.onclick = () => {
+      console.log("[UI] Hide create party form");
+      if (createPartySection) createPartySection.classList.add("hidden");
+    };
+  }
+
+  if (btnHideJoinParty) {
+    btnHideJoinParty.onclick = () => {
+      console.log("[UI] Hide join party form");
+      if (joinPartySection) joinPartySection.classList.add("hidden");
+    };
+  }
+
+  // Color Picker for Profile
+  const colorOptions = document.querySelectorAll('.color-option');
+  const favoriteColorInput = el("favoriteColor");
+  
+  if (colorOptions && favoriteColorInput) {
+    colorOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        // Remove selected class from all options
+        colorOptions.forEach(opt => opt.classList.remove('selected'));
+        // Add selected class to clicked option
+        option.classList.add('selected');
+        // Update hidden input
+        const color = option.getAttribute('data-color');
+        favoriteColorInput.value = color;
+        console.log("[UI] Color selected:", color);
+      });
+    });
+    
+    // Select default color (purple)
+    const defaultColor = document.querySelector('.color-option[data-color="purple"]');
+    if (defaultColor) {
+      defaultColor.classList.add('selected');
+    }
+  }
 
   el("btnCreate").onclick = async () => {
     console.log("[UI] Start party button clicked");
