@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SyncSpeaker — Turn Your Phones Into One Massive Speaker</title>
+  <title>PHONE PARTY — Turn Phones Into One Big Speaker</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <div class="logo">SS</div>
+      <div class="logo">📱🎉</div>
       <div>
-        <div class="title">SyncSpeaker</div>
-        <div class="subtitle">Turn your phones into one big speaker.</div>
+        <div class="title">PHONE PARTY</div>
+        <div class="subtitle">Turn phones into one big speaker.</div>
       </div>
     </div>
     <div class="header-right">
@@ -26,144 +26,114 @@
   </header>
 
   <main class="wrap">
-    <!-- Landing Page - Clean Minimal Design -->
+    <!-- Landing Page - PHONE PARTY Design -->
     <section class="landing-page" id="viewLanding">
       <div class="landing-hero-new">
-        <h1 class="landing-title-new">SyncSpeaker</h1>
+        <h1 class="landing-title-new">PHONE PARTY 🎉</h1>
         <p class="landing-subtitle-new">Turn Phones Into One Big Speaker</p>
+        
+        <!-- Animated Background Element -->
+        <div class="party-background-animation">
+          <div class="sound-wave"></div>
+          <div class="sound-wave"></div>
+          <div class="sound-wave"></div>
+        </div>
         
         <!-- App Information Section -->
         <div class="landing-info-section">
           <div class="info-card">
-            <div class="info-icon">🎵</div>
-            <h3 class="info-title">Turn multiple phones into one synced speaker system</h3>
-            <p class="info-desc">Connect your friends' phones and create a powerful surround sound experience.</p>
+            <div class="info-icon">📱</div>
+            <h3 class="info-title">Multiple Phones = Massive Sound</h3>
+            <p class="info-desc">Connect your crew's phones and create the ultimate party speaker system.</p>
           </div>
           <div class="info-card">
             <div class="info-icon">🎧</div>
-            <h3 class="info-title">Host plays music, guests hear it together</h3>
-            <p class="info-desc">One person controls the music, everyone hears it perfectly synced.</p>
+            <h3 class="info-title">DJ Controls the Vibe</h3>
+            <p class="info-desc">One person plays the music, everyone hears it perfectly in sync.</p>
           </div>
           <div class="info-card">
-            <div class="info-icon">🎉</div>
-            <h3 class="info-title">Perfect for parties, hangouts, and events</h3>
-            <p class="info-desc">Turn any space into an immersive audio experience.</p>
+            <div class="info-icon">🔥</div>
+            <h3 class="info-title">Party Mode Activated</h3>
+            <p class="info-desc">Perfect for hangouts, parties, and turning up anywhere!</p>
           </div>
         </div>
         
-        <!-- Pricing Tiers Display -->
-        <div class="pricing-summary">
-          <h2 class="pricing-summary-title">Choose Your Plan</h2>
-          <div class="pricing-summary-grid">
-            <div class="pricing-summary-item pricing-clickable" id="landingFreeTier">
-              <div class="pricing-summary-label">FREE</div>
-              <div class="pricing-summary-desc">2 phones</div>
-              <div class="pricing-summary-features">
-                <div>✓ Unlimited time</div>
-                <div>✓ Basic features</div>
-              </div>
-              <button class="btn btn-tier-select">Use Free Version</button>
-            </div>
-            <div class="pricing-summary-item pricing-clickable pricing-featured" id="landingPartyPassTier">
-              <div class="pricing-badge">Most Popular</div>
-              <div class="pricing-summary-label">PARTY PASS</div>
-              <div class="pricing-summary-desc">£2.99</div>
-              <div class="pricing-summary-features">
-                <div>✓ Up to 4 phones</div>
-                <div>✓ 2-hour session</div>
-                <div>✓ Preset messages</div>
-              </div>
-              <button class="btn btn-tier-select btn-party-pass">Buy Party Pass</button>
-            </div>
-            <div class="pricing-summary-item pricing-clickable" id="landingProTier">
-              <div class="pricing-summary-label">PRO</div>
-              <div class="pricing-summary-desc">£9.99 / month</div>
-              <div class="pricing-summary-features">
-                <div>✓ 12+ phones</div>
-                <div>✓ DJ features</div>
-                <div>✓ Messaging & upgrades</div>
-              </div>
-              <button class="btn btn-tier-select btn-pro-monthly">Go Pro Monthly</button>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Add-ons Link -->
-        <div style="text-align: center; margin-top: 2rem;">
-          <button class="btn" id="btnLandingAddons" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
-            ✨ See Add-ons
+        <!-- Main CTA Buttons -->
+        <div class="landing-cta-buttons">
+          <button class="btn-landing-primary" id="btnSeePricing">
+            💰 SEE PRICING
+          </button>
+          <button class="btn-landing-secondary" id="btnGetStarted">
+            🚀 GET STARTED
           </button>
         </div>
       </div>
       <div class="blob blob-3"></div>
     </section>
 
-    <!-- Choose Tier Screen -->
+    <!-- PHONE PARTY Pricing Screen -->
     <section class="card hidden" id="viewChooseTier">
-      <h1>Choose Your Plan</h1>
-      <p class="muted">Select how you want to start your party</p>
+      <h1>🎉 CHOOSE YOUR PARTY LEVEL</h1>
+      <p class="muted">Pick the plan that fits your vibe</p>
       
       <div class="tier-selection-grid">
-        <!-- FREE TIER -->
-        <div class="tier-card" id="tierFree">
-          <div class="tier-badge free">Free</div>
-          <h2>Free Mode</h2>
-          <p class="tier-tagline">Connect 2 phones with unlimited time – totally free.</p>
+        <!-- FREE MODE -->
+        <div class="tier-card neon-card" id="tierFree">
+          <div class="tier-icon">🆓</div>
+          <div class="tier-badge free">FREE</div>
+          <h2>FREE MODE</h2>
+          <p class="tier-subtitle">2 PHONES</p>
           <ul class="tier-features">
-            <li>✓ 2 phones only</li>
             <li>✓ Unlimited time</li>
-            <li>✓ Emoji reactions only</li>
-            <li>✗ No DJ profile</li>
-            <li>✗ No add-ons</li>
-            <li>✗ No custom messages</li>
+            <li>✓ 2 phone sync</li>
+            <li>✓ Basic emojis</li>
+            <li>✗ No DJ tools</li>
           </ul>
-          <button class="btn primary" id="btnSelectFree">Create Free Party</button>
+          <button class="btn-tier primary" id="btnSelectFree">START FREE 🎵</button>
         </div>
 
-        <!-- PARTY PASS TIER -->
-        <div class="tier-card tier-featured" id="tierPartyPass">
-          <div class="popular-badge">Most popular</div>
-          <div class="tier-badge party-pass">Party Pass</div>
-          <h2>Party Pass</h2>
+        <!-- PARTY PASS -->
+        <div class="tier-card neon-card tier-featured" id="tierPartyPass">
+          <div class="popular-badge">🔥 MOST POPULAR</div>
+          <div class="tier-icon">🎊</div>
+          <div class="tier-badge party-pass">PARTY PASS</div>
+          <h2>PARTY PASS</h2>
           <p class="tier-price">£2.99</p>
-          <p class="tier-tagline">Perfect for small parties and hangouts.</p>
-          <p class="tier-subtitle">Up to 4 phones – 2 hours – preset messages.</p>
+          <p class="tier-subtitle">UP TO 4 PHONES</p>
           <ul class="tier-features">
             <li>✓ Up to 4 phones</li>
-            <li>✓ 2 hours</li>
             <li>✓ Preset messages</li>
-            <li>✓ DJ profile active</li>
-            <li>✓ Add-ons available</li>
+            <li>✓ Emoji reactions</li>
+            <li>✓ Hype button</li>
           </ul>
-          <button class="btn btn-party-pass" id="btnSelectPartyPass">Select Party Pass</button>
+          <button class="btn-tier party-pass" id="btnSelectPartyPass">GET PARTY PASS 🎉</button>
         </div>
 
-        <!-- PRO TIER -->
-        <div class="tier-card" id="tierPro">
-          <div class="tier-badge pro">Pro</div>
-          <h2>Pro Monthly</h2>
-          <p class="tier-price">£9.99/month</p>
-          <p class="tier-tagline">Turn any room into a real DJ experience.</p>
-          <p class="tier-subtitle">Up to 12 phones – unlimited time – full features.</p>
+        <!-- PRO MODE -->
+        <div class="tier-card neon-card" id="tierPro">
+          <div class="tier-icon">⭐</div>
+          <div class="tier-badge pro">PRO</div>
+          <h2>PRO MODE</h2>
+          <p class="tier-price">£9.99/mo</p>
+          <p class="tier-subtitle">UNLIMITED PHONES</p>
           <ul class="tier-features">
-            <li>✓ 10–12 phones</li>
-            <li>✓ Unlimited time</li>
+            <li>✓ Unlimited phones</li>
             <li>✓ Custom messages</li>
-            <li>✓ Full DJ profile</li>
-            <li>✓ Rankings</li>
-            <li>✓ All add-ons</li>
+            <li>✓ Full DJ tools</li>
+            <li>✓ Score system</li>
+            <li>✓ Visual packs</li>
           </ul>
-          <button class="btn btn-pro-monthly" id="btnSelectPro">Pro Mode Required</button>
+          <button class="btn-tier pro" id="btnSelectPro">GO PRO 🚀</button>
         </div>
       </div>
 
-      <button class="btn secondary" id="btnBackToLanding" style="margin-top: 2rem;">← Back</button>
+      <button class="btn secondary" id="btnBackToLanding" style="margin-top: 2rem;">← Back to Home</button>
     </section>
 
-    <!-- Account Creation / Login Page -->
+    <!-- Account Creation / Profile Creation -->
     <section class="card hidden" id="viewAccountCreation">
-      <h1>Create Account / Log In</h1>
-      <p class="muted">Create an account to unlock your selected tier</p>
+      <h1>🎤 CREATE YOUR DJ PROFILE</h1>
+      <p class="muted">Set up your party identity</p>
       
       <!-- Selected Tier Display -->
       <div class="selected-tier-info" id="selectedTierInfo">
@@ -172,9 +142,13 @@
       </div>
       
       <div class="account-options">
-        <!-- Account Creation Section -->
+        <!-- Profile Creation Section -->
         <div class="account-section">
-          <h2>Create Account</h2>
+          <h2>Your DJ Profile</h2>
+          <div class="form-group">
+            <label class="lbl">DJ Name (required) ⭐</label>
+            <input type="text" id="accountDjName" class="input" placeholder="DJ CoolVibes" required />
+          </div>
           <div class="form-group">
             <label class="lbl">Email</label>
             <input type="email" id="accountEmail" class="input" placeholder="your@email.com" />
@@ -184,10 +158,18 @@
             <input type="password" id="accountPassword" class="input" placeholder="••••••••" />
           </div>
           <div class="form-group">
-            <label class="lbl">DJ Name (optional)</label>
-            <input type="text" id="accountDjName" class="input" placeholder="DJ Cool" />
+            <label class="lbl">Favorite Color 🎨</label>
+            <div class="color-picker-grid">
+              <div class="color-option" style="background: #9D4EDD;" data-color="purple"></div>
+              <div class="color-option" style="background: #00D4FF;" data-color="blue"></div>
+              <div class="color-option" style="background: #FF2D95;" data-color="pink"></div>
+              <div class="color-option" style="background: #39FF14;" data-color="green"></div>
+              <div class="color-option" style="background: #FFD700;" data-color="gold"></div>
+              <div class="color-option" style="background: #FF6B35;" data-color="orange"></div>
+            </div>
+            <input type="hidden" id="favoriteColor" value="purple" />
           </div>
-          <button class="btn primary" id="btnCreateAccountSubmit">Create Account & Continue</button>
+          <button class="btn primary" id="btnCreateAccountSubmit">Save Profile & Continue 🚀</button>
         </div>
         
         <div class="account-divider">
@@ -196,7 +178,7 @@
         
         <!-- Login Section -->
         <div class="account-section">
-          <h2>Already Have An Account?</h2>
+          <h2>Already Have A Profile?</h2>
           <button class="btn secondary" id="btnShowLogin">Log In Instead</button>
         </div>
       </div>
@@ -204,19 +186,19 @@
       <!-- Prototype Mode Skip Option -->
       <div class="prototype-mode-section">
         <div class="line" style="margin: 2rem 0;"></div>
-        <h3>Testing Without Account?</h3>
-        <p class="muted">Skip account creation and use prototype mode</p>
-        <button class="btn secondary" id="btnSkipAccount">Skip Account – Prototype Mode</button>
+        <h3>🔧 Testing Mode</h3>
+        <p class="muted">Skip profile creation and use prototype mode</p>
+        <button class="btn secondary" id="btnSkipAccount">Skip Sign Up (Prototype Mode)</button>
         <div class="tiny muted" style="margin-top: 1rem;">
-          Note: Paid features require an account to activate
+          Note: Some features require a profile to unlock
         </div>
       </div>
       
       <!-- Warning for paid tiers -->
       <div class="upgrade-warning hidden" id="upgradeWarning">
         <div class="warning-banner">
-          ⚠️ <strong>Upgrades require an account to activate</strong><br>
-          You selected a paid tier, but skipped account creation. You'll continue as a free prototype user.
+          ⚠️ <strong>Premium features require a profile</strong><br>
+          You selected a paid tier, but skipped profile creation. You'll continue as free user.
         </div>
       </div>
       
