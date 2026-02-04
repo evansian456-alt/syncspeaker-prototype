@@ -6863,12 +6863,18 @@ function handleUrlParamsAndRejoin() {
   
   if (codeFromUrl) {
     // URL parameter takes priority
-    if (joinCodeInput) {
-      joinCodeInput.value = codeFromUrl.toUpperCase();
-      // Auto-focus the name input if code is provided
-      if (guestNameInput) {
-        guestNameInput.focus();
+    // Validate code format (6 alphanumeric characters)
+    const normalizedCode = codeFromUrl.trim().toUpperCase();
+    if (normalizedCode.length === 6 && /^[A-Z0-9]{6}$/.test(normalizedCode)) {
+      if (joinCodeInput) {
+        joinCodeInput.value = normalizedCode;
+        // Auto-focus the name input if code is provided
+        if (guestNameInput) {
+          guestNameInput.focus();
+        }
       }
+    } else {
+      console.warn('[URL Param] Invalid party code format in URL:', codeFromUrl);
     }
   } else if (lastCode) {
     // Restore from localStorage if no URL param
