@@ -2205,9 +2205,10 @@ function handleGuestPauseRequest(guestName, guestId) {
  * @param {string} content - The emoji or message text
  * @param {boolean} isEmoji - Whether this is an emoji reaction
  */
+let feedItemCounter = 0; // Counter to ensure unique IDs
 function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false) {
   const feedItem = {
-    id: Date.now() + Math.random(), // Unique ID
+    id: `${Date.now()}-${++feedItemCounter}`, // More robust unique ID
     timestamp: Date.now(),
     sender: sender, // 'DJ' or 'GUEST'
     senderName: senderName,
@@ -2244,21 +2245,14 @@ function renderUnifiedFeed() {
     
     if (state.unifiedFeed.length === 0) {
       // Show "no messages" placeholder
-      if (!djNoMessages) {
-        const noMsgEl = document.createElement("div");
-        noMsgEl.className = "dj-no-messages";
-        noMsgEl.id = "djNoMessages";
-        noMsgEl.textContent = "Waiting for guest reactions...";
-        djMessagesContainer.appendChild(noMsgEl);
-      } else {
-        djNoMessages.style.display = "block";
-        djMessagesContainer.appendChild(djNoMessages);
-      }
+      const noMsgEl = document.createElement("div");
+      noMsgEl.className = "dj-no-messages";
+      noMsgEl.id = "djNoMessages";
+      noMsgEl.textContent = "Waiting for guest reactions...";
+      djMessagesContainer.appendChild(noMsgEl);
     } else {
-      // Hide "no messages"
-      if (djNoMessages) {
-        djNoMessages.style.display = "none";
-      }
+      // Use DocumentFragment for efficient DOM operations
+      const fragment = document.createDocumentFragment();
       
       // Render feed items (newest first, already ordered)
       state.unifiedFeed.forEach(item => {
@@ -2268,8 +2262,10 @@ function renderUnifiedFeed() {
           <div class="dj-message-text">${escapeHtml(item.content)}</div>
           <div class="dj-message-sender">${escapeHtml(item.senderName)}</div>
         `;
-        djMessagesContainer.appendChild(messageEl);
+        fragment.appendChild(messageEl);
       });
+      
+      djMessagesContainer.appendChild(fragment);
     }
   }
   
@@ -2293,6 +2289,9 @@ function renderGuestUnifiedFeed() {
       noMsgEl.textContent = "No reactions yet...";
       guestFeedContainer.appendChild(noMsgEl);
     } else {
+      // Use DocumentFragment for efficient DOM operations
+      const fragment = document.createDocumentFragment();
+      
       // Render feed items
       state.unifiedFeed.forEach(item => {
         const messageEl = document.createElement("div");
@@ -2301,8 +2300,10 @@ function renderGuestUnifiedFeed() {
           <div class="guest-feed-content">${escapeHtml(item.content)}</div>
           <div class="guest-feed-sender">${escapeHtml(item.senderName)}</div>
         `;
-        guestFeedContainer.appendChild(messageEl);
+        fragment.appendChild(messageEl);
       });
+      
+      guestFeedContainer.appendChild(fragment);
     }
   }
 }
