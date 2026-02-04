@@ -28,8 +28,8 @@ test.describe('Phase 3 - Party Creation Flow + Diagnostics', () => {
       
       await page.waitForTimeout(500);
       
-      // Find Start Party button
-      const startButton = page.locator('#btnCreateParty, button:has-text("Start Party")').first();
+      // Find Start Party button (correct ID is btnCreate)
+      const startButton = page.locator('#btnCreate, button:has-text("Start the party")').first();
       
       await expect(startButton).toBeVisible({ timeout: 5000 });
       await expect(startButton).toBeEnabled();
@@ -48,8 +48,8 @@ test.describe('Phase 3 - Party Creation Flow + Diagnostics', () => {
       
       await page.waitForTimeout(500);
       
-      // Click Start Party
-      const startButton = page.locator('#btnCreateParty, button:has-text("Start Party")').first();
+      // Click Start Party (correct ID is btnCreate)
+      const startButton = page.locator('#btnCreate, button:has-text("Start the party")').first();
       
       if (await startButton.isVisible({ timeout: 2000 }).catch(() => false)) {
         await startButton.click();

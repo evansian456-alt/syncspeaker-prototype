@@ -103,7 +103,7 @@ test.describe('Phase 4 - Multi-Device Testing', () => {
       await hostPage.waitForTimeout(500);
       
       // Click Start Party
-      const startButton = hostPage.locator('#btnCreateParty, button:has-text("Start Party")').first();
+      const startButton = hostPage.locator('#btnCreate, button:has-text("Start the party")').first();
       
       if (await startButton.isVisible({ timeout: 3000 }).catch(() => false)) {
         await startButton.click();
@@ -148,7 +148,7 @@ test.describe('Phase 4 - Multi-Device Testing', () => {
       await guest1Page.waitForTimeout(500);
       
       // Click Join Party
-      const joinButton = guest1Page.locator('#btnJoinParty, button:has-text("Join Party")').first();
+      const joinButton = guest1Page.locator('button:has-text("Join Party"), #modalQRCode').first();
       
       if (await joinButton.isVisible({ timeout: 3000 }).catch(() => false)) {
         await joinButton.click();
@@ -248,7 +248,7 @@ test.describe('Phase 4 - Multi-Device Testing', () => {
       
       await guest2Page.waitForTimeout(500);
       
-      const joinButton = guest2Page.locator('#btnJoinParty, button:has-text("Join Party")').first();
+      const joinButton = guest2Page.locator('button:has-text("Join Party"), #modalQRCode').first();
       
       if (await joinButton.isVisible({ timeout: 3000 }).catch(() => false)) {
         await joinButton.click();
@@ -381,7 +381,7 @@ test.describe('Phase 4 - Multi-Device Testing', () => {
       
       await page.waitForTimeout(500);
       
-      const joinButton = page.locator('#btnJoinParty, button:has-text("Join Party")').first();
+      const joinButton = page.locator('button:has-text("Join Party"), #modalQRCode').first();
       
       if (await joinButton.isVisible({ timeout: 2000 }).catch(() => false)) {
         await joinButton.click();
