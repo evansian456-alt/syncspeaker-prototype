@@ -1541,7 +1541,7 @@ async function getMaxAllowedPhones(code, partyData) {
   }
   
   // Default free limit
-  return FREE_PARTY_LIMIT;
+  return FREE_DEFAULT_MAX_PHONES;
 }
 
 // Shared party creation function used by both HTTP and WS paths
@@ -3832,7 +3832,7 @@ function handleHostPlay(ws, msg) {
     filename,
     startAtServerMs: serverTimestamp,
     startPositionSec: startPosition,
-    status: 'playing'
+    status: 'playing' // HOST_PLAY event always indicates playing state
   };
   
   console.log(`[Party] Track info: ${filename}, trackId: ${trackId}, position: ${startPosition}s`);
@@ -4004,7 +4004,7 @@ function handleHostTrackChanged(ws, msg) {
     filename,
     startAtServerMs: serverTimestamp,
     startPositionSec: positionSec,
-    status: 'playing'
+    status: 'playing' // TRACK_CHANGED event always indicates playing state
   };
   
   // Persist playback state to Redis (best-effort, async)
