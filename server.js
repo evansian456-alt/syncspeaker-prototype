@@ -798,12 +798,26 @@ app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (re
     } else if (item.type === storeCatalog.STORE_CATEGORIES.SUBSCRIPTIONS) {
       // Handle subscription
       if (item.id === 'party_pass') {
-        // Party Pass is handled per-party
+        // Party Pass is handled per-party - update the JSON party data in Redis
         if (partyCode && redis) {
-          const partyKey = `party:${partyCode}`;
-          const partyPassExpires = Date.now() + item.duration * 1000;
-          await redis.hset(partyKey, 'partyPassExpiresAt', partyPassExpires);
-          await redis.hset(partyKey, 'maxPhones', item.maxPhones);
+          try {
+            const partyData = await getPartyFromRedis(partyCode);
+            if (partyData) {
+              const partyPassExpires = Date.now() + item.duration * 1000;
+              partyData.partyPassExpiresAt = partyPassExpires;
+              partyData.maxPhones = item.maxPhones;
+              await setPartyInRedis(partyCode, partyData);
+              
+              // Also update local party if it exists
+              const localParty = parties.get(partyCode);
+              if (localParty) {
+                localParty.partyPassExpiresAt = partyPassExpires;
+                localParty.maxPhones = item.maxPhones;
+              }
+            }
+          } catch (err) {
+            console.error(`[Purchase] Error updating party ${partyCode} with party pass:`, err.message);
+          }
         }
       } else if (item.id === 'pro_monthly') {
         // Create/update Pro subscription
@@ -835,18 +849,32 @@ app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (re
         }
       }
     } else if (item.type === storeCatalog.STORE_CATEGORIES.PARTY_EXTENSIONS) {
-      // Party extensions - apply to Redis party
+      // Party extensions - apply to Redis party using JSON storage
       if (partyCode && redis) {
-        const partyKey = `party:${partyCode}`;
-        
-        if (item.id === 'add_30min') {
-          const currentExpiry = await redis.hget(partyKey, 'partyPassExpiresAt');
-          const newExpiry = (parseInt(currentExpiry) || Date.now()) + 30 * 60 * 1000;
-          await redis.hset(partyKey, 'partyPassExpiresAt', newExpiry);
-        } else if (item.id === 'add_5phones') {
-          const currentMax = await redis.hget(partyKey, 'maxPhones');
-          const newMax = (parseInt(currentMax) || 2) + 5;
-          await redis.hset(partyKey, 'maxPhones', newMax);
+        try {
+          const partyData = await getPartyFromRedis(partyCode);
+          if (partyData) {
+            if (item.id === 'add_30min') {
+              const currentExpiry = partyData.partyPassExpiresAt || Date.now();
+              partyData.partyPassExpiresAt = currentExpiry + 30 * 60 * 1000;
+            } else if (item.id === 'add_5phones') {
+              const currentMax = partyData.maxPhones || 2;
+              partyData.maxPhones = currentMax + 5;
+            }
+            await setPartyInRedis(partyCode, partyData);
+            
+            // Also update local party if it exists
+            const localParty = parties.get(partyCode);
+            if (localParty) {
+              if (item.id === 'add_30min') {
+                localParty.partyPassExpiresAt = partyData.partyPassExpiresAt;
+              } else if (item.id === 'add_5phones') {
+                localParty.maxPhones = partyData.maxPhones;
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[Purchase] Error updating party ${partyCode} with extension:`, err.message);
         }
       }
     }
