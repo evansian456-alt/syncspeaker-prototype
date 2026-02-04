@@ -22,6 +22,12 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
+// Promo codes for party-wide Pro unlock
+const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+
+// Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
+const TEST_MODE = process.env.TEST_MODE === 'true' || process.env.NODE_ENV !== 'production';
+
 // Helper function to classify Redis error types
 function getRedisErrorType(errorMessage) {
   if (!errorMessage) return 'unknown';
@@ -1414,7 +1420,10 @@ app.post("/api/create-party", async (req, res) => {
       createdAt,
       hostId,
       queue: [], // Track queue (max 5)
-      currentTrack: null // Current playing track
+      currentTrack: null, // Current playing track
+      partyPro: false, // Party-wide Pro status from promo code
+      promoUsed: false, // Whether a promo code was used
+      source: "local" // Audio source: local/external/mic
     });
     
     const totalParties = parties.size;
@@ -2701,6 +2710,12 @@ async function startServer() {
     
     console.log(`[WS] Client ${clientId} connected`);
     
+    // Set up heartbeat for this connection
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+    
     // Send welcome message
     safeSend(ws, JSON.stringify({ t: "WELCOME", clientId }));
     
@@ -2723,6 +2738,26 @@ async function startServer() {
     ws.on("error", (err) => {
       console.error(`[WS] Client ${clientId} error:`, err);
     });
+  });
+  
+  // Heartbeat interval to detect dead connections
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        const client = clients.get(ws);
+        if (client) {
+          console.log(`[WS] Terminating dead connection for client ${client.id}`);
+        }
+        return ws.terminate();
+      }
+      
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000); // Ping every 30 seconds
+  
+  wss.on('close', () => {
+    clearInterval(heartbeatInterval);
   });
   
   return server;
@@ -2802,6 +2837,9 @@ function handleMessage(ws, msg) {
       break;
     case "DJ_EMOJI":
       handleDjEmoji(ws, msg);
+      break;
+    case "APPLY_PROMO":
+      handleApplyPromo(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -2892,13 +2930,15 @@ async function handleCreate(ws, msg) {
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
   
+  // Extract and validate source selection
+  const source = msg.source === "external" || msg.source === "mic" ? msg.source : "local";
+  
   const member = {
     ws,
     id: client.id,
     name,
     isPro: !!msg.isPro,
-    isHost: true,
-    source: msg.source === "external" || msg.source === "mic" ? msg.source : "local"
+    isHost: true
   };
   
   const createdAt = Date.now();
@@ -2918,6 +2958,15 @@ async function handleCreate(ws, msg) {
   // This ensures party is persisted before guests try to join
   try {
     await setPartyInRedis(code, partyData);
+    // Structured logging for testing analytics
+    console.log(JSON.stringify({
+      event: "party_created",
+      code,
+      source,
+      clientId: client.id,
+      timestamp,
+      instanceId: INSTANCE_ID
+    }));
     console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
   } catch (err) {
     console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
@@ -2939,6 +2988,9 @@ async function handleCreate(ws, msg) {
     currentTrack: null, // Current playing track info
     queue: [], // Track queue (max 5)
     timeoutWarningTimer: null, // Timer for timeout warning
+    partyPro: false, // Party-wide Pro status from promo code
+    promoUsed: false, // Whether a promo code was used
+    source, // Audio source: local/external/mic
     // Scoreboard state (resets each party)
     scoreState: {
       dj: {
@@ -2998,7 +3050,10 @@ async function handleJoin(ws, msg) {
       members: [],
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
-      hostId: partyData.hostId
+      hostId: partyData.hostId,
+      partyPro: false, // Will be synced if promo was used
+      promoUsed: false,
+      source: "local"
     });
     party = parties.get(code);
   }
@@ -3009,7 +3064,30 @@ async function handleJoin(ws, msg) {
     const localPartyExists = parties.has(code);
     const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
     console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
+    // Structured logging for testing analytics
+    console.log(JSON.stringify({
+      event: "join_attempt",
+      success: false,
+      reason: "party_not_found",
+      code,
+      clientId: client.id,
+      timestamp
+    }));
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
+    return;
+  }
+  
+  // Validate code format (should be 6 uppercase alphanumeric characters)
+  if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
+    console.log(JSON.stringify({
+      event: "join_attempt",
+      success: false,
+      reason: "invalid_code_format",
+      code,
+      clientId: client.id,
+      timestamp
+    }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid party code format" }));
     return;
   }
   
@@ -3024,8 +3102,37 @@ async function handleJoin(ws, msg) {
     return;
   }
   
-  // Validate and sanitize name
-  const name = (msg.name || "Guest").trim().substring(0, 50);
+  // SERVER-ENFORCED FREE LIMIT: Check party size before adding
+  const currentGuestCount = party.members.filter(m => !m.isHost).length;
+  if (!party.partyPro && currentGuestCount >= 2) {
+    console.log(JSON.stringify({
+      event: "join_attempt",
+      success: false,
+      reason: "party_full",
+      code,
+      clientId: client.id,
+      currentGuestCount,
+      timestamp
+    }));
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Free parties are limited to 2 phones" 
+    }));
+    return;
+  }
+  
+  // Validate and sanitize name (limit length and prevent duplicates)
+  let name = (msg.name || "Guest").trim().substring(0, 50);
+  
+  // Prevent identical names by auto-numbering
+  const existingNames = party.members.map(m => m.name);
+  if (existingNames.includes(name)) {
+    let counter = 2;
+    while (existingNames.includes(`${name} ${counter}`)) {
+      counter++;
+    }
+    name = `${name} ${counter}`;
+  }
   
   const member = {
     ws,
@@ -3053,6 +3160,15 @@ async function handleJoin(ws, msg) {
     console.error(`[WS] Error fetching party for guest count update:`, err.message);
   });
   
+  // Structured logging for testing analytics
+  console.log(JSON.stringify({
+    event: "join_attempt",
+    success: true,
+    code,
+    clientId: client.id,
+    guestCount,
+    timestamp
+  }));
   console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
   
   safeSend(ws, JSON.stringify({ t: "JOINED", code }));
@@ -3140,10 +3256,75 @@ function handleSetPro(ws, msg) {
   
   const member = party.members.find(m => m.ws === ws);
   if (member) {
+    // Only mark this member as a supporter, NOT unlock party-wide Pro
+    // Only APPLY_PROMO can set partyPro = true
     member.isPro = !!msg.isPro;
-    console.log(`[Party] Client ${client.id} set Pro to ${member.isPro}`);
+    console.log(`[Party] Client ${client.id} set Pro supporter status to ${member.isPro}`);
     broadcastRoomState(client.party);
   }
+}
+
+function handleApplyPromo(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  const code = msg.code?.trim().toUpperCase();
+  const timestamp = new Date().toISOString();
+  
+  // Check if promo already used
+  if (party.promoUsed) {
+    console.log(JSON.stringify({
+      event: "promo_attempt",
+      success: false,
+      reason: "already_used",
+      partyCode: client.party,
+      clientId: client.id,
+      timestamp
+    }));
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "This party already used a promo code." 
+    }));
+    return;
+  }
+  
+  // Validate promo code
+  if (!PROMO_CODES.includes(code)) {
+    console.log(JSON.stringify({
+      event: "promo_attempt",
+      success: false,
+      reason: "invalid_code",
+      partyCode: client.party,
+      clientId: client.id,
+      promoCodeAttempt: code,
+      timestamp
+    }));
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Invalid or expired promo code." 
+    }));
+    return;
+  }
+  
+  // Apply promo code
+  party.partyPro = true;
+  party.promoUsed = true;
+  
+  console.log(JSON.stringify({
+    event: "promo_attempt",
+    success: true,
+    partyCode: client.party,
+    clientId: client.id,
+    promoCode: code,
+    timestamp
+  }));
+  console.log(`[Party] Promo code applied to party ${client.party}, unlocked by client ${client.id}`);
+  
+  // Broadcast updated party state with partyPro = true
+  broadcastRoomState(client.party);
 }
 
 function handleDisconnect(ws) {
@@ -3157,6 +3338,17 @@ function handleDisconnect(ws) {
   
   if (member?.isHost) {
     // Host left, end the party
+    const timestamp = new Date().toISOString();
+    
+    // Structured logging for testing analytics
+    console.log(JSON.stringify({
+      event: "party_ended",
+      reason: "host_left",
+      code: client.party,
+      duration: Date.now() - (party.createdAt || Date.now()),
+      guestCount: party.members.filter(m => !m.isHost).length,
+      timestamp
+    }));
     console.log(`[Party] Host left, ending party ${client.party}, instanceId: ${INSTANCE_ID}`);
     
     // Persist scoreboard to database
@@ -3218,7 +3410,9 @@ function broadcastRoomState(code) {
       isPro: m.isPro,
       isHost: m.isHost
     })),
-    chatMode: party.chatMode || "OPEN"
+    chatMode: party.chatMode || "OPEN",
+    partyPro: !!party.partyPro, // Party-wide Pro status
+    source: party.source || "local" // Audio source
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
