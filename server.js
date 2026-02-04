@@ -1242,7 +1242,10 @@ const PARTY_META_KEY_PREFIX = "party_meta:";
 // code -> { host, members: [{ ws, id, name, isPro, isHost }] }
 const parties = new Map();
 const clients = new Map(); // ws -> { id, party }
-let nextClientId = 1;
+
+// Separate counters to avoid ID collisions between HTTP and WS
+let nextWsClientId = 1;      // For WebSocket client IDs
+let nextHttpGuestSeq = 1;    // For HTTP-generated guest IDs
 let nextHostId = 1;
 
 // Fallback storage for party metadata when Redis is unavailable
@@ -1314,6 +1317,98 @@ function deletePartyFromFallback(code) {
   return fallbackPartyStorage.delete(code);
 }
 
+// Helper function to normalize party data - ensures all required fields exist
+// This prevents issues when parties are created via different paths or when Redis data is incomplete
+function normalizePartyData(partyData) {
+  if (!partyData) return null;
+  
+  return {
+    djName: partyData.djName || "Host",
+    source: partyData.source || "local",
+    partyPro: partyData.partyPro || false,
+    promoUsed: partyData.promoUsed || false,
+    chatMode: partyData.chatMode || "OPEN",
+    createdAt: partyData.createdAt || Date.now(),
+    hostId: partyData.hostId,
+    hostConnected: partyData.hostConnected !== undefined ? partyData.hostConnected : false,
+    guestCount: partyData.guestCount || 0,
+    guests: partyData.guests || [],
+    status: partyData.status || "active",
+    expiresAt: partyData.expiresAt || (Date.now() + PARTY_TTL_MS),
+    // Optional fields from purchases
+    partyPassExpiresAt: partyData.partyPassExpiresAt || null,
+    maxPhones: partyData.maxPhones || null
+  };
+}
+
+// Helper function to calculate max allowed phones/devices based on party state
+async function getMaxAllowedPhones(code, partyData) {
+  // If party is Pro, allow unlimited (use a large number)
+  if (partyData.partyPro) {
+    return 100; // Practical limit
+  }
+  
+  // Check if party pass is active and not expired
+  if (partyData.partyPassExpiresAt && Date.now() < partyData.partyPassExpiresAt) {
+    const maxPhones = parseInt(partyData.maxPhones);
+    return isNaN(maxPhones) ? 2 : maxPhones;
+  }
+  
+  // Default free limit
+  return 2;
+}
+
+// Shared party creation function used by both HTTP and WS paths
+// This ensures consistent party data structure across all creation methods
+async function createPartyCommon({ djName, source, hostId, hostConnected }) {
+  // Runtime guard: Check if Redis is available
+  if (!redis || !redisReady) {
+    throw new Error("Redis not ready");
+  }
+  
+  // Generate unique party code
+  let code;
+  let attempts = 0;
+  do {
+    code = generateCode();
+    // Check both local and Redis for uniqueness
+    const existsLocally = parties.has(code);
+    const existsInRedis = await getPartyFromRedis(code);
+    if (!existsLocally && !existsInRedis) break;
+    attempts++;
+  } while (attempts < 10);
+  
+  if (attempts >= 10) {
+    throw new Error("Failed to generate unique party code after 10 attempts");
+  }
+  
+  const createdAt = Date.now();
+  
+  // Create full party data with all required fields
+  const partyData = {
+    djName: djName.trim().substring(0, 50),
+    source: source || "local",
+    partyPro: false,
+    promoUsed: false,
+    chatMode: "OPEN",
+    createdAt,
+    hostId,
+    hostConnected,
+    guestCount: 0,
+    guests: [],
+    status: "active",
+    expiresAt: createdAt + PARTY_TTL_MS,
+    // Optional fields (set by purchases later)
+    partyPassExpiresAt: null,
+    maxPhones: null
+  };
+  
+  // Write to Redis first (CRITICAL for multi-instance consistency)
+  await setPartyInRedis(code, partyData);
+  
+  return { code, partyData };
+}
+
 // POST /api/create-party - Create a new party
 app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
@@ -1351,87 +1446,50 @@ app.post("/api/create-party", async (req, res) => {
   }
   
   try {
-    // Generate unique party code
-    let code;
-    let attempts = 0;
-    do {
-      code = generateCode(); // Already generates 6-character uppercase code
-      
-      // Check for existing party in Redis or fallback storage
-      let existing;
-      if (useRedis) {
-        try {
-          existing = await getPartyFromRedis(code);
-        } catch (err) {
-          console.warn(`[HTTP] Redis check failed, using fallback: ${err.message}`);
-          existing = getPartyFromFallback(code);
-        }
-      } else {
-        existing = getPartyFromFallback(code);
-      }
-      
-      if (!existing) break;
-      attempts++;
-    } while (attempts < 10);
-    
-    if (attempts >= 10) {
-      console.error(`[HTTP] Failed to generate unique party code after 10 attempts, instanceId: ${INSTANCE_ID}`);
-      return res.status(500).json({ error: "Failed to generate unique party code" });
-    }
-    
+    // Use shared party creation function
     const hostId = nextHostId++;
-    const createdAt = Date.now();
+    const { code, partyData } = await createPartyCommon({
+      djName: djName,
+      source: partySource,
+      hostId: hostId,
+      hostConnected: false
+    });
     
-    // Create party data for storage (only serializable data)
-    const partyData = {
-      djName: djName.trim(), // Store DJ name in party state
-      source: partySource, // Host-selected source (local/external/mic)
-      partyPro: false, // Party-wide Pro status (set via promo code only)
-      promoUsed: false, // Whether a promo code has been used
-      chatMode: "OPEN",
-      createdAt,
-      hostId,
-      hostConnected: false,
-      guestCount: 0,
-      guests: [], // Array of { guestId, nickname, joinedAt }
-      status: "active", // "active", "ended", "expired"
-      expiresAt: createdAt + PARTY_TTL_MS
-    };
-    
-    // Write to storage backend (Redis or fallback)
-    if (useRedis) {
-      try {
-        await setPartyInRedis(code, partyData);
-        console.log(`[HTTP] Party persisted to Redis: ${code}, storageBackend: redis`);
-        
-        // Verify Redis write succeeded by reading back
-        const verification = await getPartyFromRedis(code);
-        if (!verification) {
-          console.error(`[HTTP] Party write verification failed for ${code}, falling back to local storage`);
-          setPartyInFallback(code, partyData);
-        }
-      } catch (error) {
-        console.warn(`[HTTP] Redis write failed for ${code}, using fallback: ${error.message}`);
-        setPartyInFallback(code, partyData);
-      }
-    } else {
-      setPartyInFallback(code, partyData);
-      console.log(`[HTTP] Party persisted to fallback: ${code}, storageBackend: fallback`);
-    }
+    console.log(`[HTTP] Party persisted to Redis: ${code}, storageBackend: redis`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
       host: null, // No WebSocket connection (HTTP-created party)
       members: [],
-      chatMode: "OPEN",
-      createdAt,
-      hostId,
-      queue: [], // Track queue (max 5)
-      currentTrack: null // Current playing track
+      chatMode: partyData.chatMode,
+      createdAt: partyData.createdAt,
+      hostId: partyData.hostId,
+      source: partyData.source, // IMPORTANT: Store source in local memory
+      partyPro: partyData.partyPro,
+      promoUsed: partyData.promoUsed,
+      djMessages: [],
+      currentTrack: null,
+      queue: [],
+      timeoutWarningTimer: null,
+      scoreState: {
+        dj: {
+          djUserId: null,
+          djIdentifier: hostId,
+          djName: partyData.djName,
+          sessionScore: 0,
+          lifetimeScore: 0
+        },
+        guests: {},
+        totalReactions: 0,
+        totalMessages: 0,
+        peakCrowdEnergy: 0
+      },
+      reactionHistory: [] // For storing recent emoji/messages
     });
     
     const totalParties = parties.size;
-    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, totalParties: ${totalParties}, storageBackend: ${storageBackend}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${partyData.createdAt}, totalParties: ${totalParties}, storageBackend: ${storageBackend}`);
     
     res.json({
       partyCode: code,
@@ -1472,9 +1530,10 @@ app.post("/api/join-party", async (req, res) => {
     }
     
     // Generate guest ID and use provided nickname or generate default
-    const guestNumber = nextClientId;
-    const guestId = `guest-${nextClientId}`;
-    nextClientId++;
+    // Use separate counter for HTTP guests to avoid collision with WS client IDs
+    const guestNumber = nextHttpGuestSeq;
+    const guestId = `guest-${nextHttpGuestSeq}`;
+    nextHttpGuestSeq++;
     const guestNickname = nickname || `Guest ${guestNumber}`;
     
     console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
@@ -1533,6 +1592,24 @@ app.post("/api/join-party", async (req, res) => {
       console.log(`[join-party] Party ${code} has expired`);
       partyData.status = "expired";
       return res.status(410).json({ error: "Party has expired" });
+    }
+    
+    // Normalize party data to ensure all fields exist
+    const normalizedPartyData = normalizePartyData(partyData);
+    
+    // Enforce party capacity limits based on partyPro/partyPass
+    const maxAllowed = await getMaxAllowedPhones(code, normalizedPartyData);
+    const currentGuestCount = normalizedPartyData.guestCount || 0;
+    
+    // Count total devices (host + guests) - host counts as 1 device
+    const totalDevices = 1 + currentGuestCount;
+    
+    if (totalDevices >= maxAllowed) {
+      console.log(`[join-party] Party limit reached: ${code}, current: ${totalDevices}, max: ${maxAllowed}`);
+      return res.status(403).json({ 
+        error: `Party limit reached (${maxAllowed} ${maxAllowed === 2 ? 'phones' : 'devices'})`,
+        details: maxAllowed === 2 ? "Free parties are limited to 2 phones" : undefined
+      });
     }
     
     // Add guest to party
@@ -2813,7 +2890,7 @@ async function startServer() {
   wss = new WebSocket.Server({ server });
 
   wss.on("connection", (ws) => {
-    const clientId = nextClientId++;
+    const clientId = nextWsClientId++;
     clients.set(ws, { id: clientId, party: null });
     
     console.log(`[WS] Client ${clientId} connected`);
@@ -3015,113 +3092,84 @@ async function handleCreate(ws, msg) {
     handleDisconnect(ws);
   }
   
-  // Generate unique party code
-  let code;
-  let attempts = 0;
-  do {
-    code = generateCode();
-    // Check both local and Redis for uniqueness
-    const existsLocally = parties.has(code);
-    const existsInRedis = await getPartyFromRedis(code);
-    if (!existsLocally && !existsInRedis) break;
-    attempts++;
-  } while (attempts < 10);
-  
-  if (attempts >= 10) {
-    console.error(`[WS] Failed to generate unique party code after 10 attempts, instanceId: ${INSTANCE_ID}`);
-    safeSend(ws, JSON.stringify({ 
-      t: "ERROR", 
-      message: "Failed to generate unique party code. Please try again." 
-    }));
-    return;
-  }
-  
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
   
   // Capture and validate source from host
   const source = msg.source === "external" || msg.source === "mic" ? msg.source : "local";
   
-  const member = {
-    ws,
-    id: client.id,
-    name,
-    isPro: !!msg.isPro,
-    isHost: true
-  };
-  
-  const createdAt = Date.now();
-  const timestamp = new Date().toISOString();
-  const hostId = client.id; // Use client ID as host ID for WebSocket connections
-  
-  // Create party data for Redis
-  const partyData = {
-    chatMode: "OPEN",
-    createdAt,
-    hostId,
-    hostConnected: true,
-    guestCount: 0
-  };
-  
-  // CRITICAL: Write to Redis FIRST before responding to client
-  // This ensures party is persisted before guests try to join
   try {
-    await setPartyInRedis(code, partyData);
-    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
+    // Use shared party creation function
+    const { code, partyData } = await createPartyCommon({
+      djName: name,
+      source: source,
+      hostId: client.id,
+      hostConnected: true
+    });
+    
+    console.log(`[WS] Party created: ${code}, clientId: ${client.id}, instanceId: ${INSTANCE_ID}, createdAt: ${partyData.createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
+    
+    const member = {
+      ws,
+      id: client.id,
+      name,
+      isPro: !!msg.isPro,
+      isHost: true
+    };
+    
+    // Store in local memory for WebSocket connections AFTER Redis confirms
+    parties.set(code, {
+      host: ws,
+      members: [member],
+      chatMode: partyData.chatMode,
+      createdAt: partyData.createdAt,
+      hostId: partyData.hostId,
+      source: partyData.source, // IMPORTANT: Store source in local memory
+      partyPro: partyData.partyPro,
+      promoUsed: partyData.promoUsed,
+      djMessages: [],
+      currentTrack: null,
+      queue: [],
+      timeoutWarningTimer: null,
+      scoreState: {
+        dj: {
+          djUserId: null,
+          djIdentifier: client.id,
+          djName: name,
+          sessionScore: 0,
+          lifetimeScore: 0
+        },
+        guests: {},
+        totalReactions: 0,
+        totalMessages: 0,
+        peakCrowdEnergy: 0
+      },
+      reactionHistory: [] // For storing recent emoji/messages
+    });
+    
+    client.party = code;
+    
+    safeSend(ws, JSON.stringify({ t: "CREATED", code }));
+    broadcastRoomState(code);
+    
+    // Send welcome DJ message to host
+    addDjMessage(code, "🎧 Party started! Share your code with friends.", "system");
+    
+    // Schedule party timeout warning (30 minutes before expiry = 90 minutes after creation)
+    const warningDelay = PARTY_TTL_MS - (30 * 60 * 1000); // 90 minutes
+    const party = parties.get(code);
+    if (party) {
+      party.timeoutWarningTimer = setTimeout(() => {
+        addDjMessage(code, "⏰ Party ending in 30 minutes!", "warning");
+      }, warningDelay);
+    }
   } catch (err) {
-    console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
+    console.error(`[WS] Error creating party, instanceId: ${INSTANCE_ID}:`, err.message);
     safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Failed to create party. Please try again." 
     }));
     return;
-  }
-  
-  // Store in local memory for WebSocket connections AFTER Redis confirms
-  parties.set(code, {
-    host: ws,
-    members: [member],
-    chatMode: "OPEN",
-    createdAt,
-    hostId,
-    source, // Host-selected source (local/external/mic)
-    partyPro: false, // Party-wide Pro status (set via promo code only)
-    promoUsed: false, // Whether a promo code has been used
-    djMessages: [], // Array of DJ auto-generated messages
-    currentTrack: null, // Current playing track info
-    queue: [], // Track queue (max 5)
-    timeoutWarningTimer: null, // Timer for timeout warning
-    // Scoreboard state (resets each party)
-    scoreState: {
-      dj: {
-        djUserId: null, // Will be set if host is logged in
-        djIdentifier: client.id, // Fallback to client ID
-        djName: name,
-        sessionScore: 0, // Points earned this session
-        lifetimeScore: 0 // Will be fetched from DB if logged in
-      },
-      guests: {}, // { guestId: { nickname, points, emojis, messages, rank } }
-      totalReactions: 0,
-      totalMessages: 0,
-      peakCrowdEnergy: 0
-    }
-  });
-  
-  client.party = code;
-  
-  safeSend(ws, JSON.stringify({ t: "CREATED", code }));
-  broadcastRoomState(code);
-  
-  // Send welcome DJ message to host
-  addDjMessage(code, "🎧 Party started! Share your code with friends.", "system");
-  
-  // Schedule party timeout warning (30 minutes before expiry = 90 minutes after creation)
-  const warningDelay = PARTY_TTL_MS - (30 * 60 * 1000); // 90 minutes
-  const party = parties.get(code);
-  if (party) {
-    party.timeoutWarningTimer = setTimeout(() => {
-      addDjMessage(code, "⏰ Party ending in 30 minutes!", "warning");
-    }, warningDelay);
   }
 }
 
@@ -3134,102 +3182,143 @@ async function handleJoin(ws, msg) {
   
   console.log(`[WS] Attempting to join party: ${code}, clientId: ${client.id}, timestamp: ${timestamp}`);
   
-  // First check Redis for party existence
-  const partyData = await getPartyFromRedis(code);
-  const storeReadResult = partyData ? "found" : "not_found";
-  
-  // Then check local memory
-  let party = parties.get(code);
-  
-  // If party exists in Redis but not locally, create local entry
-  // Note: guestCount and hostConnected are derived from members array in local state
-  // and don't need to be initialized from Redis here
-  if (partyData && !party) {
-    parties.set(code, {
-      host: null,
-      members: [],
-      chatMode: partyData.chatMode || "OPEN",
-      createdAt: partyData.createdAt,
-      hostId: partyData.hostId
-    });
-    party = parties.get(code);
-  }
-  
-  if (!party) {
-    const timestamp = new Date().toISOString();
+  try {
+    // First check Redis for party existence
+    const partyData = await getPartyFromRedis(code);
+    const storeReadResult = partyData ? "found" : "not_found";
+    
+    if (!partyData) {
+      const totalParties = parties.size;
+      const localPartyExists = parties.has(code);
+      const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
+      console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
+      safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
+      return;
+    }
+    
+    // Normalize party data to ensure all fields exist
+    const normalizedPartyData = normalizePartyData(partyData);
+    
+    // Then check local memory
+    let party = parties.get(code);
+    
+    // If party exists in Redis but not locally, create local entry
+    if (!party) {
+      parties.set(code, {
+        host: null,
+        members: [],
+        chatMode: normalizedPartyData.chatMode,
+        createdAt: normalizedPartyData.createdAt,
+        hostId: normalizedPartyData.hostId,
+        source: normalizedPartyData.source, // IMPORTANT: Load source from Redis
+        partyPro: normalizedPartyData.partyPro, // IMPORTANT: Load partyPro from Redis
+        promoUsed: normalizedPartyData.promoUsed,
+        djMessages: [],
+        currentTrack: null,
+        queue: [],
+        timeoutWarningTimer: null,
+        scoreState: {
+          dj: {
+            djUserId: null,
+            djIdentifier: normalizedPartyData.hostId,
+            djName: normalizedPartyData.djName,
+            sessionScore: 0,
+            lifetimeScore: 0
+          },
+          guests: {},
+          totalReactions: 0,
+          totalMessages: 0,
+          peakCrowdEnergy: 0
+        },
+        reactionHistory: []
+      });
+      party = parties.get(code);
+    }
+    
+    // Remove from current party if already in one
+    if (client.party) {
+      handleDisconnect(ws);
+    }
+    
+    // Check if already a member (prevent duplicates)
+    if (party.members.some(m => m.id === client.id)) {
+      safeSend(ws, JSON.stringify({ t: "ERROR", message: "Already in this party" }));
+      return;
+    }
+    
+    // Enforce party capacity limits based on partyPro/partyPass
+    const maxAllowed = await getMaxAllowedPhones(code, normalizedPartyData);
+    const currentMemberCount = party.members.length;
+    
+    if (currentMemberCount >= maxAllowed) {
+      console.log(`[WS] Join blocked - Party limit reached, partyCode: ${code}, clientId: ${client.id}, current: ${currentMemberCount}, max: ${maxAllowed}`);
+      safeSend(ws, JSON.stringify({ 
+        t: "ERROR", 
+        message: maxAllowed === 2 ? "Free parties are limited to 2 phones" : `Party limit reached (${maxAllowed} devices)`
+      }));
+      return;
+    }
+    
+    // Validate and sanitize name
+    const name = (msg.name || "Guest").trim().substring(0, 50);
+    
+    const member = {
+      ws,
+      id: client.id,
+      name,
+      isPro: !!msg.isPro,
+      isHost: false
+    };
+    
+    party.members.push(member);
+    client.party = code;
+    
+    const guestCount = party.members.filter(m => !m.isHost).length;
     const totalParties = parties.size;
-    const localPartyExists = parties.has(code);
-    const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
-    console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
-    return;
-  }
-  
-  // Remove from current party if already in one
-  if (client.party) {
-    handleDisconnect(ws);
-  }
-  
-  // Check if already a member (prevent duplicates)
-  if (party.members.some(m => m.id === client.id)) {
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Already in this party" }));
-    return;
-  }
-  
-  // Enforce Free limit (2 phones) server-side
-  // Only check if party is not Pro (partyPro === false)
-  if (!party.partyPro && party.members.length >= 2) {
-    console.log(`[WS] Join blocked - Free party limit reached (2 phones), partyCode: ${code}, clientId: ${client.id}`);
+    
+    // Update Redis with new guest count and hostConnected (fetch fresh to avoid race conditions)
+    getPartyFromRedis(code).then(freshPartyData => {
+      if (freshPartyData) {
+        freshPartyData.guestCount = guestCount;
+        freshPartyData.hostConnected = party.members.some(m => m.isHost);
+        setPartyInRedis(code, freshPartyData).catch(err => {
+          console.error(`[WS] Error updating guest count in Redis for ${code}:`, err.message);
+        });
+      }
+    }).catch(err => {
+      console.error(`[WS] Error fetching party for guest count update:`, err.message);
+    });
+    
+    console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
+    
+    safeSend(ws, JSON.stringify({ t: "JOINED", code }));
+    
+    // Send reaction history to newly joined client
+    if (party.reactionHistory && party.reactionHistory.length > 0) {
+      safeSend(ws, JSON.stringify({ 
+        t: "REACTION_HISTORY", 
+        items: party.reactionHistory 
+      }));
+    }
+    
+    broadcastRoomState(code);
+    
+    // Send welcome DJ message for first guest
+    if (guestCount === 1) {
+      addDjMessage(code, `👋 ${name} joined the party!`, "system");
+      // Encourage interaction after a few seconds
+      setTimeout(() => {
+        addDjMessage(code, "💬 Drop an emoji or message!", "prompt");
+      }, 5000);
+    } else {
+      addDjMessage(code, `👋 ${name} joined! ${guestCount} guests in the party.`, "system");
+    }
+  } catch (err) {
+    console.error(`[WS] Error in handleJoin for ${code}:`, err.message);
     safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
-      message: "Free parties are limited to 2 phones" 
+      message: "Server error. Please try again." 
     }));
-    return;
-  }
-  
-  // Validate and sanitize name
-  const name = (msg.name || "Guest").trim().substring(0, 50);
-  
-  const member = {
-    ws,
-    id: client.id,
-    name,
-    isPro: !!msg.isPro,
-    isHost: false
-  };
-  
-  party.members.push(member);
-  client.party = code;
-  
-  const guestCount = party.members.filter(m => !m.isHost).length;
-  const totalParties = parties.size;
-  
-  // Update Redis with new guest count (fetch fresh to avoid race conditions)
-  getPartyFromRedis(code).then(freshPartyData => {
-    if (freshPartyData) {
-      freshPartyData.guestCount = guestCount;
-      setPartyInRedis(code, freshPartyData).catch(err => {
-        console.error(`[WS] Error updating guest count in Redis for ${code}:`, err.message);
-      });
-    }
-  }).catch(err => {
-    console.error(`[WS] Error fetching party for guest count update:`, err.message);
-  });
-  
-  console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
-  
-  safeSend(ws, JSON.stringify({ t: "JOINED", code }));
-  broadcastRoomState(code);
-  
-  // Send welcome DJ message for first guest
-  if (guestCount === 1) {
-    addDjMessage(code, `👋 ${name} joined the party!`, "system");
-    // Encourage interaction after a few seconds
-    setTimeout(() => {
-      addDjMessage(code, "💬 Drop an emoji or message!", "prompt");
-    }, 5000);
-  } else {
-    addDjMessage(code, `👋 ${name} joined! ${guestCount} guests in the party.`, "system");
   }
 }
 
@@ -3354,6 +3443,19 @@ function handleApplyPromo(ws, msg) {
   party.promoUsed = true;
   party.partyPro = true;
   console.log(`[Promo] Party ${client.party} unlocked with promo code ${code}, clientId: ${client.id}`);
+  
+  // CRITICAL: Persist to Redis so promo state survives refresh and works cross-instance
+  getPartyFromRedis(client.party).then(partyData => {
+    if (partyData) {
+      partyData.promoUsed = true;
+      partyData.partyPro = true;
+      setPartyInRedis(client.party, partyData).catch(err => {
+        console.error(`[Promo] Error persisting promo to Redis for ${client.party}:`, err.message);
+      });
+    }
+  }).catch(err => {
+    console.error(`[Promo] Error fetching party for promo update:`, err.message);
+  });
   
   // Broadcast updated room state to all members
   broadcastRoomState(client.party);
@@ -3755,6 +3857,23 @@ function handleGuestMessage(ws, msg) {
   // Award points to DJ for engagement
   party.scoreState.dj.sessionScore += (isEmoji ? 2 : 3);
   
+  // Add to reaction history (for refresh/late join support)
+  if (!party.reactionHistory) {
+    party.reactionHistory = [];
+  }
+  party.reactionHistory.push({
+    id: Date.now() + Math.random(), // Unique ID
+    type: isEmoji ? "emoji" : "text",
+    message: messageText,
+    guestName: guestName,
+    guestId: member.id,
+    ts: Date.now()
+  });
+  // Keep only last 30 items
+  if (party.reactionHistory.length > 30) {
+    party.reactionHistory = party.reactionHistory.slice(-30);
+  }
+  
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
@@ -3852,6 +3971,18 @@ function handleChatModeSet(ws, msg) {
   party.chatMode = mode;
   console.log(`[Party] Chat mode set to ${mode} in party ${client.party}`);
   
+  // Persist chat mode to Redis
+  getPartyFromRedis(client.party).then(partyData => {
+    if (partyData) {
+      partyData.chatMode = mode;
+      setPartyInRedis(client.party, partyData).catch(err => {
+        console.error(`[ChatMode] Error persisting chat mode to Redis for ${client.party}:`, err.message);
+      });
+    }
+  }).catch(err => {
+    console.error(`[ChatMode] Error fetching party for chat mode update:`, err.message);
+  });
+  
   // Broadcast to all members
   const message = JSON.stringify({ t: "CHAT_MODE_SET", mode });
   party.members.forEach(m => {
@@ -3912,6 +4043,23 @@ function handleDjEmoji(ws, msg) {
   // Award DJ points for engagement
   party.scoreState.dj.sessionScore += 5; // 5 points for DJ emoji interaction
   party.scoreState.totalReactions += 1;
+  
+  // Add to reaction history (for refresh/late join support)
+  if (!party.reactionHistory) {
+    party.reactionHistory = [];
+  }
+  party.reactionHistory.push({
+    id: Date.now() + Math.random(), // Unique ID
+    type: "dj",
+    message: emoji,
+    guestName: "DJ",
+    guestId: "dj",
+    ts: Date.now()
+  });
+  // Keep only last 30 items
+  if (party.reactionHistory.length > 30) {
+    party.reactionHistory = party.reactionHistory.slice(-30);
+  }
   
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
