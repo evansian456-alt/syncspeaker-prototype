@@ -703,6 +703,10 @@
           <span class="dj-control-icon">⏸️</span>
           <span>PAUSE</span>
         </button>
+        <button class="btn-dj-control" id="btnDjStop">
+          <span class="dj-control-icon">⏹️</span>
+          <span>STOP</span>
+        </button>
         <button class="btn-dj-control secondary" id="btnDjNext">
           <span class="dj-control-icon">⏭️</span>
           <span>NEXT</span>
@@ -885,13 +889,29 @@
         <!-- Guest Playback Buttons -->
         <div class="guest-playback-buttons">
           <button class="btn-guest-play" id="btnGuestPlay" title="Request DJ to play">
-            ▶️ Start Music
+            ▶️ Play
           </button>
           <button class="btn-guest-pause" id="btnGuestPause" title="Request DJ to pause">
-            ⏸️ Stop Music
+            ⏸️ Pause
+          </button>
+          <button class="btn-guest-stop" id="btnGuestStop" title="Stop and reset playback">
+            ⏹️ Stop
           </button>
         </div>
-        <div class="tiny muted" style="margin-bottom: 20px;">Request the DJ to start/stop the music</div>
+        <div class="tiny muted" style="margin-bottom: 12px;">Request the DJ to control playback</div>
+        
+        <!-- Tap to Sync Button -->
+        <button class="btn-guest-sync" id="btnGuestSync" title="Re-sync audio with DJ">
+          🔄 Tap to Sync
+        </button>
+        <div class="tiny muted" style="margin-bottom: 20px;">Manually re-sync if audio drifts</div>
+        
+        <!-- Volume Control -->
+        <div class="guest-volume-control">
+          <label class="tiny muted" for="guestVolumeSlider">🔊 Volume</label>
+          <input type="range" id="guestVolumeSlider" min="0" max="100" value="80" class="volume-slider" />
+          <span class="tiny muted" id="guestVolumeValue">80%</span>
+        </div>
         
         <!-- Sync Quality Indicator -->
         <div class="sync-quality-section">

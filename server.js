@@ -2593,6 +2593,9 @@ function handleMessage(ws, msg) {
     case "HOST_PAUSE":
       handleHostPause(ws, msg);
       break;
+    case "HOST_STOP":
+      handleHostStop(ws, msg);
+      break;
     case "HOST_TRACK_SELECTED":
       handleHostTrackSelected(ws, msg);
       break;
@@ -3079,6 +3082,35 @@ function handleHostPause(ws, msg) {
   
   // Broadcast to all guests (not host)
   const message = JSON.stringify({ t: "PAUSE" });
+  party.members.forEach(m => {
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function handleHostStop(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send stop events
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can control playback" }));
+    return;
+  }
+  
+  console.log(`[Party] Host stopped playback in party ${client.party}`);
+  
+  // Reset current track position
+  if (party.currentTrack) {
+    party.currentTrack.startPositionSec = 0;
+  }
+  
+  // Broadcast to all guests (not host)
+  const message = JSON.stringify({ t: "STOP" });
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
