@@ -3361,7 +3361,7 @@ function handleMessage(ws, msg) {
       handleHostBroadcastMessage(ws, msg);
       break;
     case "DJ_EMOJI":
-      handleDjEmoji(ws, msg);
+      await handleDjEmoji(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -4618,7 +4618,7 @@ function handleHostBroadcastMessage(ws, msg) {
   });
 }
 
-function handleDjEmoji(ws, msg) {
+async function handleDjEmoji(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -4628,6 +4628,22 @@ function handleDjEmoji(ws, msg) {
   // Only host can send DJ emojis
   if (party.host !== ws) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send emojis" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleDjEmoji] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for emoji reactions" }));
     return;
   }
   

@@ -7,7 +7,7 @@ const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated f
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
-const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
+const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds (per requirements)
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
 // All views in the application
@@ -1637,6 +1637,12 @@ function showGuest() {
   // Setup volume control
   setupGuestVolumeControl();
   
+  // Hide re-sync button by default (only shown when drift > 1.5s)
+  const resyncBtn = el("btnGuestResync");
+  if (resyncBtn) {
+    resyncBtn.style.display = "none";
+  }
+  
   setPlanPill();
   updateDebugState();
   
@@ -2075,20 +2081,46 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     const elapsedSec = (Date.now() - startAtServerMs) / 1000;
     const idealSec = startPositionSec + elapsedSec;
     
-    // Calculate drift
+    // Calculate drift (signed)
     const currentSec = state.guestAudioElement.currentTime;
-    const drift = Math.abs(currentSec - idealSec);
-    lastDriftValue = drift;
+    const drift = currentSec - idealSec;
+    const absDrift = Math.abs(drift);
+    lastDriftValue = absDrift;
     
     console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
     
     // Update drift UI
-    updateGuestSyncQuality(drift);
+    updateGuestSyncQuality(absDrift);
     
-    // Correct if drift > threshold
-    if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
-      console.log("[Drift Correction] Correcting drift of", drift.toFixed(3), "seconds");
+    // Drift correction thresholds per requirements:
+    // - ignore |drift| < 0.20s
+    // - soft correct 0.20-0.80s (seek to expected)
+    // - hard correct |drift| > 1.0s (seek to expected)
+    // - show "Re-sync" if |drift| > 1.5s
+    
+    if (absDrift < 0.20) {
+      // Ignore - within acceptable range
+      return;
+    }
+    
+    if (absDrift >= 0.20 && absDrift <= 0.80) {
+      // Soft correction: seek to expected
+      console.log("[Drift Correction] Soft correcting drift of", drift.toFixed(3), "seconds");
       state.guestAudioElement.currentTime = idealSec;
+    } else if (absDrift > 1.0) {
+      // Hard correction: seek to expected
+      console.log("[Drift Correction] Hard correcting drift of", drift.toFixed(3), "seconds");
+      state.guestAudioElement.currentTime = idealSec;
+    }
+    
+    // Show re-sync button if drift is too large
+    const resyncBtn = el("btnGuestResync");
+    if (resyncBtn) {
+      if (absDrift > 1.5) {
+        resyncBtn.style.display = "inline-block";
+      } else {
+        resyncBtn.style.display = "none";
+      }
     }
   }, DRIFT_CORRECTION_INTERVAL_MS);
 }
