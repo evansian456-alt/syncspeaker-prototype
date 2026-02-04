@@ -8,7 +8,7 @@
 
 ## 📚 What is "Option 1"?
 
-**Option 1** is the **GitHub Web Interface Merge** strategy for resolving multiple pending pull requests in the SyncSpeaker repository.
+**Option 1** is the **GitHub Web Interface Merge** strategy for resolving multiple pending pull requests in the Phone Party repository.
 
 - **Method:** Browser-based merge using GitHub.com
 - **Target:** 5 PRs (#30, #26, #40, #41, current)

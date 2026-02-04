@@ -1,5 +1,5 @@
 # syncspeaker-prototype
-Browser prototype for SyncSpeaker
+Browser prototype for Phone Party
 
 ## Getting Started
 

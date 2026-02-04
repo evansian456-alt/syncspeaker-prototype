@@ -1,7 +1,7 @@
 # Test Suite Summary
 
 ## Overview
-Comprehensive test suite for the SyncSpeaker prototype application with **56 passing tests**.
+Comprehensive test suite for the Phone Party prototype application with **56 passing tests**.
 
 ## Test Execution
 

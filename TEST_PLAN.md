@@ -1,7 +1,7 @@
-# Test Plan: SyncSpeaker Prototype - All Features
+# Test Plan: Phone Party Prototype - All Features
 
 ## Overview
-This test plan covers all features of the SyncSpeaker browser prototype, including the original local music picker and 9 new features.
+This test plan covers all features of the Phone Party browser prototype, including the original local music picker and 9 new features.
 
 ---
 
@@ -469,7 +469,7 @@ This test plan covers all features of the SyncSpeaker browser prototype, includi
 
 **Expected Results:**
 - ✅ Modal appears with title "👪 For Parents"
-- ✅ Contains sections: What is SyncSpeaker, Safety Features, How It Works, Pricing, Important Notes
+- ✅ Contains sections: What is Phone Party, Safety Features, How It Works, Pricing, Important Notes
 - ✅ Content is clear and informative
 - ✅ Modal is scrollable
 

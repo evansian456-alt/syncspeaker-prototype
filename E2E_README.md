@@ -1,4 +1,4 @@
-# SyncSpeaker E2E Test Suite - Quick Start
+# Phone Party E2E Test Suite - Quick Start
 
 ## Prerequisites
 

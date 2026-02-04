@@ -1,7 +1,7 @@
 # Multi-Device Party Consistency Fix - Summary
 
 ## Overview
-This document summarizes the fixes applied to resolve critical multi-device party consistency issues in the SyncSpeaker prototype.
+This document summarizes the fixes applied to resolve critical multi-device party consistency issues in the Phone Party prototype.
 
 ## Problems Fixed
 

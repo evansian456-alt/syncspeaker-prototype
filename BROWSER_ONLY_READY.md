@@ -7,7 +7,7 @@
 
 ## Summary
 
-The SyncSpeaker prototype is now fully ready to test as a **browser-only version** without requiring Node.js or any server installation. All single-device features work perfectly, and the UI clearly communicates when multi-device features require the server.
+The Phone Party prototype is now fully ready to test as a **browser-only version** without requiring Node.js or any server installation. All single-device features work perfectly, and the UI clearly communicates when multi-device features require the server.
 
 ---
 
@@ -238,7 +238,7 @@ See README.md for server setup instructions (`npm start`)
 
 **Status:** ✅ **BROWSER-ONLY VERSION READY**
 
-The SyncSpeaker prototype successfully works as a browser-only application. Users can:
+The Phone Party prototype successfully works as a browser-only application. Users can:
 - Test the UI and user flow
 - Experience Party Pass activation
 - Play music from local files

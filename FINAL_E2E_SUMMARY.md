@@ -2,7 +2,7 @@
 
 ## Summary
 
-I have successfully implemented a comprehensive end-to-end (E2E) automated testing system for the SyncSpeaker prototype based on the test plan provided. The system uses Playwright to simulate real human users across multiple browser sessions, validating the entire user journey.
+I have successfully implemented a comprehensive end-to-end (E2E) automated testing system for the Phone Party prototype based on the test plan provided. The system uses Playwright to simulate real human users across multiple browser sessions, validating the entire user journey.
 
 ---
 

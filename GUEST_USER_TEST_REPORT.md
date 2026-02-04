@@ -1,5 +1,5 @@
 # GUEST USER TEST REPORT
-**SyncSpeaker Full System Testing**  
+**Phone Party Full System Testing**  
 **Date:** 2026-02-03  
 **Tester Role:** Guest User  
 **Test Environment:** Browser Prototype with Server Backend

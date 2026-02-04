@@ -1,5 +1,5 @@
 # HOST TEST REPORT
-## SyncSpeaker Multi-Phone DJ Platform - Host Testing
+## Phone Party Multi-Phone DJ Platform - Host Testing
 
 **Test Date:** 2026-02-03  
 **Version:** 0.1.0-party-fix + Full Feature Build  

@@ -1,4 +1,4 @@
-# SyncSpeaker Two-Phone Testing Guide
+# Phone Party Two-Phone Testing Guide
 
 This guide walks you through testing all features between two mobile devices (host phone + guest phone).
 
