@@ -87,6 +87,16 @@ function sanitizeRedisUrl(redisUrl) {
   }
 }
 
+// Helper function to sanitize text input (prevent XSS)
+function sanitizeText(text) {
+  if (!text || typeof text !== 'string') return '';
+  // Remove HTML tags and special characters that could be used for injection
+  return text
+    .replace(/[<>]/g, '') // Remove angle brackets
+    .replace(/[^\w\s\u{1F000}-\u{1F9FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}.,!?'"€£$%&()[\]{}:;@#+=\-*/]/gu, '') // Keep alphanumeric, whitespace, common emojis, and safe punctuation
+    .trim();
+}
+
 // Helper function to normalize party codes (trim and uppercase)
 function normalizePartyCode(code) {
   if (!code || typeof code !== 'string') return '';
@@ -3963,7 +3973,7 @@ function broadcastFeedItem(code, item) {
   
   // Ensure item has all required fields
   const feedItem = {
-    id: item.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: item.id || `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     ts: item.ts || Date.now(),
     kind: item.kind, // "guest_text" | "guest_emoji" | "guest_quick" | "host_quick" | "system_auto"
     name: item.name,
@@ -4258,11 +4268,11 @@ async function handleGuestMessage(ws, msg) {
   let messageText = (msg.message || "").trim();
   
   if (isEmoji) {
-    // Emoji: max 10 characters
-    messageText = messageText.substring(0, 10);
+    // Emoji: max 10 characters, sanitize
+    messageText = sanitizeText(messageText).substring(0, 10);
   } else {
-    // Text: max 60 characters, collapse whitespace
-    messageText = messageText.replace(/\s+/g, ' ').substring(0, 60);
+    // Text: max 60 characters, collapse whitespace, sanitize
+    messageText = sanitizeText(messageText.replace(/\s+/g, ' ')).substring(0, 60);
   }
   
   // Reject empty messages
@@ -4303,7 +4313,7 @@ async function handleGuestMessage(ws, msg) {
     party.reactionHistory = [];
   }
   party.reactionHistory.push({
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     type: isEmoji ? "emoji" : "text",
     message: messageText,
     guestName: guestName,
@@ -4628,7 +4638,7 @@ function handleDjEmoji(ws, msg) {
     party.reactionHistory = [];
   }
   party.reactionHistory.push({
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     type: "dj",
     message: emoji,
     guestName: "DJ",

@@ -2676,13 +2676,13 @@ function handleFeedItem(item) {
     return;
   }
   
-  console.log('[handleFeedItem] Received:', item);
+  console.log('[handleFeedItem] Received item:', item.id, 'kind:', item.kind);
   
   // Add to feedItems array (oldest first - push to end)
   state.feedItems.push(item);
   
-  // Enforce cap of 50 items
-  if (state.feedItems.length > state.maxMessagingFeedItems) {
+  // Enforce cap of 50 items - use while loop to handle multiple excess items
+  while (state.feedItems.length > state.maxMessagingFeedItems) {
     // Remove oldest items (from beginning)
     const removed = state.feedItems.shift();
     // Cancel timeout for removed item if exists
@@ -2835,6 +2835,16 @@ function updatePartyPassUI() {
     }
   }
   
+  // Update DJ messaging feed section
+  const djMessagingFeedSection = el("djMessagingFeedSection");
+  if (djMessagingFeedSection) {
+    if (state.partyPassActive && state.isHost) {
+      djMessagingFeedSection.classList.remove("hidden");
+    } else {
+      djMessagingFeedSection.classList.add("hidden");
+    }
+  }
+  
   // Update Guest Quick Replies visibility
   const guestQuickReplies = el("guestQuickRepliesContainer");
   if (guestQuickReplies) {
@@ -2862,6 +2872,16 @@ function updatePartyPassUI() {
       guestLockedMsg.classList.remove("hidden");
     } else {
       guestLockedMsg.classList.add("hidden");
+    }
+  }
+  
+  // Update Guest messaging feed section
+  const guestMessagingFeedSection = el("guestMessagingFeedSection");
+  if (guestMessagingFeedSection) {
+    if (state.partyPassActive && !state.isHost) {
+      guestMessagingFeedSection.classList.remove("hidden");
+    } else {
+      guestMessagingFeedSection.classList.add("hidden");
     }
   }
 }
