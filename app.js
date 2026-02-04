@@ -421,11 +421,13 @@ function connectWS() {
     ws.onopen = () => {
       console.log("[WS] Connected successfully");
       addDebugLog("WebSocket connected");
+      updateHeaderConnectionStatus("connected");
       resolve();
     };
     ws.onerror = (e) => {
       console.error("[WS] Connection error:", e);
       addDebugLog("WebSocket error");
+      updateHeaderConnectionStatus("error");
       reject(e);
     };
     ws.onmessage = (ev) => {
@@ -437,12 +439,41 @@ function connectWS() {
     ws.onclose = () => {
       console.log("[WS] Connection closed");
       addDebugLog("WebSocket disconnected");
+      updateHeaderConnectionStatus("disconnected");
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
       showLanding();
     };
   });
+}
+
+// Update header connection status indicator
+function updateHeaderConnectionStatus(status) {
+  const indicator = document.getElementById('connectionIndicator');
+  if (!indicator) return;
+  
+  switch (status) {
+    case 'connected':
+      indicator.textContent = '● Connected';
+      indicator.style.color = 'var(--success, #5cff8a)';
+      break;
+    case 'disconnected':
+      indicator.textContent = '● Disconnected';
+      indicator.style.color = 'var(--danger, #ff5a6a)';
+      break;
+    case 'reconnecting':
+      indicator.textContent = '● Reconnecting...';
+      indicator.style.color = 'var(--warning, #ffd15a)';
+      break;
+    case 'error':
+      indicator.textContent = '● Connection Error';
+      indicator.style.color = 'var(--danger, #ff5a6a)';
+      break;
+    default:
+      indicator.textContent = '● Unknown';
+      indicator.style.color = 'var(--muted, #999)';
+  }
 }
 
 function send(obj) {
@@ -1456,6 +1487,11 @@ function showPartyEnded(status) {
   const message = status === "expired" ? "Party has expired" : "Party has ended";
   toast(`⏰ ${message}`);
   
+  // Update connection status for guests
+  if (!state.isHost) {
+    updateGuestConnectionStatus('party-ended');
+  }
+  
   // Show message in UI
   const partyMetaEl = el("partyMeta");
   if (partyMetaEl) {
@@ -1586,20 +1622,55 @@ async function checkForMidTrackJoin(code) {
   }
 }
 
-function updateGuestConnectionStatus() {
+function updateGuestConnectionStatus(status = null) {
   const statusEl = el("guestConnectionStatus");
   if (!statusEl) return;
   
-  if (state.connected) {
-    statusEl.textContent = "Connected";
-    statusEl.className = "badge";
-    statusEl.style.background = "rgba(92, 255, 138, 0.2)";
-    statusEl.style.borderColor = "rgba(92, 255, 138, 0.4)";
-  } else {
-    statusEl.textContent = "Disconnected";
-    statusEl.className = "badge";
-    statusEl.style.background = "rgba(255, 90, 106, 0.2)";
-    statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+  // If status is explicitly provided, use it. Otherwise, use state.connected
+  const connectionStatus = status || (state.connected ? 'connected' : 'disconnected');
+  
+  switch (connectionStatus) {
+    case 'connected':
+      statusEl.textContent = "Connected";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(92, 255, 138, 0.2)";
+      statusEl.style.borderColor = "rgba(92, 255, 138, 0.4)";
+      statusEl.style.color = "#5cff8a";
+      break;
+    case 'disconnected':
+      statusEl.textContent = "Disconnected";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 90, 106, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+      statusEl.style.color = "#ff5a6a";
+      break;
+    case 'reconnecting':
+      statusEl.textContent = "Reconnecting...";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 209, 90, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 209, 90, 0.4)";
+      statusEl.style.color = "#ffd15a";
+      break;
+    case 'party-ended':
+      statusEl.textContent = "Party Ended";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(150, 150, 150, 0.2)";
+      statusEl.style.borderColor = "rgba(150, 150, 150, 0.4)";
+      statusEl.style.color = "#999";
+      break;
+    case 'host-left':
+      statusEl.textContent = "Host Left";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 90, 106, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+      statusEl.style.color = "#ff5a6a";
+      break;
+    default:
+      statusEl.textContent = "Unknown";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(150, 150, 150, 0.2)";
+      statusEl.style.borderColor = "rgba(150, 150, 150, 0.4)";
+      statusEl.style.color = "#999";
   }
 }
 
