@@ -120,7 +120,19 @@ const state = {
   serverOffsetMs: 0, // Estimated offset from server time (serverTime ≈ Date.now() + offset)
   offsetQuality: 0, // Quality indicator based on RTT (0-1)
   timeSyncInterval: null, // Interval for periodic time sync
-  lastTimeSyncRtt: null // Last measured RTT for diagnostics
+  lastTimeSyncRtt: null, // Last measured RTT for diagnostics
+  // Scheduled playback state (Phase 3)
+  pendingStartAtServerMs: null, // Server timestamp when playback should start
+  pendingStartPositionSec: null, // Position at which to start
+  pendingTrackUrl: null, // Track URL for pending playback
+  pendingTrackFilename: null, // Track filename for pending playback
+  // Drift correction state (Phase 4)
+  driftCorrectionInterval: null, // Interval for drift monitoring
+  smoothedDriftSec: 0, // EWMA smoothed drift value
+  playbackStartAtServerMs: null, // Server timestamp when current playback started
+  playbackStartPositionSec: null, // Position when current playback started
+  hardResyncCount: 0, // Count of hard resyncs in recent window
+  lastHardResyncTime: 0 // Timestamp of last hard resync
 };
 
 /**
@@ -634,6 +646,422 @@ function stopTimeSync() {
   }
 }
 
+// ============================================================================
+// PHASE 3: SCHEDULED START (PREPARE_PLAY → PLAY_AT)
+// ============================================================================
+
+/**
+ * Handle PREPARE_PLAY message from server
+ * Guest should preload audio and prepare for synchronized start
+ */
+function handlePreparePlay(msg) {
+  if (state.isHost) return; // Only guests handle this
+  
+  console.log("[ScheduledStart] Received PREPARE_PLAY:", msg);
+  
+  // Store pending playback info
+  state.pendingStartAtServerMs = msg.startAtServerMs;
+  state.pendingStartPositionSec = msg.startPositionSec || 0;
+  state.pendingTrackUrl = msg.trackUrl;
+  state.pendingTrackFilename = msg.filename || "Unknown Track";
+  
+  // Update now playing display
+  state.nowPlayingFilename = state.pendingTrackFilename;
+  updateGuestNowPlaying(state.pendingTrackFilename);
+  
+  // Preload audio if URL provided
+  if (msg.trackUrl) {
+    if (!state.guestAudioElement) {
+      state.guestAudioElement = new Audio();
+      state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+      
+      // Add event listeners
+      state.guestAudioElement.addEventListener('loadedmetadata', () => {
+        console.log("[Guest Audio] Metadata loaded, ready for scheduled start");
+        state.guestAudioReady = true;
+      });
+      
+      state.guestAudioElement.addEventListener('canplay', () => {
+        console.log("[Guest Audio] Can play, buffered and ready");
+      });
+      
+      state.guestAudioElement.addEventListener('error', (e) => {
+        const errorCode = state.guestAudioElement.error?.code;
+        const errorMsg = state.guestAudioElement.error?.message || "Unknown error";
+        console.error("[Guest Audio] Error during preload:", errorCode, errorMsg);
+        toast(`❌ Audio error: ${errorMsg}`);
+      });
+    }
+    
+    // Set source to preload
+    if (state.guestAudioElement.src !== msg.trackUrl) {
+      state.guestAudioElement.src = msg.trackUrl;
+      state.guestAudioReady = false;
+      
+      // Trigger load
+      state.guestAudioElement.load();
+      console.log("[ScheduledStart] Audio preload started for:", msg.trackUrl);
+    }
+  }
+  
+  toast("🎵 Track loading...");
+  updateGuestPlaybackState("PREPARING");
+  updateGuestVisualMode("preparing");
+}
+
+/**
+ * Handle PLAY_AT message from server
+ * Start playback at exact server time
+ */
+function handlePlayAt(msg) {
+  if (state.isHost) return; // Only guests handle this
+  
+  console.log("[ScheduledStart] Received PLAY_AT:", msg);
+  
+  const startAtServerMs = msg.startAtServerMs;
+  const startPositionSec = msg.startPositionSec || 0;
+  
+  // Calculate target time using server offset
+  const serverNow = nowServerMs();
+  const elapsedMs = serverNow - startAtServerMs;
+  const elapsedSec = elapsedMs / 1000;
+  const targetTimeSec = startPositionSec + elapsedSec;
+  
+  console.log(`[ScheduledStart] Server now: ${serverNow}, Start at: ${startAtServerMs}, Elapsed: ${elapsedSec.toFixed(3)}s, Target: ${targetTimeSec.toFixed(3)}s`);
+  
+  // Update state
+  state.playing = true;
+  state.lastHostEvent = "PLAY_AT";
+  updateGuestPlaybackState("PLAYING");
+  updateGuestVisualMode("playing");
+  
+  // Attempt to play at exact time
+  if (state.guestAudioElement && msg.trackUrl) {
+    // Wait for metadata to be loaded
+    const attemptPlay = () => {
+      if (state.guestAudioElement.readyState >= 1) { // HAVE_METADATA
+        // Set current time to target
+        state.guestAudioElement.currentTime = Math.max(0, targetTimeSec);
+        
+        // Attempt to play
+        const playPromise = state.guestAudioElement.play();
+        
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            console.log("[ScheduledStart] Playback started successfully at", state.guestAudioElement.currentTime.toFixed(3), "s");
+            state.guestNeedsTap = false;
+            
+            // Start drift correction (Phase 4)
+            startDriftCorrection(startAtServerMs, startPositionSec);
+          }).catch((error) => {
+            console.warn("[ScheduledStart] Autoplay blocked:", error);
+            // Autoplay restriction - show tap to play
+            state.guestNeedsTap = true;
+            showGuestTapToPlay();
+            toast("👆 Tap Play to start audio");
+          });
+        }
+      } else {
+        // Wait for metadata
+        console.log("[ScheduledStart] Waiting for metadata...");
+        state.guestAudioElement.addEventListener('loadedmetadata', () => {
+          attemptPlay();
+        }, { once: true });
+      }
+    };
+    
+    attemptPlay();
+  } else {
+    toast("Host is playing locally - no audio sync available");
+  }
+}
+
+/**
+ * Show guest tap to play button
+ */
+function showGuestTapToPlay() {
+  // Find or create tap to play button
+  let tapButton = document.getElementById('guestTapToPlay');
+  
+  if (!tapButton) {
+    tapButton = document.createElement('button');
+    tapButton.id = 'guestTapToPlay';
+    tapButton.className = 'btn-primary';
+    tapButton.textContent = '▶️ TAP TO PLAY';
+    tapButton.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1000;
+      font-size: 1.5rem;
+      padding: 1.5rem 3rem;
+      animation: pulse 2s infinite;
+    `;
+    
+    tapButton.onclick = () => {
+      handleGuestTapToPlay();
+    };
+    
+    document.body.appendChild(tapButton);
+  }
+  
+  tapButton.style.display = 'block';
+}
+
+/**
+ * Handle guest tap to play (overcome autoplay restriction)
+ */
+function handleGuestTapToPlay() {
+  const tapButton = document.getElementById('guestTapToPlay');
+  if (tapButton) {
+    tapButton.style.display = 'none';
+  }
+  
+  if (!state.guestAudioElement) return;
+  
+  // Calculate current expected time based on server time
+  if (state.pendingStartAtServerMs !== null && state.pendingStartPositionSec !== null) {
+    const serverNow = nowServerMs();
+    const elapsedMs = serverNow - state.pendingStartAtServerMs;
+    const elapsedSec = elapsedMs / 1000;
+    const targetTimeSec = state.pendingStartPositionSec + elapsedSec;
+    
+    console.log(`[GuestTap] Snapping to expected time: ${targetTimeSec.toFixed(3)}s`);
+    
+    // Snap to correct time
+    state.guestAudioElement.currentTime = Math.max(0, targetTimeSec);
+    
+    // Play
+    state.guestAudioElement.play().then(() => {
+      console.log("[GuestTap] Playback started at", state.guestAudioElement.currentTime.toFixed(3), "s");
+      state.guestNeedsTap = false;
+      
+      // Start drift correction
+      startDriftCorrection(state.pendingStartAtServerMs, state.pendingStartPositionSec);
+    }).catch((error) => {
+      console.error("[GuestTap] Play failed:", error);
+      toast("❌ Failed to start playback");
+    });
+  } else {
+    // Fallback: just play from current position
+    state.guestAudioElement.play().catch((error) => {
+      console.error("[GuestTap] Play failed:", error);
+      toast("❌ Failed to start playback");
+    });
+  }
+}
+
+// ============================================================================
+// PHASE 4: DRIFT CORRECTION (AUTO, SMOOTH, LOW-GLITCH)
+// ============================================================================
+
+/**
+ * Start drift correction monitoring
+ */
+function startDriftCorrection(startAtServerMs, startPositionSec) {
+  // Store playback start reference
+  state.playbackStartAtServerMs = startAtServerMs;
+  state.playbackStartPositionSec = startPositionSec;
+  state.smoothedDriftSec = 0;
+  
+  // Stop any existing drift correction
+  stopDriftCorrection();
+  
+  // Start monitoring loop every 2 seconds
+  state.driftCorrectionInterval = setInterval(() => {
+    monitorAndCorrectDrift();
+  }, 2000);
+  
+  console.log("[DriftCorrection] Started drift monitoring");
+}
+
+/**
+ * Stop drift correction monitoring
+ */
+function stopDriftCorrection() {
+  if (state.driftCorrectionInterval) {
+    clearInterval(state.driftCorrectionInterval);
+    state.driftCorrectionInterval = null;
+    console.log("[DriftCorrection] Stopped drift monitoring");
+  }
+  
+  // Reset playback rate to normal if it was adjusted
+  if (state.guestAudioElement && state.guestAudioElement.playbackRate !== 1.0) {
+    state.guestAudioElement.playbackRate = 1.0;
+  }
+}
+
+/**
+ * Monitor drift and apply corrections
+ */
+function monitorAndCorrectDrift() {
+  if (!state.guestAudioElement || state.guestAudioElement.paused) {
+    return;
+  }
+  
+  if (state.playbackStartAtServerMs === null || state.playbackStartPositionSec === null) {
+    return;
+  }
+  
+  // Calculate expected position
+  const serverNow = nowServerMs();
+  const elapsedMs = serverNow - state.playbackStartAtServerMs;
+  const elapsedSec = elapsedMs / 1000;
+  const expectedSec = state.playbackStartPositionSec + elapsedSec;
+  
+  // Calculate actual position
+  const actualSec = state.guestAudioElement.currentTime;
+  
+  // Calculate drift (positive = ahead, negative = behind)
+  const driftSec = actualSec - expectedSec;
+  
+  // Apply EWMA smoothing (70% old, 30% new)
+  state.smoothedDriftSec = 0.7 * state.smoothedDriftSec + 0.3 * driftSec;
+  
+  console.log(`[DriftCorrection] Expected: ${expectedSec.toFixed(3)}s, Actual: ${actualSec.toFixed(3)}s, Drift: ${driftSec.toFixed(3)}s, Smoothed: ${state.smoothedDriftSec.toFixed(3)}s`);
+  
+  // Ignore small drift (< 0.20s)
+  if (Math.abs(state.smoothedDriftSec) < 0.20) {
+    // Reset playback rate to normal if it was adjusted
+    if (state.guestAudioElement.playbackRate !== 1.0) {
+      state.guestAudioElement.playbackRate = 1.0;
+      console.log("[DriftCorrection] Reset playback rate to 1.0");
+    }
+    return;
+  }
+  
+  // Hard resync for large drift (> 1.0s)
+  if (Math.abs(state.smoothedDriftSec) > 1.0) {
+    console.warn(`[DriftCorrection] Large drift detected (${state.smoothedDriftSec.toFixed(3)}s), performing hard resync`);
+    
+    // Hard resync: seek to expected position
+    state.guestAudioElement.currentTime = expectedSec;
+    state.smoothedDriftSec = 0; // Reset smoothed drift
+    
+    // Track hard resyncs
+    state.hardResyncCount++;
+    state.lastHardResyncTime = Date.now();
+    
+    // Show re-sync button if too many resyncs (2+ in 30s) or drift > 1.5s
+    if (state.hardResyncCount >= 2 && (Date.now() - state.lastHardResyncTime < 30000)) {
+      showResyncButton();
+    } else if (Math.abs(driftSec) > 1.5) {
+      showResyncButton();
+    }
+    
+    // Reset hard resync counter after 30 seconds
+    setTimeout(() => {
+      if (state.hardResyncCount > 0) {
+        state.hardResyncCount--;
+      }
+    }, 30000);
+    
+    return;
+  }
+  
+  // Soft correction for medium drift (0.20s - 0.80s)
+  if (Math.abs(state.smoothedDriftSec) >= 0.20 && Math.abs(state.smoothedDriftSec) <= 0.80) {
+    // Use playback rate adjustment
+    if (state.smoothedDriftSec < -0.25) {
+      // Behind: speed up slightly
+      state.guestAudioElement.playbackRate = 1.05;
+      console.log("[DriftCorrection] Speeding up (rate 1.05) to catch up");
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        if (state.guestAudioElement && state.guestAudioElement.playbackRate === 1.05) {
+          state.guestAudioElement.playbackRate = 1.0;
+          console.log("[DriftCorrection] Reset playback rate to 1.0");
+        }
+      }, 3000);
+    } else if (state.smoothedDriftSec > 0.25) {
+      // Ahead: slow down slightly
+      state.guestAudioElement.playbackRate = 0.95;
+      console.log("[DriftCorrection] Slowing down (rate 0.95) to fall back");
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        if (state.guestAudioElement && state.guestAudioElement.playbackRate === 0.95) {
+          state.guestAudioElement.playbackRate = 1.0;
+          console.log("[DriftCorrection] Reset playback rate to 1.0");
+        }
+      }, 3000);
+    }
+  }
+}
+
+/**
+ * Show re-sync button for manual intervention
+ */
+function showResyncButton() {
+  let resyncButton = document.getElementById('guestResyncButton');
+  
+  if (!resyncButton) {
+    resyncButton = document.createElement('button');
+    resyncButton.id = 'guestResyncButton';
+    resyncButton.className = 'btn-secondary';
+    resyncButton.textContent = '🔄 Re-sync';
+    resyncButton.style.cssText = `
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 999;
+      font-size: 1rem;
+      padding: 0.75rem 1.5rem;
+    `;
+    
+    resyncButton.onclick = () => {
+      manualResync();
+    };
+    
+    document.body.appendChild(resyncButton);
+  }
+  
+  resyncButton.style.display = 'block';
+}
+
+/**
+ * Hide re-sync button
+ */
+function hideResyncButton() {
+  const resyncButton = document.getElementById('guestResyncButton');
+  if (resyncButton) {
+    resyncButton.style.display = 'none';
+  }
+}
+
+/**
+ * Manually trigger a resync
+ */
+function manualResync() {
+  console.log("[DriftCorrection] Manual resync triggered");
+  
+  if (!state.guestAudioElement || !state.playbackStartAtServerMs || !state.playbackStartPositionSec) {
+    toast("Cannot resync - no active playback");
+    return;
+  }
+  
+  // Calculate expected position
+  const serverNow = nowServerMs();
+  const elapsedMs = serverNow - state.playbackStartAtServerMs;
+  const elapsedSec = elapsedMs / 1000;
+  const expectedSec = state.playbackStartPositionSec + elapsedSec;
+  
+  // Seek to expected position
+  state.guestAudioElement.currentTime = expectedSec;
+  
+  // Reset drift tracking
+  state.smoothedDriftSec = 0;
+  state.hardResyncCount = 0;
+  
+  // Hide resync button
+  hideResyncButton();
+  
+  toast("✅ Re-synced");
+  console.log(`[DriftCorrection] Manual resync to ${expectedSec.toFixed(3)}s`);
+}
+
 function handleServer(msg) {
   // Track last WebSocket message for diagnostics
   if (msg.t) {
@@ -835,6 +1263,9 @@ function handleServer(msg) {
       if (state.guestAudioElement && !state.guestAudioElement.paused) {
         state.guestAudioElement.pause();
       }
+      
+      // Stop drift correction when paused
+      stopDriftCorrection();
     }
     updateDebugState();
     return;
@@ -1059,6 +1490,18 @@ function handleServer(msg) {
   // Phase 1: Server Time Sync - Handle TIME_PONG response
   if (msg.t === "TIME_PONG") {
     handleTimePong(msg);
+    return;
+  }
+  
+  // Phase 3: Scheduled Start - Handle PREPARE_PLAY
+  if (msg.t === "PREPARE_PLAY") {
+    handlePreparePlay(msg);
+    return;
+  }
+  
+  // Phase 3: Scheduled Start - Handle PLAY_AT
+  if (msg.t === "PLAY_AT") {
+    handlePlayAt(msg);
     return;
   }
 }
