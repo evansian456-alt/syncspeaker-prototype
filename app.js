@@ -737,14 +737,15 @@ function handleServer(msg) {
   
   // Crowd Hype from DJ
   if (msg.t === "CROWD_HYPE") {
+    // Show hype effect on all screens (including DJ)
+    createHypeEffect(msg.message);
+    // Add to unified feed
+    addToUnifiedFeed('DJ', 'DJ 🎧', 'hype', msg.message, false);
+    
     if (!state.isHost) {
-      // Show hype effect on guest screens
-      createHypeEffect(msg.message);
-      // Add to unified feed
-      addToUnifiedFeed('DJ', 'DJ 🎧', 'hype', msg.message, false);
-      // Increase crowd energy
+      // Increase crowd energy for guests
       increaseCrowdEnergy(10);
-      // Flash effect
+      // Flash effect for guests
       triggerGuestFlash();
     }
     return;
@@ -752,14 +753,14 @@ function handleServer(msg) {
   
   // DJ Short Message to crowd
   if (msg.t === "DJ_SHORT_MESSAGE") {
+    // Add to unified feed for all (DJ already added it locally)
     if (!state.isHost) {
-      // Add to unified feed
       addToUnifiedFeed('DJ', 'DJ 🎧', 'message', msg.message, false);
-      // Increase crowd energy
+      // Increase crowd energy for guests
       increaseCrowdEnergy(8);
-      // Flash effect
+      // Flash effect for guests
       triggerGuestFlash();
-      // Show toast
+      // Show toast for guests
       toast(`DJ 🎧: ${msg.message}`);
     }
     return;
