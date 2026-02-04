@@ -218,6 +218,9 @@
 
     <section class="card hidden" id="viewHome">
       <h1>Play music together</h1>
+      <div style="text-align: right; margin-top: -2rem; margin-bottom: 1rem;">
+        <button class="btn secondary" id="btnHomeAddons">🛍️ Add-ons</button>
+      </div>
       <p class="muted">
         Prototype to test the idea + flow. Audio sync in browsers varies by device — focus on usability and “would you use this?”.
       </p>
@@ -544,7 +547,10 @@
           <span class="dj-icon-small">🎧</span>
           <span>DJ MODE</span>
         </div>
-        <button class="btn-close-dj" id="btnCloseDj">✕ Close DJ View</button>
+        <div class="dj-header-actions">
+          <button class="btn-addons-link" id="btnDjAddons" title="Add-ons">🛍️</button>
+          <button class="btn-close-dj" id="btnCloseDj">✕ Close DJ View</button>
+        </div>
       </div>
 
       <!-- DJ Main Visual Area -->
@@ -826,7 +832,10 @@
           <h2>🎵 Guest Party</h2>
           <div class="muted tiny" id="guestMeta">Connected to party</div>
         </div>
-        <button class="btn danger" id="btnGuestLeave">Leave Party</button>
+        <div class="guest-header-actions">
+          <button class="btn-addons-link" id="btnGuestAddons" title="Add-ons">🛍️</button>
+          <button class="btn danger" id="btnGuestLeave">Leave Party</button>
+        </div>
       </div>
 
       <!-- Party Code and Connection Status -->
@@ -1601,9 +1610,13 @@
   <section class="card hidden" id="viewUpgradeHub">
     <div class="monetization-container">
       <div class="row space">
-        <h1>🎉 Level Up Your Party</h1>
-        <button class="btn" id="btnCloseUpgradeHub">Back</button>
+        <h1>🎉 Add-Ons (Boost your party)</h1>
+        <button class="btn" id="btnCloseUpgradeHub">← Back</button>
       </div>
+      
+      <p class="muted help-text">
+        💡 Add-ons are optional upgrades you can apply to your account or this party.
+      </p>
 
       <!-- A: Current Status Card -->
       <div class="glass-card current-status-card">
@@ -1663,7 +1676,8 @@
 
       <!-- C: Add-Ons Store Grid -->
       <div class="glass-card">
-        <h3>🛍️ Add-Ons Store</h3>
+        <h3>🛍️ Add-Ons (Boost your party)</h3>
+        <p class="muted" style="margin-top: 0.5rem;">Upgrade reactions, visuals, and DJ tools</p>
         <div class="addons-grid">
           <button class="addon-btn" id="btnOpenVisualPacks">
             <div class="addon-icon">🎨</div>
@@ -1695,7 +1709,7 @@
     <div class="monetization-container">
       <div class="row space">
         <h1>🎨 Visual Packs</h1>
-        <button class="btn" id="btnCloseVisualPacks">Back</button>
+        <button class="btn" id="btnCloseVisualPacks">← Back</button>
       </div>
 
       <p class="muted">Only one visual pack can be active at a time.</p>
@@ -1745,7 +1759,7 @@
     <div class="monetization-container">
       <div class="row space">
         <h1>✨ Profile Upgrades</h1>
-        <button class="btn" id="btnCloseProfileUpgrades">Back</button>
+        <button class="btn" id="btnCloseProfileUpgrades">← Back</button>
       </div>
 
       <p class="muted">All purchased upgrades stack and display together!</p>
@@ -1799,7 +1813,7 @@
     <div class="monetization-container">
       <div class="row space">
         <h1>⚡ Party Extensions</h1>
-        <button class="btn" id="btnClosePartyExtensions">Back</button>
+        <button class="btn" id="btnClosePartyExtensions">← Back</button>
       </div>
 
       <p class="muted">Extensions apply instantly to your current party session!</p>
@@ -1831,7 +1845,7 @@
     <div class="monetization-container">
       <div class="row space">
         <h1>🎧 DJ Title Store</h1>
-        <button class="btn" id="btnCloseDjTitles">Back</button>
+        <button class="btn" id="btnCloseDjTitles">← Back</button>
       </div>
 
       <p class="muted">Only one title can be active at a time. Switch anytime!</p>

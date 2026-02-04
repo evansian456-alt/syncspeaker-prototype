@@ -6740,6 +6740,11 @@ function initMonetizationUI() {
     btnUpgradeHub.addEventListener('click', showUpgradeHub);
   }
   
+  // Add-ons buttons in various views
+  document.getElementById('btnHomeAddons')?.addEventListener('click', showUpgradeHub);
+  document.getElementById('btnDjAddons')?.addEventListener('click', showUpgradeHub);
+  document.getElementById('btnGuestAddons')?.addEventListener('click', showUpgradeHub);
+  
   // Close buttons
   document.getElementById('btnCloseUpgradeHub')?.addEventListener('click', () => {
     showView('viewLanding');
