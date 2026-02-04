@@ -59,6 +59,7 @@ const state = {
   ws: null,
   clientId: null,
   code: null,
+  hostId: null, // PHASE 7: Host ID for queue operations (returned from create-party)
   isHost: false,
   name: "Guest",
   djName: null, // DJ name for guest view
@@ -791,6 +792,16 @@ function handleServer(msg) {
     state.upNextFilename = msg.nextFilename || null;
     state.lastHostEvent = "TRACK_CHANGED";
     
+    // PHASE 7: Update currentTrack from server
+    if (msg.currentTrack) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
     if (!state.isHost) {
       updateGuestNowPlaying(msg.title || msg.filename);
       
@@ -801,7 +812,7 @@ function handleServer(msg) {
       
       // Handle audio playback for new track
       if (msg.trackUrl) {
-        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.serverTimestamp, msg.positionSec || 0);
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs || msg.serverTimestamp, msg.startPositionSec || msg.positionSec || 0);
       }
       
       updateGuestVisualMode("track-change");
@@ -811,6 +822,9 @@ function handleServer(msg) {
           updateGuestVisualMode("playing");
         }
       }, 500);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;
@@ -839,8 +853,21 @@ function handleServer(msg) {
   }
   
   if (msg.t === "QUEUE_UPDATED") {
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
+    // PHASE 7: Update currentTrack if provided
+    if (msg.currentTrack !== undefined) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
     if (!state.isHost) {
       updateGuestQueue(msg.queue || []);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;
@@ -2360,6 +2387,34 @@ function cleanupGuestAudio() {
     stopDriftCorrection();
 
 // Update guest queue display
+// PHASE 7: Update host queue UI display
+function updateHostQueueUI() {
+  console.log("[Host] Updating queue UI:", musicState.queue);
+  
+  const queueEl = el("hostQueueList");
+  if (!queueEl) {
+    console.warn("[Host] Queue element not found");
+    return;
+  }
+  
+  if (!musicState.queue || musicState.queue.length === 0) {
+    queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
+    return;
+  }
+  
+  queueEl.innerHTML = musicState.queue.map((track, index) => `
+    <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
+      <span class="queue-number">${index + 1}.</span>
+      <span class="queue-title">${track.title || 'Unknown Track'}</span>
+      <div class="queue-controls">
+        ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
+        ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
+        <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function updateGuestQueue(queue) {
   console.log("[Guest] Updating queue:", queue);
   
@@ -3826,6 +3881,232 @@ function playQueuedTrack() {
   toast(`♫ Now playing: ${musicState.selectedFile.name}`);
 }
 
+// ========================================
+// PHASE 7: Queue Management API Functions
+// ========================================
+
+/**
+ * Add a track to the queue (host only)
+ */
+async function queueTrackToServer(track) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot queue track: not host or missing hostId/code");
+    toast("Only the host can manage the queue", "error");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/queue-track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        trackId: track.trackId,
+        trackUrl: track.trackUrl,
+        title: track.title,
+        durationMs: track.durationMs,
+        filename: track.filename,
+        contentType: track.contentType,
+        sizeBytes: track.sizeBytes
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to queue track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Track queued successfully:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Track added to queue");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error queueing track:", error);
+    toast(error.message || "Failed to queue track", "error");
+    return false;
+  }
+}
+
+/**
+ * Play next track from queue (host only)
+ */
+async function playNextFromQueue() {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot play next: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/play-next`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to play next track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Playing next track:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.currentTrack = data.currentTrack;
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("♫ Playing next track");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error playing next:", error);
+    toast(error.message || "Failed to play next track", "error");
+    return false;
+  }
+}
+
+/**
+ * Remove a track from queue (host only)
+ */
+async function removeQueueTrack(trackId) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot remove track: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/remove-track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        trackId: trackId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to remove track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Track removed:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Track removed from queue");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error removing track:", error);
+    toast(error.message || "Failed to remove track", "error");
+    return false;
+  }
+}
+
+/**
+ * Clear all tracks from queue (host only)
+ */
+async function clearQueue() {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot clear queue: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/clear-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to clear queue');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Queue cleared:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Queue cleared");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error clearing queue:", error);
+    toast(error.message || "Failed to clear queue", "error");
+    return false;
+  }
+}
+
+/**
+ * Move track up in queue (host only)
+ */
+async function moveQueueTrackUp(index) {
+  if (index <= 0) return;
+  await reorderQueueTrack(index, index - 1);
+}
+
+/**
+ * Move track down in queue (host only)
+ */
+async function moveQueueTrackDown(index) {
+  if (index >= musicState.queue.length - 1) return;
+  await reorderQueueTrack(index, index + 1);
+}
+
+/**
+ * Reorder track in queue (host only)
+ */
+async function reorderQueueTrack(fromIndex, toIndex) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot reorder: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/reorder-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        fromIndex: fromIndex,
+        toIndex: toIndex
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to reorder queue');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Queue reordered:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error reordering queue:", error);
+    toast(error.message || "Failed to reorder queue", "error");
+    return false;
+  }
+}
+
 function checkFileTypeSupport(file) {
   const audio = musicState.audioElement || document.createElement("audio");
   
@@ -4862,12 +5143,14 @@ function attemptAddPhone() {
       
       const data = await response.json();
       const partyCode = data.partyCode;
+      const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
       
-      console.log("[Party] Party created via API:", partyCode);
+      console.log("[Party] Party created via API:", partyCode, "hostId:", hostId);
       
       // Set party state
       state.code = partyCode;
       state.isHost = true;
+      state.hostId = hostId; // PHASE 7: Store hostId for later use
       state.offlineMode = false; // Mark as server-backed mode
       
       // Initialize snapshot with host member
