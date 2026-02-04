@@ -87,6 +87,13 @@
             </div>
           </div>
         </div>
+        
+        <!-- Add-ons Link -->
+        <div style="text-align: center; margin-top: 2rem;">
+          <button class="btn" id="btnLandingAddons" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+            ✨ See Add-ons
+          </button>
+        </div>
       </div>
       <div class="blob blob-3"></div>
     </section>
@@ -311,7 +318,12 @@
           <h2 id="partyTitle">Party</h2>
           <div class="muted tiny" id="partyMeta"></div>
         </div>
-        <button class="btn danger" id="btnLeave">Leave</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn" id="btnDjAddons" title="Add-ons" style="background: rgba(255,255,255,0.1);">
+            ✨ Add-ons
+          </button>
+          <button class="btn danger" id="btnLeave">Leave</button>
+        </div>
       </div>
 
       <!-- OFFLINE MODE WARNING BANNER -->
@@ -826,7 +838,12 @@
           <h2>🎵 Guest Party</h2>
           <div class="muted tiny" id="guestMeta">Connected to party</div>
         </div>
-        <button class="btn danger" id="btnGuestLeave">Leave Party</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn" id="btnGuestAddons" title="Add-ons" style="background: rgba(255,255,255,0.1);">
+            ✨ Add-ons
+          </button>
+          <button class="btn danger" id="btnGuestLeave">Leave Party</button>
+        </div>
       </div>
 
       <!-- Party Code and Connection Status -->
@@ -1010,6 +1027,19 @@
         <div class="guest-dj-messages-container" id="guestDjMessagesContainer">
           <div class="guest-no-dj-messages" id="guestNoDjMessages">
             No messages from DJ yet
+          </div>
+        </div>
+      </div>
+
+      <!-- Unified Reactions Feed (DJ + Guest Messages) -->
+      <div class="glass-card guest-reactions-feed">
+        <div class="guest-reactions-feed-header">
+          <h4 class="section-title-small">💬 Party Reactions</h4>
+          <div class="tiny muted">Live feed from DJ and guests</div>
+        </div>
+        <div class="guest-unified-feed-container" id="guestUnifiedFeedContainer">
+          <div class="guest-no-messages">
+            No reactions yet...
           </div>
         </div>
       </div>
@@ -1663,7 +1693,11 @@
 
       <!-- C: Add-Ons Store Grid -->
       <div class="glass-card">
-        <h3>🛍️ Add-Ons Store</h3>
+        <h3>Add-ons (Boost your party)</h3>
+        <p class="muted" style="margin-bottom: 1rem;">Upgrade reactions, visuals, and DJ tools</p>
+        <div class="help-text" style="font-size: 0.85rem; color: #888; margin-bottom: 1rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 8px;">
+          <span style="margin-right: 0.5rem;">💡</span>Add-ons are optional upgrades you can apply to your account or this party.
+        </div>
         <div class="addons-grid">
           <button class="addon-btn" id="btnOpenVisualPacks">
             <div class="addon-icon">🎨</div>
