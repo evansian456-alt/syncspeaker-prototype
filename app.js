@@ -4212,7 +4212,7 @@ function attemptAddPhone() {
   const guestVolumeValue = el("guestVolumeValue");
   if (guestVolumeSlider && guestVolumeValue) {
     guestVolumeSlider.oninput = () => {
-      const volume = parseInt(guestVolumeSlider.value, 10);
+      const volume = Number(guestVolumeSlider.value);
       guestVolumeValue.textContent = `${volume}%`;
       
       // Apply volume to guest audio element
@@ -4222,9 +4222,10 @@ function attemptAddPhone() {
       }
     };
     
-    // Set initial volume
+    // Set initial volume from slider's initial value
     if (state.guestAudioElement) {
-      state.guestAudioElement.volume = 0.8; // 80% default
+      const initialVolume = Number(guestVolumeSlider.value);
+      state.guestAudioElement.volume = initialVolume / 100;
     }
   }
 
@@ -4401,16 +4402,15 @@ function attemptAddPhone() {
     btnDjStop.onclick = () => {
       if (state.adActive) return;
       
+      state.playing = false;
       const audioEl = musicState.audioElement;
       if (audioEl && audioEl.src) {
         // Stop the audio and reset to beginning
         audioEl.pause();
         audioEl.currentTime = 0;
-        state.playing = false;
         updateMusicStatus("Stopped");
         console.log("[Music] Stopped and reset to beginning");
       } else {
-        state.playing = false;
         updateMusicStatus("Stop (simulated)");
         toast("Stop (simulated)");
       }
