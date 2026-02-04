@@ -183,7 +183,7 @@ const SUBSCRIPTIONS = [
   {
     id: 'party_pass',
     name: 'Party Pass',
-    description: 'Perfect for small parties - 2 hours of fun',
+    description: 'Perfect for small parties - 2 hours of fun with messaging',
     price: 2.99,
     currency: 'GBP',
     type: STORE_CATEGORIES.SUBSCRIPTIONS,
@@ -192,9 +192,11 @@ const SUBSCRIPTIONS = [
     features: [
       'Up to 4 phones',
       '2 hours duration',
-      'Preset messages',
-      'All reactions',
-      'No ads'
+      'Chat + emoji reactions',
+      'Guest quick replies',
+      'DJ quick message buttons',
+      'Auto party prompts',
+      'Messages disappear after a few seconds'
     ],
     permanent: false
   },
