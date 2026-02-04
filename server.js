@@ -2371,6 +2371,114 @@ app.get("/api/party/:code/members", async (req, res) => {
   });
 });
 
+// Get party scoreboard (live or historical)
+app.get("/api/party/:code/scoreboard", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code.toUpperCase().trim();
+  
+  console.log(`[HTTP] GET /api/party/${code}/scoreboard at ${timestamp}, instanceId: ${INSTANCE_ID}`);
+  
+  try {
+    // Check if party is currently active
+    const localParty = parties.get(code);
+    
+    if (localParty && localParty.scoreState) {
+      // Return live scoreboard
+      const guestList = Object.values(localParty.scoreState.guests)
+        .sort((a, b) => b.points - a.points)
+        .map((guest, index) => ({
+          ...guest,
+          rank: index + 1
+        }));
+      
+      return res.json({
+        live: true,
+        partyCode: code,
+        dj: {
+          djName: localParty.scoreState.dj.djName,
+          sessionScore: localParty.scoreState.dj.sessionScore,
+          lifetimeScore: localParty.scoreState.dj.lifetimeScore
+        },
+        guests: guestList.slice(0, 10),
+        totalReactions: localParty.scoreState.totalReactions,
+        totalMessages: localParty.scoreState.totalMessages,
+        peakCrowdEnergy: localParty.scoreState.peakCrowdEnergy,
+        partyDuration: localParty.createdAt 
+          ? Math.floor((Date.now() - localParty.createdAt) / 60000)
+          : 0
+      });
+    }
+    
+    // Party not active, check database for historical scoreboard
+    const historicalScoreboard = await db.getPartyScoreboard(code);
+    
+    if (historicalScoreboard) {
+      return res.json({
+        live: false,
+        partyCode: code,
+        dj: {
+          djName: "DJ", // Historical data doesn't store DJ name
+          sessionScore: historicalScoreboard.dj_session_score,
+          lifetimeScore: 0
+        },
+        guests: historicalScoreboard.guest_scores,
+        totalReactions: historicalScoreboard.total_reactions,
+        totalMessages: historicalScoreboard.total_messages,
+        peakCrowdEnergy: historicalScoreboard.peak_crowd_energy,
+        partyDuration: historicalScoreboard.party_duration_minutes,
+        createdAt: historicalScoreboard.created_at
+      });
+    }
+    
+    // No scoreboard found
+    return res.status(404).json({ 
+      error: "Scoreboard not found for this party code" 
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error getting scoreboard for party ${code}:`, error.message);
+    return res.status(500).json({ 
+      error: "Failed to retrieve scoreboard" 
+    });
+  }
+});
+
+// Get top DJs leaderboard
+app.get("/api/leaderboard/djs", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const topDjs = await db.getTopDjs(limit);
+    
+    return res.json({ 
+      leaderboard: topDjs,
+      count: topDjs.length
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error getting DJ leaderboard:`, error.message);
+    return res.status(500).json({ 
+      error: "Failed to retrieve DJ leaderboard" 
+    });
+  }
+});
+
+// Get top guests leaderboard
+app.get("/api/leaderboard/guests", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const topGuests = await db.getTopGuests(limit);
+    
+    return res.json({ 
+      leaderboard: topGuests,
+      count: topGuests.length
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error getting guest leaderboard:`, error.message);
+    return res.status(500).json({ 
+      error: "Failed to retrieve guest leaderboard" 
+    });
+  }
+});
+
 // Cleanup expired parties (Redis TTL handles expiration automatically)
 // This function now only cleans up local WebSocket state for expired parties
 function cleanupExpiredParties() {
@@ -2421,6 +2529,73 @@ function cleanupExpiredTracks() {
       // Remove from registry
       uploadedTracks.delete(trackId);
     });
+  }
+}
+
+// Persist party scoreboard to database
+async function persistPartyScoreboard(partyCode, party) {
+  if (!party || !party.scoreState) {
+    console.log(`[Database] No scoreState for party ${partyCode}, skipping persistence`);
+    return;
+  }
+  
+  try {
+    const partyDurationMinutes = party.createdAt 
+      ? Math.floor((Date.now() - party.createdAt) / 60000) 
+      : 0;
+    
+    // Prepare guest scores array
+    const guestScores = Object.values(party.scoreState.guests).map(guest => ({
+      guestId: guest.guestId,
+      nickname: guest.nickname,
+      points: guest.points,
+      emojis: guest.emojis,
+      messages: guest.messages,
+      rank: guest.rank
+    }));
+    
+    // Save party scoreboard session
+    await db.savePartyScoreboard({
+      partyCode,
+      hostUserId: party.scoreState.dj.djUserId,
+      hostIdentifier: party.scoreState.dj.djIdentifier,
+      djSessionScore: party.scoreState.dj.sessionScore,
+      guestScores,
+      partyDurationMinutes,
+      totalReactions: party.scoreState.totalReactions,
+      totalMessages: party.scoreState.totalMessages,
+      peakCrowdEnergy: party.scoreState.peakCrowdEnergy
+    });
+    
+    console.log(`[Database] Saved scoreboard for party ${partyCode}`);
+    
+    // Update DJ profile if logged in
+    if (party.scoreState.dj.djUserId) {
+      await db.updateDjProfileScore(
+        party.scoreState.dj.djUserId, 
+        party.scoreState.dj.sessionScore
+      );
+      console.log(`[Database] Updated DJ score for user ${party.scoreState.dj.djUserId}`);
+    }
+    
+    // Update guest profiles
+    for (const guest of guestScores) {
+      try {
+        await db.updateGuestProfile(guest.guestId, {
+          contributionPoints: guest.points,
+          reactionsCount: guest.emojis,
+          messagesCount: guest.messages
+        });
+      } catch (err) {
+        console.error(`[Database] Error updating guest profile ${guest.guestId}:`, err.message);
+      }
+    }
+    
+    console.log(`[Database] Updated ${guestScores.length} guest profiles`);
+    
+  } catch (error) {
+    console.error(`[Database] Error persisting scoreboard for party ${partyCode}:`, error.message);
+    throw error;
   }
 }
 
@@ -2758,7 +2933,21 @@ async function handleCreate(ws, msg) {
     djMessages: [], // Array of DJ auto-generated messages
     currentTrack: null, // Current playing track info
     queue: [], // Track queue (max 5)
-    timeoutWarningTimer: null // Timer for timeout warning
+    timeoutWarningTimer: null, // Timer for timeout warning
+    // Scoreboard state (resets each party)
+    scoreState: {
+      dj: {
+        djUserId: null, // Will be set if host is logged in
+        djIdentifier: client.id, // Fallback to client ID
+        djName: name,
+        sessionScore: 0, // Points earned this session
+        lifetimeScore: 0 // Will be fetched from DB if logged in
+      },
+      guests: {}, // { guestId: { nickname, points, emojis, messages, rank } }
+      totalReactions: 0,
+      totalMessages: 0,
+      peakCrowdEnergy: 0
+    }
   });
   
   client.party = code;
@@ -2950,6 +3139,11 @@ function handleDisconnect(ws) {
     // Host left, end the party
     console.log(`[Party] Host left, ending party ${client.party}, instanceId: ${INSTANCE_ID}`);
     
+    // Persist scoreboard to database
+    persistPartyScoreboard(client.party, party).catch(err => {
+      console.error(`[Database] Error persisting scoreboard for party ${client.party}:`, err.message);
+    });
+    
     // Clear timeout warning timer
     if (party.timeoutWarningTimer) {
       clearTimeout(party.timeoutWarningTimer);
@@ -3009,6 +3203,50 @@ function broadcastRoomState(code) {
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
   
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+}
+
+function broadcastScoreboard(code) {
+  const party = parties.get(code);
+  if (!party || !party.scoreState) return;
+  
+  // Calculate rankings for guests
+  const guestList = Object.values(party.scoreState.guests)
+    .sort((a, b) => b.points - a.points)
+    .map((guest, index) => ({
+      ...guest,
+      rank: index + 1
+    }));
+  
+  // Update ranks in scoreState
+  guestList.forEach(guest => {
+    if (party.scoreState.guests[guest.guestId]) {
+      party.scoreState.guests[guest.guestId].rank = guest.rank;
+    }
+  });
+  
+  const scoreboardData = {
+    dj: {
+      djName: party.scoreState.dj.djName,
+      sessionScore: party.scoreState.dj.sessionScore,
+      lifetimeScore: party.scoreState.dj.lifetimeScore
+    },
+    guests: guestList.slice(0, 10), // Top 10 guests
+    totalReactions: party.scoreState.totalReactions,
+    totalMessages: party.scoreState.totalMessages,
+    peakCrowdEnergy: party.scoreState.peakCrowdEnergy
+  };
+  
+  const message = JSON.stringify({ 
+    t: "SCOREBOARD_UPDATE", 
+    scoreboard: scoreboardData
+  });
+  
+  // Broadcast to all party members
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
@@ -3266,6 +3504,36 @@ function handleGuestMessage(ws, msg) {
   
   console.log(`[Party] Guest "${guestName}" sent message "${messageText}" in party ${client.party}`);
   
+  // Update scoreboard: award points for messages/emojis
+  if (!party.scoreState.guests[member.id]) {
+    party.scoreState.guests[member.id] = {
+      guestId: member.id,
+      nickname: guestName,
+      points: 0,
+      emojis: 0,
+      messages: 0,
+      rank: 1
+    };
+  }
+  
+  const guestScore = party.scoreState.guests[member.id];
+  
+  if (isEmoji) {
+    guestScore.emojis += 1;
+    guestScore.points += 5; // 5 points per emoji
+    party.scoreState.totalReactions += 1;
+  } else {
+    guestScore.messages += 1;
+    guestScore.points += 10; // 10 points per text message
+    party.scoreState.totalMessages += 1;
+  }
+  
+  // Award points to DJ for engagement
+  party.scoreState.dj.sessionScore += (isEmoji ? 2 : 3);
+  
+  // Broadcast updated scoreboard to all party members
+  broadcastScoreboard(client.party);
+  
   // Send to host only
   const message = JSON.stringify({ 
     t: "GUEST_MESSAGE", 
@@ -3414,6 +3682,13 @@ function handleDjEmoji(ws, msg) {
   const emoji = (msg.emoji || "").trim().substring(0, 10);
   
   console.log(`[Party] DJ sending emoji "${emoji}" in party ${client.party}`);
+  
+  // Award DJ points for engagement
+  party.scoreState.dj.sessionScore += 5; // 5 points for DJ emoji interaction
+  party.scoreState.totalReactions += 1;
+  
+  // Broadcast updated scoreboard
+  broadcastScoreboard(client.party);
   
   // Broadcast to all members (guests only, not back to host)
   const broadcastMsg = JSON.stringify({ 
