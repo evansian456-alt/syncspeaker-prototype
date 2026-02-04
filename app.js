@@ -10,6 +10,11 @@ const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync c
 const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
+// All views in the application
+const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+                   'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
+                   'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
+
 // User tier constants
 const USER_TIER = {
   FREE: 'FREE',
@@ -6171,11 +6176,7 @@ async function checkAutoReconnect() {
  */
 function showView(viewId) {
   // Hide all main views
-  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
-                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
-                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
-  
-  views.forEach(id => {
+  ALL_VIEWS.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.add('hidden');
@@ -7480,11 +7481,7 @@ function addHostLobbyUpgradeButton() {
 
 // Helper function to hide all views
 function hideAllViews() {
-  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
-                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
-                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
-  
-  views.forEach(id => {
+  ALL_VIEWS.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   });
