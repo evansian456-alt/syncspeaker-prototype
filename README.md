@@ -1,12 +1,12 @@
-# SyncSpeaker
+# Phone Party
 
 **Turn your phones into one massive speaker**
 
-Browser prototype for SyncSpeaker — Connect multiple phones together and play music in perfect sync. Create an epic sound experience for parties, gatherings, or just hanging out with friends!
+Browser prototype for Phone Party — Connect multiple phones together and play music in perfect sync. Create an epic sound experience for parties, gatherings, or just hanging out with friends!
 
-## 🎵 What is SyncSpeaker?
+## 🎵 What is Phone Party?
 
-SyncSpeaker lets you connect multiple phones together to play music in perfect synchronization. Take control with DJ mode, queue your tracks, and get real-time reactions from your guests. Everything you need to be the ultimate party host.
+Phone Party lets you connect multiple phones together to play music in perfect synchronization. Take control with DJ mode, queue your tracks, and get real-time reactions from your guests. Everything you need to be the ultimate party host.
 
 ## ✨ Key Features
 
@@ -81,10 +81,10 @@ See [db/README.md](db/README.md) for database schema setup instructions.
 Quick start:
 ```bash
 # Create database
-createdb syncspeaker
+createdb phoneparty
 
 # Apply schema
-psql -d syncspeaker -f db/schema.sql
+psql -d phoneparty -f db/schema.sql
 ```
 
 #### Redis Setup
@@ -132,7 +132,7 @@ Default configuration connects to Redis at `localhost:6379` and PostgreSQL at `l
 
 ## Production Deployment (Railway)
 
-SyncSpeaker requires Redis for multi-device party discovery and synchronization. Follow these steps to deploy on Railway:
+Phone Party requires Redis for multi-device party discovery and synchronization. Follow these steps to deploy on Railway:
 
 ### 1. Add Redis Plugin
 

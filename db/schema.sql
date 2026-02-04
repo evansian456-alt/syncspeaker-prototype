@@ -1,4 +1,4 @@
--- SyncSpeaker Database Schema
+-- Phone Party Database Schema
 -- PostgreSQL 12+
 
 -- Enable extensions (optional but useful)

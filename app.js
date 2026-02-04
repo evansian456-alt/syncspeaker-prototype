@@ -4830,8 +4830,8 @@ function attemptAddPhone() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Join SyncSpeaker Party',
-          text: `Join my SyncSpeaker party! Code: ${state.code}`,
+          title: 'Join Phone Party',
+          text: `Join my Phone Party! Code: ${state.code}`,
           url: joinLink
         });
         toast("Shared successfully!");
@@ -6387,7 +6387,7 @@ function handleSignup() {
       updateUIForLoggedInUser(loginResult.user);
       // Redirect to home to start using the app
       showHome();
-      showToast('✅ Welcome to SyncSpeaker! Account created successfully!');
+      showToast('✅ Welcome to Phone Party! Account created successfully!');
     }
   } else {
     errorEl.textContent = result.error;

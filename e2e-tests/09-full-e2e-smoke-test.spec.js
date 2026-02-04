@@ -78,10 +78,10 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
     });
 
     test('1.3 - Clear app explanation is present', async ({ page }) => {
-      // Look for "What is SyncSpeaker?" or similar explanatory text
+      // Look for "What is Phone Party?" or similar explanatory text
       const explanationPresent = await page.evaluate(() => {
         const text = document.body.innerText.toLowerCase();
-        return text.includes('syncspeaker') && 
+        return text.includes('phone party') && 
                (text.includes('connect') || text.includes('sync') || text.includes('phones'));
       });
       

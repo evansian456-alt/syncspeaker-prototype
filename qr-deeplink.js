@@ -133,8 +133,8 @@ function checkForJoinLink() {
  */
 function shareParty(partyCode) {
   const url = getPartyJoinUrl(partyCode);
-  const title = 'Join my SyncSpeaker party!';
-  const text = `Join party ${partyCode} on SyncSpeaker`;
+  const title = 'Join my Phone Party!';
+  const text = `Join party ${partyCode} on Phone Party`;
   
   if (navigator.share) {
     navigator.share({

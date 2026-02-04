@@ -1,6 +1,6 @@
 # Database Schema
 
-This directory contains the PostgreSQL database schema for SyncSpeaker.
+This directory contains the PostgreSQL database schema for Phone Party.
 
 ## Schema File
 
@@ -37,12 +37,12 @@ Tracks user participation in parties for analytics and "return to party" feature
 
 1. Create a database:
    ```bash
-   createdb syncspeaker
+   createdb phoneparty
    ```
 
 2. Apply the schema:
    ```bash
-   psql -d syncspeaker -f db/schema.sql
+   psql -d phoneparty -f db/schema.sql
    ```
 
 ### Configuration
@@ -51,11 +51,11 @@ Add PostgreSQL connection details to your `.env` file:
 
 ```bash
 # PostgreSQL Configuration
-DATABASE_URL=postgresql://username:password@localhost:5432/syncspeaker
+DATABASE_URL=postgresql://username:password@localhost:5432/phoneparty
 # Or individual settings:
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=syncspeaker
+DB_NAME=phoneparty
 DB_USER=username
 DB_PASSWORD=password
 ```
