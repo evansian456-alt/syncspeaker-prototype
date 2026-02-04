@@ -3363,6 +3363,9 @@ function handleMessage(ws, msg) {
     case "DJ_EMOJI":
       handleDjEmoji(ws, msg);
       break;
+    case "TIME_PING":
+      handleTimePing(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -4671,6 +4674,23 @@ function handleDjEmoji(ws, msg) {
       m.ws.send(broadcastMsg);
     }
   });
+}
+
+// Handle time sync ping (Phase 1: Server Time Sync)
+function handleTimePing(ws, msg) {
+  const client = clients.get(ws);
+  if (!client) return;
+  
+  // Immediately reply with server timestamp
+  const serverNowMs = Date.now();
+  const response = {
+    t: "TIME_PONG",
+    clientNowMs: msg.clientNowMs,
+    serverNowMs: serverNowMs,
+    pingId: msg.pingId
+  };
+  
+  safeSend(ws, JSON.stringify(response));
 }
 
 // Helper function to wait for Redis to be ready (for tests)

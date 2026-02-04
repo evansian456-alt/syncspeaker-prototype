@@ -115,7 +115,12 @@ const state = {
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
-  temporaryUserId: null // Temporary ID for prototype mode users
+  temporaryUserId: null, // Temporary ID for prototype mode users
+  // Server time sync state (Phase 1)
+  serverOffsetMs: 0, // Estimated offset from server time (serverTime ≈ Date.now() + offset)
+  offsetQuality: 0, // Quality indicator based on RTT (0-1)
+  timeSyncInterval: null, // Interval for periodic time sync
+  lastTimeSyncRtt: null // Last measured RTT for diagnostics
 };
 
 /**
@@ -532,6 +537,103 @@ function sendGuestQuickReply(key) {
   send({ t: "GUEST_QUICK_REPLY", key: key });
 }
 
+// ============================================================================
+// PHASE 1: SERVER TIME SYNC (PING/PONG)
+// ============================================================================
+
+/**
+ * Get current server time estimate
+ * @returns {number} Estimated server timestamp in milliseconds
+ */
+function nowServerMs() {
+  return Date.now() + state.serverOffsetMs;
+}
+
+/**
+ * Send a time ping to the server
+ */
+function sendTimePing() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.log("[TimeSync] Cannot ping - WebSocket not connected");
+    return;
+  }
+  
+  const t0 = Date.now();
+  const pingId = `ping-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  
+  console.log(`[TimeSync] Sending TIME_PING with id ${pingId}`);
+  send({
+    t: "TIME_PING",
+    clientNowMs: t0,
+    pingId: pingId
+  });
+}
+
+/**
+ * Handle TIME_PONG response from server
+ */
+function handleTimePong(msg) {
+  const t2 = Date.now();
+  const t0 = msg.clientNowMs;
+  const t1 = msg.serverNowMs;
+  
+  // Calculate round-trip time and one-way delay
+  const rtt = t2 - t0;
+  const oneWay = rtt / 2;
+  
+  // Ignore samples with high RTT (> 800ms) - likely unreliable
+  if (rtt > 800) {
+    console.log(`[TimeSync] Ignoring sample with high RTT: ${rtt}ms`);
+    return;
+  }
+  
+  // Estimate server time at t2
+  const estimatedServerAtT2 = t1 + oneWay;
+  const newOffset = estimatedServerAtT2 - t2;
+  
+  // Apply EWMA smoothing to reduce jitter (80% old, 20% new)
+  state.serverOffsetMs = 0.8 * state.serverOffsetMs + 0.2 * newOffset;
+  
+  // Update quality indicator based on RTT (lower RTT = higher quality)
+  // Quality range 0-1, where RTT < 50ms = 1.0, RTT > 500ms = 0.0
+  const quality = Math.max(0, Math.min(1, (500 - rtt) / 450));
+  state.offsetQuality = 0.8 * state.offsetQuality + 0.2 * quality;
+  
+  // Store last RTT for diagnostics
+  state.lastTimeSyncRtt = rtt;
+  
+  console.log(`[TimeSync] Offset: ${state.serverOffsetMs.toFixed(2)}ms, RTT: ${rtt}ms, Quality: ${state.offsetQuality.toFixed(2)}`);
+}
+
+/**
+ * Start periodic time sync
+ */
+function startTimeSync() {
+  // Send initial ping immediately
+  sendTimePing();
+  
+  // Then ping every 30 seconds
+  if (state.timeSyncInterval) {
+    clearInterval(state.timeSyncInterval);
+  }
+  state.timeSyncInterval = setInterval(() => {
+    sendTimePing();
+  }, 30000); // 30 seconds
+  
+  console.log("[TimeSync] Started periodic time sync (every 30s)");
+}
+
+/**
+ * Stop periodic time sync
+ */
+function stopTimeSync() {
+  if (state.timeSyncInterval) {
+    clearInterval(state.timeSyncInterval);
+    state.timeSyncInterval = null;
+    console.log("[TimeSync] Stopped periodic time sync");
+  }
+}
+
 function handleServer(msg) {
   // Track last WebSocket message for diagnostics
   if (msg.t) {
@@ -543,6 +645,10 @@ function handleServer(msg) {
     state.clientId = msg.clientId; 
     state.connected = true;
     updateDebugState();
+    
+    // Start time sync on connection (Phase 1)
+    startTimeSync();
+    
     return; 
   }
   if (msg.t === "CREATED") {
@@ -947,6 +1053,12 @@ function handleServer(msg) {
       }
     }
     
+    return;
+  }
+  
+  // Phase 1: Server Time Sync - Handle TIME_PONG response
+  if (msg.t === "TIME_PONG") {
+    handleTimePong(msg);
     return;
   }
 }
@@ -6450,6 +6562,18 @@ function initializeAllFeatures() {
   initBeatAwareUI();
   initSessionStats();
   initBoostAddons();
+  
+  // Phase 5: Tab Sleep / Background Recovery - Visibility change listener
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      console.log("[TimeSync] Tab became visible - triggering time sync");
+      // Immediately sync time
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        sendTimePing();
+      }
+      // TODO: Fetch party state and resync if playing (Phase 3 onward)
+    }
+  });
   
   console.log("[Features] All features initialized");
   
