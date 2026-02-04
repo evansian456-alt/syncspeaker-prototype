@@ -576,6 +576,29 @@ function handleServer(msg) {
     return;
   }
   
+  if (msg.t === "STOP") {
+    state.playing = false;
+    state.lastHostEvent = "STOP";
+    if (!state.isHost) {
+      updateGuestPlaybackState("STOPPED");
+      updateGuestVisualMode("stopped");
+      
+      // Stop guest audio and reset to beginning
+      if (state.guestAudioElement) {
+        state.guestAudioElement.pause();
+        state.guestAudioElement.currentTime = 0;
+        console.log("[Guest] Received STOP - audio reset to beginning");
+      }
+      
+      // Stop drift correction
+      stopDriftCorrection();
+      
+      addDebugLog("Host stopped playback");
+    }
+    updateDebugState();
+    return;
+  }
+  
   if (msg.t === "TRACK_CHANGED") {
     state.nowPlayingFilename = msg.filename || msg.title;
     state.upNextFilename = msg.nextFilename || null;
@@ -4139,6 +4162,72 @@ function attemptAddPhone() {
     };
   }
 
+  const btnGuestStop = el("btnGuestStop");
+  if (btnGuestStop) {
+    btnGuestStop.onclick = () => {
+      // Stop local audio playback and reset to beginning
+      if (state.guestAudioElement) {
+        state.guestAudioElement.pause();
+        state.guestAudioElement.currentTime = 0;
+        updateGuestPlaybackState("STOPPED");
+        toast("⏹️ Stopped playback");
+        console.log("[Guest] Stopped audio playback locally");
+      } else {
+        toast("No audio playing", "info");
+      }
+    };
+  }
+
+  const btnGuestSync = el("btnGuestSync");
+  if (btnGuestSync) {
+    btnGuestSync.onclick = () => {
+      // Re-sync guest audio with host
+      if (state.guestAudioElement && state.playing) {
+        // Request current position from server or re-calculate based on last known state
+        const audioEl = state.guestAudioElement;
+        if (audioEl.src) {
+          toast("🔄 Re-syncing audio...");
+          console.log("[Guest] Manual sync requested");
+          
+          // Force a re-sync by adjusting current time based on drift
+          if (state.lastPlayTimestamp && state.lastPlayPosition !== undefined) {
+            const elapsed = (Date.now() - state.lastPlayTimestamp) / 1000;
+            const expectedPosition = state.lastPlayPosition + elapsed;
+            audioEl.currentTime = expectedPosition;
+            console.log(`[Guest] Re-synced to position ${expectedPosition.toFixed(2)}s`);
+            toast("✅ Audio re-synced", "success");
+          }
+        } else {
+          toast("No audio loaded", "warning");
+        }
+      } else if (!state.playing) {
+        toast("DJ is not playing", "info");
+      } else {
+        toast("No audio to sync", "warning");
+      }
+    };
+  }
+
+  const guestVolumeSlider = el("guestVolumeSlider");
+  const guestVolumeValue = el("guestVolumeValue");
+  if (guestVolumeSlider && guestVolumeValue) {
+    guestVolumeSlider.oninput = () => {
+      const volume = parseInt(guestVolumeSlider.value, 10);
+      guestVolumeValue.textContent = `${volume}%`;
+      
+      // Apply volume to guest audio element
+      if (state.guestAudioElement) {
+        state.guestAudioElement.volume = volume / 100;
+        console.log(`[Guest] Volume set to ${volume}%`);
+      }
+    };
+    
+    // Set initial volume
+    if (state.guestAudioElement) {
+      state.guestAudioElement.volume = 0.8; // 80% default
+    }
+  }
+
   el("btnCopy").onclick = async () => {
     if (state.offlineMode) {
       toast("⚠️ Prototype mode - code won't work for joining from other devices");
@@ -4304,6 +4393,39 @@ function attemptAddPhone() {
     btnDjPause.onclick = () => {
       // Trigger the main pause button
       el("btnPause").click();
+    };
+  }
+
+  const btnDjStop = el("btnDjStop");
+  if (btnDjStop) {
+    btnDjStop.onclick = () => {
+      if (state.adActive) return;
+      
+      const audioEl = musicState.audioElement;
+      if (audioEl && audioEl.src) {
+        // Stop the audio and reset to beginning
+        audioEl.pause();
+        audioEl.currentTime = 0;
+        state.playing = false;
+        updateMusicStatus("Stopped");
+        console.log("[Music] Stopped and reset to beginning");
+      } else {
+        state.playing = false;
+        updateMusicStatus("Stop (simulated)");
+        toast("Stop (simulated)");
+      }
+      
+      // Stop beat-aware UI
+      stopBeatPulse();
+      
+      // Broadcast STOP to guests
+      if (state.isHost && state.ws) {
+        send({ t: "HOST_STOP" });
+        console.log("[DJ] Sent STOP to all guests");
+      }
+      
+      // Update back to DJ button visibility
+      updateBackToDjButton();
     };
   }
 
