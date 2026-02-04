@@ -13,6 +13,12 @@ const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button abov
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
+// Sync quality indicator labels
+const SYNC_QUALITY_EXCELLENT = "Excellent";
+const SYNC_QUALITY_GOOD = "Good";
+const SYNC_QUALITY_MEDIUM = "Medium";
+const SYNC_QUALITY_POOR = "Poor";
+
 // All views in the application
 const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
@@ -1330,6 +1336,63 @@ function stopPartyStatusPolling() {
   }
 }
 
+// Helper: Check if guest audio should auto-resume
+function shouldResumeGuestAudio() {
+  return state.guestAudioElement && 
+         state.guestAudioElement.paused && 
+         state.audioUnlocked;
+}
+
+// Helper: Handle playing track from polling
+function handlePlayingTrackFromPolling(track) {
+  // Check if this is a new track or track start
+  if (track.filename !== state.nowPlayingFilename) {
+    console.log("[Polling] New track detected:", track.filename);
+    state.nowPlayingFilename = track.filename;
+    updateGuestNowPlaying(track.filename);
+    
+    // If track has URL, prepare guest audio
+    if (track.url) {
+      handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+    } else {
+      // No URL - host playing local file
+      toast("🎵 Host is playing: " + track.filename);
+    }
+  } else if (shouldResumeGuestAudio()) {
+    // Track is same but guest audio is paused while host is playing - resume with sync
+    console.log("[Polling] Resuming paused audio to match host playing state");
+    const elapsedSec = (Date.now() - track.startAtServerMs) / 1000;
+    const targetSec = (track.startPosition || 0) + elapsedSec;
+    clampAndSeekAudio(state.guestAudioElement, targetSec);
+    state.guestAudioElement.play().catch(err => {
+      console.warn("[Polling] Could not auto-resume:", err);
+    });
+  }
+}
+
+// Helper: Handle paused track from polling
+function handlePausedTrackFromPolling(track) {
+  // Host paused - ensure guest is also paused at correct position
+  if (state.guestAudioElement && !state.guestAudioElement.paused) {
+    console.log("[Polling] Pausing guest audio to match host");
+    state.guestAudioElement.pause();
+    if (track.pausedPositionSec !== undefined) {
+      clampAndSeekAudio(state.guestAudioElement, track.pausedPositionSec);
+    }
+  }
+}
+
+// Helper: Handle stopped track from polling
+function handleStoppedTrackFromPolling(track) {
+  // Host stopped - ensure guest is also stopped
+  if (state.guestAudioElement) {
+    console.log("[Polling] Stopping guest audio to match host");
+    state.guestAudioElement.pause();
+    state.guestAudioElement.currentTime = 0;
+    stopDriftCorrection();
+  }
+}
+
 // Start polling party status for guests
 function startGuestPartyStatusPolling() {
   // Only poll for guests
@@ -1420,46 +1483,11 @@ function startGuestPartyStatusPolling() {
           
           // Handle different playback statuses
           if (track.status === 'playing') {
-            // Check if this is a new track or track start
-            if (track.filename !== state.nowPlayingFilename) {
-              console.log("[Polling] New track detected:", track.filename);
-              state.nowPlayingFilename = track.filename;
-              updateGuestNowPlaying(track.filename);
-              
-              // If track has URL, prepare guest audio
-              if (track.url) {
-                handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
-              } else {
-                // No URL - host playing local file
-                toast("🎵 Host is playing: " + track.filename);
-              }
-            } else if (state.guestAudioElement && state.guestAudioElement.paused && state.audioUnlocked) {
-              // Track is same but guest audio is paused while host is playing - resume with sync
-              console.log("[Polling] Resuming paused audio to match host playing state");
-              const elapsedSec = (Date.now() - track.startAtServerMs) / 1000;
-              const targetSec = (track.startPosition || 0) + elapsedSec;
-              clampAndSeekAudio(state.guestAudioElement, targetSec);
-              state.guestAudioElement.play().catch(err => {
-                console.warn("[Polling] Could not auto-resume:", err);
-              });
-            }
+            handlePlayingTrackFromPolling(track);
           } else if (track.status === 'paused') {
-            // Host paused - ensure guest is also paused at correct position
-            if (state.guestAudioElement && !state.guestAudioElement.paused) {
-              console.log("[Polling] Pausing guest audio to match host");
-              state.guestAudioElement.pause();
-              if (track.pausedPositionSec !== undefined) {
-                clampAndSeekAudio(state.guestAudioElement, track.pausedPositionSec);
-              }
-            }
+            handlePausedTrackFromPolling(track);
           } else if (track.status === 'stopped') {
-            // Host stopped - ensure guest is also stopped
-            if (state.guestAudioElement) {
-              console.log("[Polling] Stopping guest audio to match host");
-              state.guestAudioElement.pause();
-              state.guestAudioElement.currentTime = 0;
-              stopDriftCorrection();
-            }
+            handleStoppedTrackFromPolling(track);
           }
         }
         
@@ -2186,18 +2214,18 @@ function updateGuestSyncQuality(drift) {
     // Classify sync quality based on new drift thresholds
     if (drift < DRIFT_CORRECTION_THRESHOLD_SEC) {
       // Excellent sync (< 200ms) - within ignore threshold
-      qualityBadgeEl.textContent = "Excellent";
+      qualityBadgeEl.textContent = SYNC_QUALITY_EXCELLENT;
     } else if (drift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
       // Good sync (200-800ms) - soft correction range
-      qualityBadgeEl.textContent = "Good";
+      qualityBadgeEl.textContent = SYNC_QUALITY_GOOD;
       qualityBadgeEl.classList.add("medium");
     } else if (drift < DRIFT_SHOW_RESYNC_THRESHOLD_SEC) {
       // Medium sync (800ms-1.5s) - hard correction range
-      qualityBadgeEl.textContent = "Medium";
+      qualityBadgeEl.textContent = SYNC_QUALITY_MEDIUM;
       qualityBadgeEl.classList.add("medium");
     } else {
-      // Bad sync (> 1.5s) - show resync button
-      qualityBadgeEl.textContent = "Poor";
+      // Poor sync (> 1.5s) - show resync button
+      qualityBadgeEl.textContent = SYNC_QUALITY_POOR;
       qualityBadgeEl.classList.add("bad");
     }
   }
