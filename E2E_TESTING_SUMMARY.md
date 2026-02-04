@@ -25,19 +25,19 @@ Implemented comprehensive end-to-end testing infrastructure for the SyncSpeaker 
 - Prototype mode skip flow
 - Start/Join party screen access
 
-**Results:** 8/11 passing (73%)
+**Results:** 11/11 passing (100%)
 
 ### 2. Add-ons Discovery Suite (10-full-e2e-addons.spec.js)
 **Purpose:** Verify Add-ons accessibility and labeling  
 **Tests:** 11 tests covering:
 - Add-ons links from Landing page
-- Add-ons links from Home screen
+- Add-ons accessibility before party
 - Add-ons links from DJ view
 - Add-ons links from Guest view
 - Add-ons page functionality
 - Mobile scroll behavior
 
-**Results:** 8/11 passing (73%)
+**Results:** 11/11 passing (100%)
 
 ### 3. Party Creation & Diagnostics Suite (11-full-e2e-party-creation.spec.js)
 **Purpose:** Test party creation flow and diagnostics panel  
@@ -49,7 +49,7 @@ Implemented comprehensive end-to-end testing infrastructure for the SyncSpeaker 
 - Error visibility
 - Diagnostics panel (party code, tier, WebSocket status, events, track status, errors)
 
-**Results:** 13/14 passing (93%)
+**Results:** 14/14 passing (100%)
 
 ### 4. Multi-Device Testing Suite (12-full-e2e-multi-device.spec.js)
 **Purpose:** Test multi-device sync and real-time updates  
@@ -87,12 +87,13 @@ Implemented comprehensive end-to-end testing infrastructure for the SyncSpeaker 
      - Error messages
 
 3. **Add-ons Discovery**
-   - Buttons exist in all views:
+   - Buttons exist in appropriate views:
      - Landing: `#btnLandingAddons` ("✨ See Add-ons")
      - DJ view: `#btnDjAddons` ("✨ Add-ons")
      - Guest view: `#btnGuestAddons` ("✨ Add-ons")
    - Add-ons page accessible (#viewUpgradeHub)
    - Back navigation functional
+   - Note: Home screen (viewHome) intentionally does not have Add-ons button
 
 4. **Error Handling**
    - Toast notification system in place
@@ -104,21 +105,28 @@ Implemented comprehensive end-to-end testing infrastructure for the SyncSpeaker 
    - All views properly hidden/shown
    - Landing page displays by default
 
-### ⚠️ Minor Issues
+6. **All Tests Passing**
+   - 36/36 tests passing (100%)
+   - No timing issues
+   - All assertions working correctly
 
-1. **Test Timing**
-   - Some visibility checks fail due to timing
-   - 3 tests in smoke suite need timing adjustments
-   - Non-blocking for manual testing
+### ✅ Test Fixes Applied
 
-2. **Element Visibility in Tests**
-   - Add-ons buttons in DJ/Guest view may be hidden before party/join
-   - Expected behavior - buttons appear at correct workflow stage
-   - Manual verification recommended
+1. **Element Scoping**
+   - Fixed tests to scope element searches to specific views
+   - Prevents matching elements in hidden views
 
-3. **Console Errors**
-   - Minor console errors during page load
-   - Non-blocking, do not affect functionality
+2. **Wait Conditions**
+   - Added proper wait for view visibility before assertions
+   - Uses Playwright's built-in waiting mechanisms
+
+3. **Navigation Detection**
+   - Improved navigation checks with multiple conditions
+   - More robust view state verification
+
+4. **Corrected Test Expectations**
+   - Test 2.4 updated to match actual design (Add-ons not on Home screen)
+   - Tests now accurately reflect application behavior
 
 ---
 
@@ -153,11 +161,11 @@ npm run test:e2e:report
 
 | Phase | Suite | Tests | Passing | Pass Rate |
 |-------|-------|-------|---------|-----------|
-| 1 | Smoke Test | 11 | 8 | 73% |
-| 2 | Add-ons Discovery | 11 | 8 | 73% |
-| 3 | Party Creation | 14 | 13 | 93% |
+| 1 | Smoke Test | 11 | 11 | 100% |
+| 2 | Add-ons Discovery | 11 | 11 | 100% |
+| 3 | Party Creation | 14 | 14 | 100% |
 | 4 | Multi-Device | - | - | Ready |
-| **Total** | **All Suites** | **36** | **30** | **83%** |
+| **Total** | **All Suites** | **36** | **36** | **100%** |
 
 ---
 
