@@ -7478,9 +7478,8 @@ function addHostLobbyUpgradeButton() {
  * Leaderboard and Profile functionality
  */
 
-// Show Leaderboard view
-function showLeaderboard() {
-  // Update showView to include new views
+// Helper function to hide all views
+function hideAllViews() {
   const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
                  'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                  'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
@@ -7489,6 +7488,11 @@ function showLeaderboard() {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   });
+}
+
+// Show Leaderboard view
+function showLeaderboard() {
+  hideAllViews();
   
   const viewLeaderboard = document.getElementById('viewLeaderboard');
   if (viewLeaderboard) {
@@ -7501,14 +7505,7 @@ function showLeaderboard() {
 
 // Show My Profile view
 function showMyProfile() {
-  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
-                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
-                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
-  
-  views.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  });
+  hideAllViews();
   
   const viewMyProfile = document.getElementById('viewMyProfile');
   if (viewMyProfile) {
@@ -7674,7 +7671,7 @@ async function loadMyProfile() {
     if (entitlementsList) {
       if (data.entitlements && data.entitlements.length > 0) {
         entitlementsList.innerHTML = data.entitlements.map(item => `
-          <div class="entitlement-item">${item.item_type}: ${item.item_key}</div>
+          <div class="entitlement-item">${escapeHtml(item.item_type)}: ${escapeHtml(item.item_key)}</div>
         `).join('');
       } else {
         entitlementsList.innerHTML = '<p class="muted">No items owned yet</p>';
