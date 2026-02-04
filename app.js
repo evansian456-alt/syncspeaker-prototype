@@ -473,6 +473,8 @@ function handleServer(msg) {
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
+    // Save to localStorage for rejoin
+    localStorage.setItem('lastPartyCode', msg.code);
     return;
   }
   if (msg.t === "JOINED") {
@@ -483,6 +485,13 @@ function handleServer(msg) {
     showGuest(); 
     toast(`Joined party ${msg.code}`); 
     updateDebugState();
+    
+    // Save to localStorage for rejoin
+    localStorage.setItem('lastPartyCode', msg.code);
+    const guestNameInput = document.getElementById('guestName');
+    if (guestNameInput?.value) {
+      localStorage.setItem('lastGuestName', guestNameInput.value.trim());
+    }
     
     // Check if host is already playing (mid-track join)
     checkForMidTrackJoin(msg.code);
@@ -496,9 +505,17 @@ function handleServer(msg) {
       state.chatMode = msg.snapshot.chatMode;
       updateChatModeUI();
     }
-    // Preserve Party Pass Pro status or detect from members
-    const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
-    state.partyPro = state.partyPassActive || membersPro;
+    // Party-wide Pro is now server-authoritative
+    const wasPartyPro = state.partyPro;
+    state.partyPro = !!msg.snapshot.partyPro;
+    // Show success message when party becomes Pro
+    if (!wasPartyPro && state.partyPro) {
+      toast("🎉 Pro unlocked for this party!");
+    }
+    // Update source from server (host-selected)
+    if (msg.snapshot?.source) {
+      state.source = msg.snapshot.source;
+    }
     setPlanPill();
     if (state.isHost) {
       renderRoom();
@@ -4182,8 +4199,15 @@ function attemptAddPhone() {
         throw new Error("DJ name is required to start a party");
       }
       
+      // Validate name length (cap at 24 characters before adding DJ prefix)
+      let validatedName = hostNameInput;
+      if (validatedName.length > 24) {
+        validatedName = validatedName.substring(0, 24);
+        toast("Name shortened to 24 characters");
+      }
+      
       // Add "DJ" prefix to host name
-      const djName = `DJ ${hostNameInput}`;
+      const djName = `DJ ${validatedName}`;
       state.name = djName;
       console.log("[DJ Identity] Host name with DJ prefix:", djName);
       
@@ -4286,6 +4310,22 @@ function attemptAddPhone() {
     if (!code) {
       toast("Enter a party code");
       return;
+    }
+    
+    // Validate code format (6 alphanumeric characters)
+    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
+      toast("Party code must be 6 characters");
+      return;
+    }
+    
+    // Validate and sanitize guest name
+    const guestNameInput = el("guestName");
+    if (guestNameInput && guestNameInput.value) {
+      const trimmedName = guestNameInput.value.trim();
+      if (trimmedName.length > 24) {
+        guestNameInput.value = trimmedName.substring(0, 24);
+        toast("Name shortened to 24 characters");
+      }
     }
     
     // Prevent multiple clicks
@@ -4751,8 +4791,42 @@ function attemptAddPhone() {
       toast("⚠️ Prototype mode - code won't work for joining from other devices");
       return;
     }
-    try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
-    catch { toast("Copy failed (permission)"); }
+    
+    // Create shareable join link
+    const baseUrl = window.location.origin + window.location.pathname;
+    const joinLink = `${baseUrl}?code=${state.code || ""}`;
+    
+    // Try to use native share API if available (mobile devices)
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join SyncSpeaker Party',
+          text: `Join my SyncSpeaker party! Code: ${state.code}`,
+          url: joinLink
+        });
+        toast("Shared successfully!");
+        return;
+      } catch (err) {
+        // User cancelled or share failed, fall back to clipboard
+        if (err.name !== 'AbortError') {
+          console.log('Share failed, falling back to clipboard:', err);
+        }
+      }
+    }
+    
+    // Fallback to clipboard
+    try { 
+      await navigator.clipboard.writeText(joinLink); 
+      toast("Join link copied!");
+    } catch { 
+      // Final fallback - just copy the code
+      try {
+        await navigator.clipboard.writeText(state.code || "");
+        toast("Party code copied");
+      } catch {
+        toast("Copy failed (permission)");
+      }
+    }
   };
 
   el("btnPlay").onclick = () => {
@@ -6771,18 +6845,54 @@ function showToast(message) {
   }, 3000);
 }
 
+// ---- URL Query Parameter & Rejoin Memory Handling ----
+// Support shareable join links with ?code=ABC123
+// and restore last session from localStorage
+function handleUrlParamsAndRejoin() {
+  // Check for ?code= query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const codeFromUrl = urlParams.get('code');
+  
+  // Try to restore last session from localStorage
+  const lastCode = localStorage.getItem('lastPartyCode');
+  const lastGuest = localStorage.getItem('lastGuestName');
+  
+  const joinCodeInput = document.getElementById('joinCode');
+  const guestNameInput = document.getElementById('guestName');
+  
+  if (codeFromUrl) {
+    // URL parameter takes priority
+    if (joinCodeInput) {
+      joinCodeInput.value = codeFromUrl.toUpperCase();
+      // Auto-focus the name input if code is provided
+      if (guestNameInput) {
+        guestNameInput.focus();
+      }
+    }
+  } else if (lastCode) {
+    // Restore from localStorage if no URL param
+    if (joinCodeInput && !joinCodeInput.value) {
+      joinCodeInput.value = lastCode;
+    }
+    if (guestNameInput && lastGuest && !guestNameInput.value) {
+      guestNameInput.value = lastGuest;
+    }
+  }
+}
+
 // Call initialization when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeAllFeatures);
+  document.addEventListener("DOMContentLoaded", () => {
+    initializeAllFeatures();
+    handleUrlParamsAndRejoin();
+  });
 } else {
   initializeAllFeatures();
+  handleUrlParamsAndRejoin();
 }
 
 
-// ---- Promo Code Logic (Prototype) ----
-const PROMO_CODES = ["SS-PARTY-A9K2","SS-PARTY-QM7L","SS-PARTY-Z8P3"];
-let promoUsed = false;
-
+// ---- Promo Code Logic (Server-Authoritative) ----
 const promoBtn = document.getElementById("promoBtn");
 const promoModal = document.getElementById("promoModal");
 const promoApply = document.getElementById("promoApply");
@@ -6795,19 +6905,15 @@ if (promoBtn) {
 
   promoApply.onclick = () => {
     const code = promoInput.value.trim().toUpperCase();
-    if (promoUsed) {
-      alert("This party already used a promo code.");
+    if (!code) {
+      toast("Please enter a promo code");
       return;
     }
-    if (!PROMO_CODES.includes(code)) {
-      alert("Invalid or expired promo code.");
-      return;
-    }
-    promoUsed = true;
-    window.partyPro = true;
+    
+    // Send to server for validation
+    send({ t: "APPLY_PROMO", code });
     promoModal.classList.add("hidden");
-    alert("🎉 Pro unlocked for this party!");
-    updateUI?.();
+    promoInput.value = ""; // Clear input
   };
 }
 

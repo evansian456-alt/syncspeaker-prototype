@@ -2697,12 +2697,18 @@ async function startServer() {
 
   wss.on("connection", (ws) => {
     const clientId = nextClientId++;
-    clients.set(ws, { id: clientId, party: null });
+    clients.set(ws, { id: clientId, party: null, isAlive: true });
     
     console.log(`[WS] Client ${clientId} connected`);
     
     // Send welcome message
     safeSend(ws, JSON.stringify({ t: "WELCOME", clientId }));
+    
+    // Heartbeat - mark client as alive when pong received
+    ws.on("pong", () => {
+      const client = clients.get(ws);
+      if (client) client.isAlive = true;
+    });
     
     ws.on("message", (data) => {
       try {
@@ -2723,6 +2729,30 @@ async function startServer() {
     ws.on("error", (err) => {
       console.error(`[WS] Client ${clientId} error:`, err);
     });
+  });
+  
+  // WebSocket heartbeat interval - ping clients every 30 seconds
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      const client = clients.get(ws);
+      if (!client) return;
+      
+      // If client didn't respond to last ping, terminate
+      if (client.isAlive === false) {
+        console.log(`[WS] Client ${client.id} failed heartbeat, terminating`);
+        handleDisconnect(ws);
+        return ws.terminate();
+      }
+      
+      // Mark as not alive and send ping
+      client.isAlive = false;
+      ws.ping();
+    });
+  }, 30000); // 30 seconds
+  
+  // Cleanup heartbeat interval on server close
+  wss.on("close", () => {
+    clearInterval(heartbeatInterval);
   });
   
   return server;
@@ -2766,6 +2796,9 @@ function handleMessage(ws, msg) {
       break;
     case "SET_PRO":
       handleSetPro(ws, msg);
+      break;
+    case "APPLY_PROMO":
+      handleApplyPromo(ws, msg);
       break;
     case "HOST_PLAY":
       handleHostPlay(ws, msg);
@@ -2892,13 +2925,15 @@ async function handleCreate(ws, msg) {
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
   
+  // Capture and validate source from host
+  const source = msg.source === "external" || msg.source === "mic" ? msg.source : "local";
+  
   const member = {
     ws,
     id: client.id,
     name,
     isPro: !!msg.isPro,
-    isHost: true,
-    source: msg.source === "external" || msg.source === "mic" ? msg.source : "local"
+    isHost: true
   };
   
   const createdAt = Date.now();
@@ -2935,6 +2970,9 @@ async function handleCreate(ws, msg) {
     chatMode: "OPEN",
     createdAt,
     hostId,
+    source, // Host-selected source (local/external/mic)
+    partyPro: false, // Party-wide Pro status (set via promo code only)
+    promoUsed: false, // Whether a promo code has been used
     djMessages: [], // Array of DJ auto-generated messages
     currentTrack: null, // Current playing track info
     queue: [], // Track queue (max 5)
@@ -3021,6 +3059,17 @@ async function handleJoin(ws, msg) {
   // Check if already a member (prevent duplicates)
   if (party.members.some(m => m.id === client.id)) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Already in this party" }));
+    return;
+  }
+  
+  // Enforce Free limit (2 phones) server-side
+  // Only check if party is not Pro (partyPro === false)
+  if (!party.partyPro && party.members.length >= 2) {
+    console.log(`[WS] Join blocked - Free party limit reached (2 phones), partyCode: ${code}, clientId: ${client.id}`);
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Free parties are limited to 2 phones" 
+    }));
     return;
   }
   
@@ -3142,8 +3191,61 @@ function handleSetPro(ws, msg) {
   if (member) {
     member.isPro = !!msg.isPro;
     console.log(`[Party] Client ${client.id} set Pro to ${member.isPro}`);
+    // Note: SET_PRO only affects member's badge, NOT party-wide Pro status
     broadcastRoomState(client.party);
   }
+}
+
+// Promo codes from README/app.js
+const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+
+function handleApplyPromo(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Not in a party" 
+    }));
+    return;
+  }
+  
+  const party = parties.get(client.party);
+  if (!party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Party not found" 
+    }));
+    return;
+  }
+  
+  // Check if promo code already used
+  if (party.promoUsed) {
+    console.log(`[Promo] Attempt to reuse promo in party ${client.party}, clientId: ${client.id}`);
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "This party already used a promo code." 
+    }));
+    return;
+  }
+  
+  // Validate promo code (case-insensitive, trim spaces)
+  const code = (msg.code || "").trim().toUpperCase();
+  if (!PROMO_CODES.includes(code)) {
+    console.log(`[Promo] Invalid promo code attempt: ${code}, partyCode: ${client.party}, clientId: ${client.id}`);
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Invalid or expired promo code." 
+    }));
+    return;
+  }
+  
+  // Valid and unused - unlock party-wide Pro
+  party.promoUsed = true;
+  party.partyPro = true;
+  console.log(`[Promo] Party ${client.party} unlocked with promo code ${code}, clientId: ${client.id}`);
+  
+  // Broadcast updated room state to all members
+  broadcastRoomState(client.party);
 }
 
 function handleDisconnect(ws) {
@@ -3218,7 +3320,9 @@ function broadcastRoomState(code) {
       isPro: m.isPro,
       isHost: m.isHost
     })),
-    chatMode: party.chatMode || "OPEN"
+    chatMode: party.chatMode || "OPEN",
+    partyPro: !!party.partyPro, // Party-wide Pro status
+    source: party.source || "local" // Host-selected source
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
