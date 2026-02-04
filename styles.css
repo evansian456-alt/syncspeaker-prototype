@@ -5530,3 +5530,209 @@ body.light-mode .input-field {
 }
 
 
+
+/* Landing Page - Information Section */
+.landing-info-section {
+  max-width: 800px;
+  margin: 3rem auto 2rem;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 1fr;
+}
+
+.info-card {
+  background: rgba(18, 24, 35, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 1.5rem;
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+
+.info-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.info-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.5rem 0;
+}
+
+.info-desc {
+  font-size: 0.95rem;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Enhanced Pricing Summary on Landing Page */
+.pricing-clickable {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.pricing-clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(90, 169, 255, 0.3);
+  border-color: rgba(90, 169, 255, 0.4);
+}
+
+.pricing-featured {
+  border: 2px solid rgba(90, 169, 255, 0.5);
+  background: rgba(90, 169, 255, 0.08);
+}
+
+.pricing-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gradient-brand);
+  color: var(--text);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pricing-summary-features {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.btn-tier-select {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Account Creation Page Styles */
+.selected-tier-info {
+  text-align: center;
+  padding: 1.5rem;
+  background: rgba(90, 169, 255, 0.08);
+  border: 1px solid rgba(90, 169, 255, 0.3);
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.selected-tier-badge {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--brand);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+}
+
+.selected-tier-details {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.account-options {
+  margin-top: 2rem;
+}
+
+.account-section {
+  margin-bottom: 2rem;
+}
+
+.account-section h2 {
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.account-divider {
+  text-align: center;
+  margin: 2rem 0;
+  position: relative;
+}
+
+.account-divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.account-divider span {
+  position: relative;
+  background: var(--card);
+  padding: 0 1rem;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.prototype-mode-section {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.prototype-mode-section h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.upgrade-warning {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 90, 106, 0.1);
+  border: 2px solid rgba(255, 90, 106, 0.3);
+  border-radius: 12px;
+  animation: fadeIn 0.3s ease;
+}
+
+.warning-banner {
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments for new landing page */
+@media (max-width: 768px) {
+  .landing-info-section {
+    margin: 2rem auto 1.5rem;
+  }
+  
+  .info-card {
+    padding: 1.25rem;
+  }
+  
+  .info-icon {
+    font-size: 2rem;
+  }
+  
+  .info-title {
+    font-size: 1rem;
+  }
+}

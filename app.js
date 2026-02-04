@@ -96,7 +96,11 @@ const state = {
   isReconnecting: false, // Track if currently in reconnect flow
   // Message spam prevention
   lastMessageTimestamp: 0,
-  messageCooldownMs: 2000 // 2 second cooldown between messages
+  messageCooldownMs: 2000, // 2 second cooldown between messages
+  // New UX flow state
+  selectedTier: null, // Track tier selection before account creation
+  prototypeMode: false, // Track if user is in prototype mode (skipped account)
+  temporaryUserId: null // Temporary ID for prototype mode users
 };
 
 /**
@@ -699,6 +703,7 @@ function showHome() {
   hide("viewLanding"); 
   hide("viewChooseTier");
   hide("viewPayment");
+  hide("viewAccountCreation");
   show("viewHome"); 
   hide("viewParty");
   hide("viewGuest");
@@ -736,6 +741,7 @@ function showLanding() {
   hide("viewGuest");
   hide("viewChooseTier");
   hide("viewPayment");
+  hide("viewAccountCreation");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
   state.snapshot = null; state.partyPro = false; state.offlineMode = false;
   state.connected = false;
@@ -862,8 +868,42 @@ function showChooseTier() {
   hide("viewParty");
   hide("viewGuest");
   hide("viewPayment");
+  hide("viewAccountCreation");
   show("viewChooseTier");
   updateDebugState();
+}
+
+// Show account creation screen
+function showAccountCreation() {
+  hide("viewLanding");
+  hide("viewHome");
+  hide("viewParty");
+  hide("viewGuest");
+  hide("viewPayment");
+  hide("viewChooseTier");
+  show("viewAccountCreation");
+  
+  // Update the selected tier display
+  updateSelectedTierDisplay();
+  updateDebugState();
+}
+
+// Update selected tier display on account creation page
+function updateSelectedTierDisplay() {
+  const tierInfo = el("selectedTierInfo");
+  const tierBadge = tierInfo.querySelector(".selected-tier-badge");
+  const tierDetails = tierInfo.querySelector(".selected-tier-details");
+  
+  if (state.selectedTier === USER_TIER.FREE) {
+    tierBadge.textContent = "FREE MODE";
+    tierDetails.textContent = "2 phones · Unlimited time · Basic features";
+  } else if (state.selectedTier === USER_TIER.PARTY_PASS) {
+    tierBadge.textContent = "PARTY PASS";
+    tierDetails.textContent = "£2.99 · Up to 4 phones · 2 hours";
+  } else if (state.selectedTier === USER_TIER.PRO) {
+    tierBadge.textContent = "PRO MONTHLY";
+    tierDetails.textContent = "£9.99/month · 12+ phones · Full features";
+  }
 }
 
 // Show payment screen
@@ -873,6 +913,7 @@ function showPayment() {
   hide("viewParty");
   hide("viewGuest");
   hide("viewChooseTier");
+  hide("viewAccountCreation");
   show("viewPayment");
   updateDebugState();
 }
@@ -3482,46 +3523,133 @@ function attemptAddPhone() {
   // Initialize music player
   initializeMusicPlayer();
 
-  // NEW: Landing page auth buttons - TEMPORARILY HIDDEN (no-auth mode)
-  // Auth is temporarily disabled, so hide login/signup buttons (already hidden in HTML)
-  const btnLandingCreateAccount = el("btnLandingCreateAccount");
-  const btnLandingSignIn = el("btnLandingSignIn");
+  // NEW LANDING PAGE - TIER SELECTION BUTTONS
+  const landingFreeTier = el("landingFreeTier");
+  const landingPartyPassTier = el("landingPartyPassTier");
+  const landingProTier = el("landingProTier");
 
-  // OLD Landing page navigation - update to work without auth
-  const btnLandingStart = el("btnLandingStart");
-  const btnLandingJoin = el("btnLandingJoin");
-  
-  if (btnLandingStart) {
-    btnLandingStart.onclick = () => {
-      console.log("[UI] Landing: Start Party clicked");
-      // TEMPORARY: Skip auth check - go directly to tier selection
-      showChooseTier();
+  if (landingFreeTier) {
+    landingFreeTier.onclick = () => {
+      console.log("[UI] Landing: Free tier selected");
+      state.selectedTier = USER_TIER.FREE;
+      state.userTier = USER_TIER.FREE;
+      showAccountCreation();
     };
   }
 
-  if (btnLandingJoin) {
-    btnLandingJoin.onclick = () => {
-      console.log("[UI] Landing: Join Party clicked");
-      // TEMPORARY: Skip auth check - go directly to home
+  if (landingPartyPassTier) {
+    landingPartyPassTier.onclick = () => {
+      console.log("[UI] Landing: Party Pass tier selected");
+      state.selectedTier = USER_TIER.PARTY_PASS;
+      showAccountCreation();
+    };
+  }
+
+  if (landingProTier) {
+    landingProTier.onclick = () => {
+      console.log("[UI] Landing: Pro tier selected");
+      state.selectedTier = USER_TIER.PRO;
+      showAccountCreation();
+    };
+  }
+
+  // ACCOUNT CREATION PAGE HANDLERS
+  const btnCreateAccountSubmit = el("btnCreateAccountSubmit");
+  const btnShowLogin = el("btnShowLogin");
+  const btnSkipAccount = el("btnSkipAccount");
+  const btnBackToTiers = el("btnBackToTiers");
+
+  if (btnCreateAccountSubmit) {
+    btnCreateAccountSubmit.onclick = async () => {
+      console.log("[UI] Create account submit clicked");
+      const email = el("accountEmail").value;
+      const password = el("accountPassword").value;
+      const djName = el("accountDjName").value;
+
+      if (!email || !password) {
+        toast("Please enter email and password");
+        return;
+      }
+
+      // Apply selected tier
+      state.userTier = state.selectedTier || USER_TIER.FREE;
+      state.prototypeMode = false;
+      
+      // For now, just proceed to home (actual signup would be implemented here)
+      toast(`Account created! Welcome to ${state.selectedTier} tier`);
       showHome();
     };
   }
 
-  // Tier selection handlers
+  if (btnShowLogin) {
+    btnShowLogin.onclick = () => {
+      console.log("[UI] Show login clicked");
+      showView('viewLogin');
+    };
+  }
+
+  if (btnSkipAccount) {
+    btnSkipAccount.onclick = () => {
+      console.log("[UI] Skip account clicked - entering prototype mode");
+      
+      // Show warning if paid tier was selected
+      const upgradeWarning = el("upgradeWarning");
+      if (state.selectedTier !== USER_TIER.FREE) {
+        upgradeWarning.classList.remove("hidden");
+        
+        // Wait 2 seconds to show warning, then proceed
+        setTimeout(() => {
+          proceedWithPrototypeMode();
+        }, 2000);
+      } else {
+        proceedWithPrototypeMode();
+      }
+    };
+  }
+
+  if (btnBackToTiers) {
+    btnBackToTiers.onclick = () => {
+      console.log("[UI] Back to tiers from account creation");
+      // Hide any warnings
+      const upgradeWarning = el("upgradeWarning");
+      if (upgradeWarning) {
+        upgradeWarning.classList.add("hidden");
+      }
+      showLanding();
+    };
+  }
+
+  // Helper function to proceed with prototype mode
+  function proceedWithPrototypeMode() {
+    state.prototypeMode = true;
+    state.userTier = USER_TIER.FREE; // Always use FREE tier in prototype mode
+    
+    // Generate temporary user ID
+    state.temporaryUserId = 'proto_' + Math.random().toString(36).substring(7);
+    localStorage.setItem('syncSpeakerPrototypeId', state.temporaryUserId);
+    
+    toast("Prototype mode activated - No account required");
+    showHome();
+  }
+
+  // Tier selection handlers (from viewChooseTier page)
   el("btnSelectFree").onclick = () => {
     console.log("[UI] Free tier selected");
+    state.selectedTier = USER_TIER.FREE;
     state.userTier = USER_TIER.FREE;
-    showHome();
+    showAccountCreation();
   };
 
   el("btnSelectPartyPass").onclick = () => {
     console.log("[UI] Party Pass tier selected");
-    showPayment();
+    state.selectedTier = USER_TIER.PARTY_PASS;
+    showAccountCreation();
   };
 
   el("btnSelectPro").onclick = () => {
     console.log("[UI] Pro tier selected");
-    showPayment();
+    state.selectedTier = USER_TIER.PRO;
+    showAccountCreation();
   };
 
   el("btnBackToLanding").onclick = () => {
@@ -5168,7 +5296,7 @@ async function checkAutoReconnect() {
  */
 function showView(viewId) {
   // Hide all main views
-  const views = ['viewLanding', 'viewChooseTier', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
                  'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile'];
   
   views.forEach(id => {

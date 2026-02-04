@@ -32,39 +32,58 @@
         <h1 class="landing-title-new">SyncSpeaker</h1>
         <p class="landing-subtitle-new">Turn Phones Into One Big Speaker</p>
         
-        <!-- Primary CTAs -->
-        <!-- TEMPORARY: Auth buttons hidden, show Start/Join buttons instead -->
-        <div class="landing-auth-buttons">
-          <button class="btn-landing-primary" id="btnLandingCreateAccount" style="display: none;">
-            CREATE ACCOUNT
-          </button>
-          <button class="btn-landing-secondary" id="btnLandingSignIn" style="display: none;">
-            SIGN IN
-          </button>
-          <!-- TEMPORARY: No-auth mode buttons -->
-          <button class="btn-landing-primary" id="btnLandingStart">
-            START PARTY
-          </button>
-          <button class="btn-landing-secondary" id="btnLandingJoin">
-            JOIN PARTY
-          </button>
+        <!-- App Information Section -->
+        <div class="landing-info-section">
+          <div class="info-card">
+            <div class="info-icon">🎵</div>
+            <h3 class="info-title">Turn multiple phones into one synced speaker system</h3>
+            <p class="info-desc">Connect your friends' phones and create a powerful surround sound experience.</p>
+          </div>
+          <div class="info-card">
+            <div class="info-icon">🎧</div>
+            <h3 class="info-title">Host plays music, guests hear it together</h3>
+            <p class="info-desc">One person controls the music, everyone hears it perfectly synced.</p>
+          </div>
+          <div class="info-card">
+            <div class="info-icon">🎉</div>
+            <h3 class="info-title">Perfect for parties, hangouts, and events</h3>
+            <p class="info-desc">Turn any space into an immersive audio experience.</p>
+          </div>
         </div>
         
-        <!-- Pricing Summary -->
+        <!-- Pricing Tiers Display -->
         <div class="pricing-summary">
-          <h2 class="pricing-summary-title">Simple Pricing</h2>
+          <h2 class="pricing-summary-title">Choose Your Plan</h2>
           <div class="pricing-summary-grid">
-            <div class="pricing-summary-item">
+            <div class="pricing-summary-item pricing-clickable" id="landingFreeTier">
               <div class="pricing-summary-label">FREE</div>
               <div class="pricing-summary-desc">2 phones</div>
+              <div class="pricing-summary-features">
+                <div>✓ Unlimited time</div>
+                <div>✓ Basic features</div>
+              </div>
+              <button class="btn btn-tier-select">Use Free Version</button>
             </div>
-            <div class="pricing-summary-item">
+            <div class="pricing-summary-item pricing-clickable pricing-featured" id="landingPartyPassTier">
+              <div class="pricing-badge">Most Popular</div>
               <div class="pricing-summary-label">PARTY PASS</div>
               <div class="pricing-summary-desc">£2.99</div>
+              <div class="pricing-summary-features">
+                <div>✓ Up to 4 phones</div>
+                <div>✓ 2-hour session</div>
+                <div>✓ Preset messages</div>
+              </div>
+              <button class="btn btn-tier-select btn-party-pass">Buy Party Pass</button>
             </div>
-            <div class="pricing-summary-item">
+            <div class="pricing-summary-item pricing-clickable" id="landingProTier">
               <div class="pricing-summary-label">PRO</div>
               <div class="pricing-summary-desc">£9.99 / month</div>
+              <div class="pricing-summary-features">
+                <div>✓ 12+ phones</div>
+                <div>✓ DJ features</div>
+                <div>✓ Messaging & upgrades</div>
+              </div>
+              <button class="btn btn-tier-select btn-pro-monthly">Go Pro Monthly</button>
             </div>
           </div>
         </div>
@@ -132,6 +151,69 @@
       </div>
 
       <button class="btn secondary" id="btnBackToLanding" style="margin-top: 2rem;">← Back</button>
+    </section>
+
+    <!-- Account Creation / Login Page -->
+    <section class="card hidden" id="viewAccountCreation">
+      <h1>Create Account / Log In</h1>
+      <p class="muted">Create an account to unlock your selected tier</p>
+      
+      <!-- Selected Tier Display -->
+      <div class="selected-tier-info" id="selectedTierInfo">
+        <div class="selected-tier-badge"></div>
+        <div class="selected-tier-details"></div>
+      </div>
+      
+      <div class="account-options">
+        <!-- Account Creation Section -->
+        <div class="account-section">
+          <h2>Create Account</h2>
+          <div class="form-group">
+            <label class="lbl">Email</label>
+            <input type="email" id="accountEmail" class="input" placeholder="your@email.com" />
+          </div>
+          <div class="form-group">
+            <label class="lbl">Password</label>
+            <input type="password" id="accountPassword" class="input" placeholder="••••••••" />
+          </div>
+          <div class="form-group">
+            <label class="lbl">DJ Name (optional)</label>
+            <input type="text" id="accountDjName" class="input" placeholder="DJ Cool" />
+          </div>
+          <button class="btn primary" id="btnCreateAccountSubmit">Create Account & Continue</button>
+        </div>
+        
+        <div class="account-divider">
+          <span>OR</span>
+        </div>
+        
+        <!-- Login Section -->
+        <div class="account-section">
+          <h2>Already Have An Account?</h2>
+          <button class="btn secondary" id="btnShowLogin">Log In Instead</button>
+        </div>
+      </div>
+      
+      <!-- Prototype Mode Skip Option -->
+      <div class="prototype-mode-section">
+        <div class="line" style="margin: 2rem 0;"></div>
+        <h3>Testing Without Account?</h3>
+        <p class="muted">Skip account creation and use prototype mode</p>
+        <button class="btn secondary" id="btnSkipAccount">Skip Account – Prototype Mode</button>
+        <div class="tiny muted" style="margin-top: 1rem;">
+          Note: Paid features require an account to activate
+        </div>
+      </div>
+      
+      <!-- Warning for paid tiers -->
+      <div class="upgrade-warning hidden" id="upgradeWarning">
+        <div class="warning-banner">
+          ⚠️ <strong>Upgrades require an account to activate</strong><br>
+          You selected a paid tier, but skipped account creation. You'll continue as a free prototype user.
+        </div>
+      </div>
+      
+      <button class="btn secondary" id="btnBackToTiers" style="margin-top: 2rem;">← Back to Plans</button>
     </section>
 
     <section class="card hidden" id="viewHome">
