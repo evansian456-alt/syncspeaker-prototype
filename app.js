@@ -99,6 +99,9 @@ const state = {
   // Message spam prevention
   lastMessageTimestamp: 0,
   messageCooldownMs: 2000, // 2 second cooldown between messages
+  // Unified reactions feed (Phase 2)
+  unifiedFeed: [], // Array of { id, timestamp, sender, senderName, type, content, isEmoji }
+  maxFeedItems: 30, // Maximum items in unified feed (rolling limit)
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
@@ -2003,69 +2006,11 @@ function displayDjMessage(message, type = "system") {
 function displayHostBroadcastMessage(message) {
   console.log("[Host Broadcast]", message);
   
+  // Add to unified feed
+  addToUnifiedFeed('DJ', 'DJ', 'broadcast', message, false);
+  
   // Show as toast with DJ icon
   toast(`📢 ${message}`, 5000);
-  
-  // Show the DJ messages card if hidden
-  const djMessagesCard = el("guestDjMessagesCard");
-  if (djMessagesCard) {
-    djMessagesCard.classList.remove("hidden");
-  }
-  
-  // Display in guest DJ messages container
-  const messagesContainer = el("guestDjMessagesContainer");
-  const noMessagesEl = el("guestNoDjMessages");
-  
-  if (messagesContainer) {
-    // Hide "no messages" text
-    if (noMessagesEl) {
-      noMessagesEl.style.display = "none";
-    }
-    
-    // Check if we need to remove old messages before adding new one
-    const existingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
-    if (existingMessages.length >= 5) {
-      existingMessages[0].classList.add("fade-out");
-      setTimeout(() => {
-        existingMessages[0].remove();
-      }, 300);
-    }
-    
-    // Create message element
-    const messageEl = document.createElement("div");
-    messageEl.className = "guest-dj-message";
-    messageEl.innerHTML = `
-      <div class="guest-dj-message-text">${escapeHtml(message)}</div>
-    `;
-    
-    // Store timeout ID on the element for cleanup
-    messageEl.dataset.timeoutSet = 'true';
-    
-    // Add to container
-    messagesContainer.appendChild(messageEl);
-    
-    // Auto-remove after 30 seconds
-    const autoRemoveTimeout = setTimeout(() => {
-      // Check if element still exists in DOM before removing
-      if (messageEl.parentNode) {
-        messageEl.classList.add("fade-out");
-        setTimeout(() => {
-          if (messageEl.parentNode) {
-            messageEl.remove();
-            
-            // Show "no messages" if container is empty
-            const remainingMessages = messagesContainer.querySelectorAll(".guest-dj-message");
-            if (remainingMessages.length === 0 && noMessagesEl) {
-              noMessagesEl.style.display = "block";
-            }
-          }
-        }, 300);
-      }
-    }, 30000);
-    
-    // Store timeout ID for potential cleanup
-    messageEl.dataset.autoRemoveTimeout = autoRemoveTimeout;
-  }
 }
 
 function setupGuestVolumeControl() {
@@ -2194,48 +2139,11 @@ function handleGuestMessageReceived(message, guestName, guestId, isEmoji) {
     showDjScreen();
   }
   
-  // Add message to DJ screen
-  const messagesContainer = el("djMessagesContainer");
-  const noMessagesEl = el("djNoMessages");
+  // Add to unified feed
+  addToUnifiedFeed('GUEST', guestName, isEmoji ? 'emoji' : 'message', message, isEmoji);
   
-  if (messagesContainer) {
-    // Hide "no messages" text
-    if (noMessagesEl) {
-      noMessagesEl.style.display = "none";
-    }
-    
-    // Create message element
-    const messageEl = document.createElement("div");
-    messageEl.className = isEmoji ? "dj-message dj-message-emoji" : "dj-message";
-    messageEl.innerHTML = `
-      <div class="dj-message-text">${escapeHtml(message)}</div>
-      <div class="dj-message-sender">${escapeHtml(guestName)}</div>
-    `;
-    
-    // Add to container
-    messagesContainer.appendChild(messageEl);
-    
-    // Trigger flash effect
-    triggerDjFlash();
-    
-    // Remove message after 5 seconds
-    setTimeout(() => {
-      if (messageEl.parentNode) {
-        messageEl.classList.add("fade-out");
-        setTimeout(() => {
-          if (messageEl.parentNode) {
-            messageEl.parentNode.removeChild(messageEl);
-            
-            // Show "no messages" if container is empty
-            const remainingMessages = messagesContainer.querySelectorAll(".dj-message");
-            if (remainingMessages.length === 0 && noMessagesEl) {
-              noMessagesEl.style.display = "block";
-            }
-          }
-        }, 300);
-      }
-    }, 5000);
-  }
+  // Trigger flash effect
+  triggerDjFlash();
   
   // Show toast notification
   toast(`${guestName}: ${message}`);
@@ -2272,6 +2180,120 @@ function handleGuestPauseRequest(guestName, guestId) {
     toast(`✓ Paused music for ${guestName}`, "success");
   } else {
     toast(`⚠️ No music playing to pause`, "warning");
+  }
+}
+
+// ============================================================================
+// UNIFIED REACTIONS FEED (Phase 2)
+// ============================================================================
+
+/**
+ * Add an item to the unified feed
+ * @param {string} sender - 'DJ' or 'GUEST'
+ * @param {string} senderName - Display name of sender
+ * @param {string} type - 'emoji', 'message', 'preset', 'broadcast'
+ * @param {string} content - The emoji or message text
+ * @param {boolean} isEmoji - Whether this is an emoji reaction
+ */
+function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false) {
+  const feedItem = {
+    id: Date.now() + Math.random(), // Unique ID
+    timestamp: Date.now(),
+    sender: sender, // 'DJ' or 'GUEST'
+    senderName: senderName,
+    type: type, // 'emoji', 'message', 'preset', 'broadcast'
+    content: content,
+    isEmoji: isEmoji
+  };
+  
+  // Add to beginning (newest first)
+  state.unifiedFeed.unshift(feedItem);
+  
+  // Enforce rolling limit - remove oldest if exceeded
+  if (state.unifiedFeed.length > state.maxFeedItems) {
+    state.unifiedFeed = state.unifiedFeed.slice(0, state.maxFeedItems);
+  }
+  
+  // Update UI
+  renderUnifiedFeed();
+  
+  console.log('[Unified Feed] Added:', feedItem, 'Total items:', state.unifiedFeed.length);
+}
+
+/**
+ * Render the unified feed in both DJ and Guest views
+ */
+function renderUnifiedFeed() {
+  // Render in DJ view
+  const djMessagesContainer = el("djMessagesContainer");
+  const djNoMessages = el("djNoMessages");
+  
+  if (djMessagesContainer) {
+    // Clear existing messages
+    djMessagesContainer.innerHTML = '';
+    
+    if (state.unifiedFeed.length === 0) {
+      // Show "no messages" placeholder
+      if (!djNoMessages) {
+        const noMsgEl = document.createElement("div");
+        noMsgEl.className = "dj-no-messages";
+        noMsgEl.id = "djNoMessages";
+        noMsgEl.textContent = "Waiting for guest reactions...";
+        djMessagesContainer.appendChild(noMsgEl);
+      } else {
+        djNoMessages.style.display = "block";
+        djMessagesContainer.appendChild(djNoMessages);
+      }
+    } else {
+      // Hide "no messages"
+      if (djNoMessages) {
+        djNoMessages.style.display = "none";
+      }
+      
+      // Render feed items (newest first, already ordered)
+      state.unifiedFeed.forEach(item => {
+        const messageEl = document.createElement("div");
+        messageEl.className = item.isEmoji ? "dj-message dj-message-emoji" : "dj-message";
+        messageEl.innerHTML = `
+          <div class="dj-message-text">${escapeHtml(item.content)}</div>
+          <div class="dj-message-sender">${escapeHtml(item.senderName)}</div>
+        `;
+        djMessagesContainer.appendChild(messageEl);
+      });
+    }
+  }
+  
+  // Render in Guest view (if exists)
+  renderGuestUnifiedFeed();
+}
+
+/**
+ * Render unified feed in guest view
+ */
+function renderGuestUnifiedFeed() {
+  const guestFeedContainer = el("guestUnifiedFeedContainer");
+  
+  if (guestFeedContainer) {
+    // Clear existing
+    guestFeedContainer.innerHTML = '';
+    
+    if (state.unifiedFeed.length === 0) {
+      const noMsgEl = document.createElement("div");
+      noMsgEl.className = "guest-no-messages";
+      noMsgEl.textContent = "No reactions yet...";
+      guestFeedContainer.appendChild(noMsgEl);
+    } else {
+      // Render feed items
+      state.unifiedFeed.forEach(item => {
+        const messageEl = document.createElement("div");
+        messageEl.className = item.isEmoji ? "guest-feed-item guest-feed-item-emoji" : "guest-feed-item";
+        messageEl.innerHTML = `
+          <div class="guest-feed-content">${escapeHtml(item.content)}</div>
+          <div class="guest-feed-sender">${escapeHtml(item.senderName)}</div>
+        `;
+        guestFeedContainer.appendChild(messageEl);
+      });
+    }
   }
 }
 
@@ -2431,6 +2453,9 @@ function setupDjPresetMessageButtons() {
           btn.classList.remove("btn-sending");
         }, 300);
         
+        // Add to unified feed
+        addToUnifiedFeed('DJ', 'DJ', 'preset', message, false);
+        
         toast(`Sent to all guests: ${message}`);
       }
     };
@@ -2472,44 +2497,14 @@ function setupDjEmojiReactionButtons() {
         // Show emoji on DJ screen immediately
         createEmojiReactionEffect(emoji);
         
-        // Add to DJ messages container
-        const messagesContainer = el("djMessagesContainer");
-        const noMessagesEl = el("djNoMessages");
+        // Trigger flash effect
+        triggerDjFlash();
         
-        if (messagesContainer) {
-          // Hide "no messages" text
-          if (noMessagesEl) {
-            noMessagesEl.style.display = "none";
-          }
-          
-          // Create message element
-          const messageEl = document.createElement("div");
-          messageEl.className = "dj-message dj-message-emoji";
-          messageEl.innerHTML = `
-            <div class="dj-message-text">${escapeHtml(message)}</div>
-            <div class="dj-message-sender">DJ</div>
-          `;
-          
-          // Add to container
-          messagesContainer.appendChild(messageEl);
-          
-          // Trigger flash effect
-          triggerDjFlash();
-          
-          // Remove message after 5 seconds
-          setTimeout(() => {
-            if (messageEl.parentNode) {
-              messageEl.classList.add("fade-out");
-              setTimeout(() => {
-                if (messageEl.parentNode) {
-                  messageEl.parentNode.removeChild(messageEl);
-                }
-              }, 300);
-            }
-          }, 5000);
-        }
-        
-        // Track the emoji
+        // Add to unified feed
+        addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
+      }
+      
+      // Track the emoji
         trackReaction(emoji);
         
         // Increase crowd energy
