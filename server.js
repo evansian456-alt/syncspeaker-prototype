@@ -2220,7 +2220,9 @@ app.get("/api/party-state", async (req, res) => {
         startAtServerMs: currentTrack.startAtServerMs,
         startPosition: currentTrack.startPosition || currentTrack.startPositionSec,
         startPositionSec: currentTrack.startPositionSec || currentTrack.startPosition,
-        status: currentTrack.status || 'playing'
+        status: currentTrack.status || 'playing',
+        pausedPositionSec: currentTrack.pausedPositionSec,
+        pausedAtServerMs: currentTrack.pausedAtServerMs
       } : null,
       // Queue
       queue: queue,
@@ -4063,8 +4065,33 @@ function handleHostPause(ws, msg) {
   
   console.log(`[Party] Host paused in party ${client.party}`);
   
-  // Broadcast to all guests (not host)
-  const message = JSON.stringify({ t: "PAUSE" });
+  // Compute paused position based on current playback state
+  const pausedAtServerMs = Date.now();
+  let pausedPositionSec = msg.positionSec || 0;
+  
+  // If we have currentTrack with playback state, compute current position
+  if (party.currentTrack && party.currentTrack.startAtServerMs && party.currentTrack.status === 'playing') {
+    const elapsedSec = (pausedAtServerMs - party.currentTrack.startAtServerMs) / 1000;
+    pausedPositionSec = (party.currentTrack.startPositionSec || 0) + elapsedSec;
+  }
+  
+  // Update party state
+  if (party.currentTrack) {
+    party.currentTrack.status = 'paused';
+    party.currentTrack.pausedPositionSec = pausedPositionSec;
+    party.currentTrack.pausedAtServerMs = pausedAtServerMs;
+  }
+  
+  // Persist playback state to Redis (best-effort, async)
+  persistPlaybackToRedis(client.party, party.currentTrack, party.queue || []);
+  
+  // Broadcast to all guests (not host) with pause position
+  const message = JSON.stringify({ 
+    t: "PAUSE",
+    status: "paused",
+    pausedAtServerMs,
+    pausedPositionSec
+  });
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
@@ -4087,13 +4114,21 @@ function handleHostStop(ws, msg) {
   
   console.log(`[Party] Host stopped playback in party ${client.party}`);
   
-  // Reset current track position
+  // Reset current track position and set status to stopped
   if (party.currentTrack) {
     party.currentTrack.startPositionSec = 0;
+    party.currentTrack.status = 'stopped';
+    party.currentTrack.startAtServerMs = Date.now();
   }
   
-  // Broadcast to all guests (not host)
-  const message = JSON.stringify({ t: "STOP" });
+  // Persist playback state to Redis (best-effort, async)
+  persistPlaybackToRedis(client.party, party.currentTrack, party.queue || []);
+  
+  // Broadcast to all guests (not host) with stopped status
+  const message = JSON.stringify({ 
+    t: "STOP",
+    status: "stopped"
+  });
   party.members.forEach(m => {
     if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
