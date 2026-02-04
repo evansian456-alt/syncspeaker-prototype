@@ -108,6 +108,10 @@ const state = {
   // Unified reactions feed (Phase 2)
   unifiedFeed: [], // Array of { id, timestamp, sender, senderName, type, content, isEmoji }
   maxFeedItems: 30, // Maximum items in unified feed (rolling limit)
+  // Party Pass messaging feed (FEED_ITEM system)
+  feedItems: [], // Array of feed items from FEED_ITEM messages
+  maxMessagingFeedItems: 50, // Maximum items in messaging feed
+  feedItemTimeouts: new Map(), // Map<itemId, timeoutId> for TTL removal
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
@@ -490,6 +494,44 @@ function send(obj) {
   state.ws.send(JSON.stringify(obj));
 }
 
+/**
+ * Send DJ quick button message (Party Pass feature)
+ */
+function sendDjQuickButton(key) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.error("[WS] Cannot send - WebSocket not connected");
+    toast("Not connected to server", "error");
+    return;
+  }
+  
+  if (!state.isHost) {
+    toast("Only the DJ can use quick buttons", "error");
+    return;
+  }
+  
+  console.log("[WS] Sending DJ quick button:", key);
+  send({ t: "DJ_QUICK_BUTTON", key: key });
+}
+
+/**
+ * Send guest quick reply (Party Pass feature)
+ */
+function sendGuestQuickReply(key) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.error("[WS] Cannot send - WebSocket not connected");
+    toast("Not connected to server", "error");
+    return;
+  }
+  
+  if (state.isHost) {
+    toast("Guests only", "error");
+    return;
+  }
+  
+  console.log("[WS] Sending guest quick reply:", key);
+  send({ t: "GUEST_QUICK_REPLY", key: key });
+}
+
 function handleServer(msg) {
   // Track last WebSocket message for diagnostics
   if (msg.t) {
@@ -550,6 +592,13 @@ function handleServer(msg) {
     if (!wasPartyPro && state.partyPro) {
       toast("🎉 Pro unlocked for this party!");
     }
+    // Update Party Pass status from server (source of truth)
+    const wasPartyPassActive = state.partyPassActive;
+    state.partyPassActive = !!msg.snapshot.partyPassActive;
+    state.partyPassEndTime = msg.snapshot.partyPassExpiresAt || null;
+    if (!wasPartyPassActive && state.partyPassActive) {
+      toast("✅ Party Pass active!");
+    }
     // Update source from server (host-selected)
     if (msg.snapshot?.source) {
       state.source = msg.snapshot.source;
@@ -580,6 +629,9 @@ function handleServer(msg) {
         }
       });
     }
+    
+    // Update UI based on Party Pass status
+    updatePartyPassUI();
     
     setPlanPill();
     if (state.isHost) {
@@ -793,6 +845,12 @@ function handleServer(msg) {
         msg.isEmoji
       );
     }
+    return;
+  }
+  
+  // New unified messaging feed (Party Pass feature)
+  if (msg.t === "FEED_ITEM") {
+    handleFeedItem(msg.item);
     return;
   }
   
@@ -2604,6 +2662,206 @@ function renderGuestUnifiedFeed() {
       });
       
       guestFeedContainer.appendChild(fragment);
+    }
+  }
+}
+
+/**
+ * Handle FEED_ITEM messages from Party Pass messaging suite
+ * Messages appear inline in the feed, oldest first, and auto-disappear after TTL
+ */
+function handleFeedItem(item) {
+  if (!item || !item.id) {
+    console.warn('[handleFeedItem] Invalid feed item:', item);
+    return;
+  }
+  
+  console.log('[handleFeedItem] Received:', item);
+  
+  // Add to feedItems array (oldest first - push to end)
+  state.feedItems.push(item);
+  
+  // Enforce cap of 50 items
+  if (state.feedItems.length > state.maxMessagingFeedItems) {
+    // Remove oldest items (from beginning)
+    const removed = state.feedItems.shift();
+    // Cancel timeout for removed item if exists
+    if (state.feedItemTimeouts.has(removed.id)) {
+      clearTimeout(state.feedItemTimeouts.get(removed.id));
+      state.feedItemTimeouts.delete(removed.id);
+    }
+  }
+  
+  // Render the feed
+  renderFeedItems();
+  
+  // Set up auto-removal timeout
+  const ttl = item.ttlMs || 12000;
+  const timeoutId = setTimeout(() => {
+    removeFeedItem(item.id);
+  }, ttl);
+  
+  state.feedItemTimeouts.set(item.id, timeoutId);
+}
+
+/**
+ * Remove a feed item by ID
+ */
+function removeFeedItem(itemId) {
+  // Remove from array
+  const index = state.feedItems.findIndex(item => item.id === itemId);
+  if (index !== -1) {
+    state.feedItems.splice(index, 1);
+    console.log('[removeFeedItem] Removed item:', itemId);
+  }
+  
+  // Clear timeout
+  if (state.feedItemTimeouts.has(itemId)) {
+    clearTimeout(state.feedItemTimeouts.get(itemId));
+    state.feedItemTimeouts.delete(itemId);
+  }
+  
+  // Re-render
+  renderFeedItems();
+}
+
+/**
+ * Render feed items in the messaging feed
+ */
+function renderFeedItems() {
+  // For DJ view
+  const djFeedContainer = el("djMessagingFeed");
+  if (djFeedContainer) {
+    djFeedContainer.innerHTML = '';
+    
+    if (state.feedItems.length === 0) {
+      const noMsgEl = document.createElement("div");
+      noMsgEl.className = "messaging-feed-empty";
+      noMsgEl.textContent = "No messages yet...";
+      djFeedContainer.appendChild(noMsgEl);
+    } else {
+      const fragment = document.createDocumentFragment();
+      
+      // Render items in order (oldest first)
+      state.feedItems.forEach(item => {
+        const itemEl = document.createElement("div");
+        itemEl.className = `messaging-feed-item messaging-feed-${item.kind}`;
+        itemEl.dataset.itemId = item.id;
+        
+        // Different styling based on kind
+        let senderLabel = item.name;
+        if (item.kind === 'system_auto') {
+          senderLabel = 'Phone Party';
+        }
+        
+        itemEl.innerHTML = `
+          <span class="messaging-feed-sender">${escapeHtml(senderLabel)}:</span>
+          <span class="messaging-feed-text">${escapeHtml(item.text)}</span>
+        `;
+        
+        fragment.appendChild(itemEl);
+      });
+      
+      djFeedContainer.appendChild(fragment);
+      
+      // Auto-scroll to bottom (newest message)
+      djFeedContainer.scrollTop = djFeedContainer.scrollHeight;
+    }
+  }
+  
+  // For Guest view
+  const guestFeedContainer = el("guestMessagingFeed");
+  if (guestFeedContainer) {
+    guestFeedContainer.innerHTML = '';
+    
+    if (state.feedItems.length === 0) {
+      const noMsgEl = document.createElement("div");
+      noMsgEl.className = "messaging-feed-empty";
+      noMsgEl.textContent = "No messages yet...";
+      guestFeedContainer.appendChild(noMsgEl);
+    } else {
+      const fragment = document.createDocumentFragment();
+      
+      // Render items in order (oldest first)
+      state.feedItems.forEach(item => {
+        const itemEl = document.createElement("div");
+        itemEl.className = `messaging-feed-item messaging-feed-${item.kind}`;
+        itemEl.dataset.itemId = item.id;
+        
+        // Different styling based on kind
+        let senderLabel = item.name;
+        if (item.kind === 'system_auto') {
+          senderLabel = 'Phone Party';
+        }
+        
+        itemEl.innerHTML = `
+          <span class="messaging-feed-sender">${escapeHtml(senderLabel)}:</span>
+          <span class="messaging-feed-text">${escapeHtml(item.text)}</span>
+        `;
+        
+        fragment.appendChild(itemEl);
+      });
+      
+      guestFeedContainer.appendChild(fragment);
+      
+      // Auto-scroll to bottom (newest message)
+      guestFeedContainer.scrollTop = guestFeedContainer.scrollHeight;
+    }
+  }
+}
+
+/**
+ * Update UI based on Party Pass status
+ * Show/hide messaging controls based on active status
+ */
+function updatePartyPassUI() {
+  // Update DJ Quick Buttons visibility
+  const djQuickButtons = el("djQuickButtonsContainer");
+  if (djQuickButtons) {
+    if (state.partyPassActive && state.isHost) {
+      djQuickButtons.classList.remove("hidden");
+    } else {
+      djQuickButtons.classList.add("hidden");
+    }
+  }
+  
+  // Update DJ locked state message
+  const djLockedMsg = el("djMessagingLocked");
+  if (djLockedMsg) {
+    if (!state.partyPassActive && state.isHost) {
+      djLockedMsg.classList.remove("hidden");
+    } else {
+      djLockedMsg.classList.add("hidden");
+    }
+  }
+  
+  // Update Guest Quick Replies visibility
+  const guestQuickReplies = el("guestQuickRepliesContainer");
+  if (guestQuickReplies) {
+    if (state.partyPassActive && !state.isHost) {
+      guestQuickReplies.classList.remove("hidden");
+    } else {
+      guestQuickReplies.classList.add("hidden");
+    }
+  }
+  
+  // Update Guest chat input visibility
+  const guestChatContainer = el("guestChatInputContainer");
+  if (guestChatContainer) {
+    if (state.partyPassActive && !state.isHost) {
+      guestChatContainer.classList.remove("hidden");
+    } else {
+      guestChatContainer.classList.add("hidden");
+    }
+  }
+  
+  // Update Guest locked state message
+  const guestLockedMsg = el("guestMessagingLocked");
+  if (guestLockedMsg) {
+    if (!state.partyPassActive && !state.isHost) {
+      guestLockedMsg.classList.remove("hidden");
+    } else {
+      guestLockedMsg.classList.add("hidden");
     }
   }
 }
