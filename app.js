@@ -4392,10 +4392,10 @@ function attemptAddPhone() {
           });
       } else {
         console.log("[Guest] No audio loaded - requesting host to play");
-        addDebugLog("No audio - sent play request to host");
         // Fallback: send request to host to start music
         if (state.ws && state.connected) {
           send({ t: "GUEST_PLAY_REQUEST" });
+          addDebugLog("No audio - sent play request to host");
           toast("▶️ Requested DJ to play music");
         } else {
           toast("⚠️ No audio loaded yet", "warning");
@@ -4416,10 +4416,10 @@ function attemptAddPhone() {
         updateDebugState();
       } else {
         console.log("[Guest] No audio playing - sending pause request to host");
-        addDebugLog("No audio - sent pause request to host");
         // Fallback: send request to host to pause music
         if (state.ws && state.connected) {
           send({ t: "GUEST_PAUSE_REQUEST" });
+          addDebugLog("No audio - sent pause request to host");
           toast("⏸️ Requested DJ to pause music");
         } else {
           toast("⚠️ No audio playing", "warning");
@@ -4732,66 +4732,91 @@ function attemptAddPhone() {
         // Handle upload completion
         xhr.addEventListener('load', async () => {
           if (xhr.status === 200) {
-            const response = JSON.parse(xhr.responseText);
-            console.log("[Upload] Track uploaded successfully:", response);
-            addDebugLog(`Upload success: ${response.trackId}`);
-            
-            // Hide progress, show ready status
-            if (uploadProgress) uploadProgress.classList.add("hidden");
-            if (uploadStateBadge) {
-              uploadStateBadge.textContent = "Ready";
-              uploadStateBadge.className = "status-badge ready";
-            }
-            
-            // Update music state
-            musicState.currentTrack = {
-              trackId: response.trackId,
-              trackUrl: response.trackUrl,
-              title: response.title || file.name,
-              uploadStatus: 'ready'
-            };
-            
-            updateDebugState();
-            
-            // Broadcast track to party members
-            if (state.code) {
-              try {
-                const broadcastResponse = await fetch("/api/set-party-track", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    partyCode: state.code,
-                    trackId: response.trackId,
-                    trackUrl: response.trackUrl,
-                    filename: response.title || file.name,
-                    sizeBytes: response.sizeBytes,
-                    contentType: response.contentType
-                  })
-                });
-                
-                if (broadcastResponse.ok) {
-                  const broadcastData = await broadcastResponse.json();
-                  console.log("[Upload] Track broadcast to party:", broadcastData);
-                  addDebugLog(`Track broadcast to ${broadcastData.broadcastCount} guests`);
-                  toast(`✅ Track ready for guests: ${file.name}`);
-                } else {
-                  console.error("[Upload] Failed to broadcast track");
+            try {
+              const response = JSON.parse(xhr.responseText);
+              console.log("[Upload] Track uploaded successfully:", response);
+              addDebugLog(`Upload success: ${response.trackId}`);
+              
+              // Hide progress, show ready status
+              if (uploadProgress) uploadProgress.classList.add("hidden");
+              if (uploadStateBadge) {
+                uploadStateBadge.textContent = "Ready";
+                uploadStateBadge.className = "status-badge ready";
+              }
+              
+              // Extract title once to avoid duplication
+              const trackTitle = response.title || file.name;
+              
+              // Update music state
+              musicState.currentTrack = {
+                trackId: response.trackId,
+                trackUrl: response.trackUrl,
+                title: trackTitle,
+                uploadStatus: 'ready'
+              };
+              
+              updateDebugState();
+              
+              // Broadcast track to party members
+              if (state.code) {
+                try {
+                  const broadcastResponse = await fetch("/api/set-party-track", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      partyCode: state.code,
+                      trackId: response.trackId,
+                      trackUrl: response.trackUrl,
+                      filename: trackTitle,
+                      sizeBytes: response.sizeBytes,
+                      contentType: response.contentType
+                    })
+                  });
+                  
+                  if (broadcastResponse.ok) {
+                    const broadcastData = await broadcastResponse.json();
+                    console.log("[Upload] Track broadcast to party:", broadcastData);
+                    addDebugLog(`Track broadcast to ${broadcastData.broadcastCount} guests`);
+                    toast(`✅ Track ready for guests: ${file.name}`);
+                  } else {
+                    const errorText = await broadcastResponse.text();
+                    console.error("[Upload] Failed to broadcast track:", broadcastResponse.status, errorText);
+                    toast("⚠️ Track uploaded but failed to notify guests");
+                  }
+                } catch (err) {
+                  console.error("[Upload] Error broadcasting track:", err);
                   toast("⚠️ Track uploaded but failed to notify guests");
                 }
-              } catch (err) {
-                console.error("[Upload] Error broadcasting track:", err);
-                toast("⚠️ Track uploaded but failed to notify guests");
               }
+            } catch (parseError) {
+              console.error("[Upload] Failed to parse upload response:", parseError, xhr.responseText);
+              addDebugLog(`Upload parse error: ${parseError.message}`);
+              if (uploadProgress) uploadProgress.classList.add("hidden");
+              if (uploadStateBadge) {
+                uploadStateBadge.textContent = "Error";
+                uploadStateBadge.className = "status-badge error";
+              }
+              toast(`❌ Upload failed: Invalid server response`);
             }
           } else {
             console.error("[Upload] Upload failed:", xhr.status, xhr.responseText);
-            addDebugLog(`Upload failed: ${xhr.status}`);
+            addDebugLog(`Upload failed: HTTP ${xhr.status}`);
             if (uploadProgress) uploadProgress.classList.add("hidden");
             if (uploadStateBadge) {
               uploadStateBadge.textContent = "Error";
               uploadStateBadge.className = "status-badge error";
             }
-            toast("❌ Upload failed");
+            // Try to parse error message from response
+            let errorMessage = `Upload failed (HTTP ${xhr.status})`;
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              if (errorData.error) {
+                errorMessage = errorData.error;
+              }
+            } catch (e) {
+              // Use default error message
+            }
+            toast(`❌ ${errorMessage}`);
           }
         });
         
