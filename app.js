@@ -2306,6 +2306,95 @@ function setupDjPresetMessageButtons() {
   });
 }
 
+function setupDjEmojiReactionButtons() {
+  const djEmojiButtons = document.querySelectorAll("#djEmojiReactionsSection .btn-emoji-reaction");
+  
+  djEmojiButtons.forEach(btn => {
+    btn.onclick = () => {
+      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      const now = Date.now();
+      const emojiCooldownMs = 1000;
+      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
+        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+        return;
+      }
+      
+      // Only host can send DJ emojis
+      if (!state.isHost) {
+        toast("Only the DJ can send emojis from this panel", "warning");
+        return;
+      }
+      
+      const emoji = btn.getAttribute("data-emoji");
+      const message = btn.getAttribute("data-message") || emoji;
+      
+      if (message) {
+        state.lastMessageTimestamp = now;
+        
+        // Visual feedback
+        btn.classList.add("btn-sending");
+        setTimeout(() => {
+          btn.classList.remove("btn-sending");
+        }, 300);
+        
+        // Show emoji on DJ screen immediately
+        createEmojiReactionEffect(emoji);
+        
+        // Add to DJ messages container
+        const messagesContainer = el("djMessagesContainer");
+        const noMessagesEl = el("djNoMessages");
+        
+        if (messagesContainer) {
+          // Hide "no messages" text
+          if (noMessagesEl) {
+            noMessagesEl.style.display = "none";
+          }
+          
+          // Create message element
+          const messageEl = document.createElement("div");
+          messageEl.className = "dj-message dj-message-emoji";
+          messageEl.innerHTML = `
+            <div class="dj-message-text">${escapeHtml(message)}</div>
+            <div class="dj-message-sender">DJ</div>
+          `;
+          
+          // Add to container
+          messagesContainer.appendChild(messageEl);
+          
+          // Trigger flash effect
+          triggerDjFlash();
+          
+          // Remove message after 5 seconds
+          setTimeout(() => {
+            if (messageEl.parentNode) {
+              messageEl.classList.add("fade-out");
+              setTimeout(() => {
+                if (messageEl.parentNode) {
+                  messageEl.parentNode.removeChild(messageEl);
+                }
+              }, 300);
+            }
+          }, 5000);
+        }
+        
+        // Track the emoji
+        trackReaction(emoji);
+        
+        // Increase crowd energy
+        increaseCrowdEnergy(5);
+        
+        // Broadcast to guests via WebSocket if connected
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          send({ t: "DJ_EMOJI", emoji: message });
+        }
+        
+        toast(`Sent: ${emoji}`);
+      }
+    };
+  });
+}
+
 function setupChatModeSelector() {
   const chatModeRadios = document.querySelectorAll('input[name="chatMode"]');
   
@@ -4290,6 +4379,9 @@ function attemptAddPhone() {
   
   // Setup DJ preset message buttons
   setupDjPresetMessageButtons();
+  
+  // Setup DJ emoji reaction buttons
+  setupDjEmojiReactionButtons();
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();
