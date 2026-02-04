@@ -2964,6 +2964,9 @@ function escapeHtml(s) {
 }
 
 // Unified Reactions Feed Management
+// Counter for generating unique feed item IDs
+let feedItemIdCounter = 0;
+
 /**
  * Add a reaction or message to the unified feed
  * @param {Object} item - Reaction item
@@ -2975,7 +2978,7 @@ function escapeHtml(s) {
  */
 function addToReactionsFeed(item) {
   const feedItem = {
-    id: Date.now() + Math.random(), // Unique ID for React-like key
+    id: ++feedItemIdCounter, // Unique ID using counter
     type: item.type || 'message',
     message: item.message,
     sender: item.sender || 'Unknown',
@@ -3030,16 +3033,29 @@ function renderReactionsFeed() {
   
   // Update Guest view container (shows same feed)
   const guestContainer = el("guestReactionsFeedContainer");
+  const guestNoReactions = el("guestNoReactions");
+  
   if (guestContainer) {
     // Clear existing content
     guestContainer.innerHTML = '';
     
-    // Render feed items (newest first, limited to 10 for display)
-    const displayItems = state.reactionsFeed.slice(0, 10);
-    displayItems.forEach(item => {
-      const messageEl = createReactionFeedElement(item);
-      guestContainer.appendChild(messageEl);
-    });
+    // Show "no reactions" if feed is empty
+    if (state.reactionsFeed.length === 0) {
+      if (guestNoReactions) {
+        guestNoReactions.style.display = "block";
+      }
+    } else {
+      if (guestNoReactions) {
+        guestNoReactions.style.display = "none";
+      }
+      
+      // Render feed items (newest first, limited to 10 for display)
+      const displayItems = state.reactionsFeed.slice(0, 10);
+      displayItems.forEach(item => {
+        const messageEl = createReactionFeedElement(item);
+        guestContainer.appendChild(messageEl);
+      });
+    }
   }
 }
 
