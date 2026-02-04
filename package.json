@@ -1,6 +1,6 @@
 {
-  "name": "syncspeaker-prototype",
-  "version": "0.1.0",
+  "name": "phone-party",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "node server.js",

@@ -206,38 +206,25 @@
     </section>
 
     <section class="card hidden" id="viewHome">
-      <h1>🎉 PHONE PARTY</h1>
+      <h1>Play music together</h1>
       <p class="muted">
-        Connect your phones and turn up the volume!
+        Prototype to test the idea + flow. Audio sync in browsers varies by device — focus on usability and “would you use this?”.
       </p>
 
-      <!-- Animated DJ Booth Visual -->
-      <div class="dj-booth-visual">
-        <div class="dj-light dj-light-1"></div>
-        <div class="dj-light dj-light-2"></div>
-        <div class="dj-light dj-light-3"></div>
+      <!-- Mini Equalizer -->
+      <div class="home-equalizer">
+        <div class="home-eq-bar"></div>
+        <div class="home-eq-bar"></div>
+        <div class="home-eq-bar"></div>
+        <div class="home-eq-bar"></div>
+        <div class="home-eq-bar"></div>
       </div>
 
-      <!-- Two Giant Neon Buttons -->
-      <div class="start-join-buttons">
-        <button class="btn-giant btn-create-party" id="btnShowCreateParty">
-          <span class="btn-giant-icon">🎧</span>
-          <span class="btn-giant-text">CREATE PARTY</span>
-          <span class="btn-giant-subtitle">Be the DJ</span>
-        </button>
-        <button class="btn-giant btn-join-party" id="btnShowJoinParty">
-          <span class="btn-giant-icon">🎵</span>
-          <span class="btn-giant-text">JOIN PARTY</span>
-          <span class="btn-giant-subtitle">Join the vibe</span>
-        </button>
-      </div>
-
-      <!-- Expandable Create Party Section -->
-      <div class="party-form-section hidden" id="createPartySection">
-        <h2>🎧 Start Your Party</h2>
+      <div class="grid2">
         <div class="box">
+          <h3>Start a party (Host)</h3>
           <label class="lbl">Your DJ name (required)</label>
-          <input id="hostName" class="input" placeholder="DJ CoolVibes" required />
+          <input id="hostName" class="input" placeholder="Enter your name (e.g., Alex)" required />
           
           <!-- Music from Phone Section -->
           <div class="music-section">
@@ -266,7 +253,7 @@
             </div>
             
             <div class="tiny muted music-helper">
-              Pick any audio file from your phone (MP3, WAV, M4A, etc).
+              Pick any audio file from your phone (MP3, WAV, M4A, etc). We don't provide music.
             </div>
             <div class="music-warning hidden" id="musicWarning"></div>
           </div>
@@ -276,25 +263,24 @@
             <div class="status-message" id="createStatusMessage">Waiting...</div>
             <div class="debug-info tiny muted" id="createDebugInfo"></div>
           </div>
+          <div class="tiny muted">
+            Users are responsible for music source. This app does not provide music.
+          </div>
         </div>
-        <button class="btn secondary" id="btnHideCreateParty" style="margin-top: 1rem;">← Back</button>
-      </div>
 
-      <!-- Expandable Join Party Section -->
-      <div class="party-form-section hidden" id="joinPartySection">
-        <h2>🎵 Join a Party</h2>
         <div class="box">
+          <h3>Join a party (Friend)</h3>
           <label class="lbl">Party code</label>
           <input id="joinCode" class="input" placeholder="ABC123" />
           <label class="lbl">Your nickname (optional)</label>
-          <input id="guestName" class="input" placeholder="Leave blank for 'Guest 2'" />
-          <button class="btn primary" id="btnJoin">🎵 Join the vibe</button>
+          <input id="guestName" class="input" placeholder="Optional - Leave blank for 'Guest 2'" />
+          <button class="btn" id="btnJoin">🎵 Join the vibe</button>
           <div class="party-status hidden" id="joinStatus">
             <div class="status-message" id="joinStatusMessage">Waiting...</div>
             <div class="debug-info tiny muted" id="joinDebugInfo"></div>
           </div>
+          <div class="tiny muted">Tip: open this on another phone on the same Wi‑Fi.</div>
         </div>
-        <button class="btn secondary" id="btnHideJoinParty" style="margin-top: 1rem;">← Back</button>
       </div>
 
       <div class="line"></div>
@@ -302,11 +288,11 @@
       <div class="row">
         <label class="check">
           <input type="checkbox" id="togglePro" />
-          <span><b>Pro Test Mode</b> (unlock all features)</span>
+          <span><b>Support mode (Pro)</b> (party-wide unlock)</span>
         </label>
+        <span class="tiny muted">Testing mode: simulates Pro subscription.</span>
       </div>
     </section>
-
 
     <section class="card hidden" id="viewParty">
       <div class="row space">
