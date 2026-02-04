@@ -691,6 +691,16 @@ function handleServer(msg) {
   if (msg.t === "GUEST_MESSAGE") {
     if (state.isHost) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
+    } else {
+      // Guests also receive GUEST_MESSAGE when DJ sends emoji/messages
+      // Add to unified feed
+      addToUnifiedFeed(
+        msg.guestName === 'DJ' ? 'DJ' : 'GUEST',
+        msg.guestName,
+        msg.isEmoji ? 'emoji' : 'message',
+        msg.message,
+        msg.isEmoji
+      );
     }
     return;
   }
@@ -2502,9 +2512,8 @@ function setupDjEmojiReactionButtons() {
         
         // Add to unified feed
         addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
-      }
       
-      // Track the emoji
+        // Track the emoji
         trackReaction(emoji);
         
         // Increase crowd energy
