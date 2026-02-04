@@ -2800,11 +2800,16 @@ function handleMessage(ws, msg) {
     case "HOST_BROADCAST_MESSAGE":
       handleHostBroadcastMessage(ws, msg);
       break;
+<<<<<<< HEAD
     case "CROWD_HYPE":
       handleCrowdHype(ws, msg);
       break;
     case "DJ_SHORT_MESSAGE":
       handleDjShortMessage(ws, msg);
+=======
+    case "DJ_EMOJI":
+      handleDjEmoji(ws, msg);
+>>>>>>> origin/main
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -3546,7 +3551,11 @@ function handleGuestMessage(ws, msg) {
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
+<<<<<<< HEAD
   // Send to host only
+=======
+  // Broadcast to all party members (including other guests)
+>>>>>>> origin/main
   const message = JSON.stringify({ 
     t: "GUEST_MESSAGE", 
     message: messageText,
@@ -3555,9 +3564,17 @@ function handleGuestMessage(ws, msg) {
     isEmoji: isEmoji
   });
   
+<<<<<<< HEAD
   if (party.host && party.host.readyState === WebSocket.OPEN) {
     party.host.send(message);
   }
+=======
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+>>>>>>> origin/main
 }
 
 function handleGuestPlayRequest(ws, msg) {
@@ -3678,14 +3695,19 @@ function handleHostBroadcastMessage(ws, msg) {
   });
 }
 
+<<<<<<< HEAD
 // Handle Crowd Hype from DJ
 function handleCrowdHype(ws, msg) {
+=======
+function handleDjEmoji(ws, msg) {
+>>>>>>> origin/main
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
   const party = parties.get(client.party);
   if (!party) return;
   
+<<<<<<< HEAD
   // Only host can trigger crowd hype
   if (party.host !== ws) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can trigger crowd hype" }));
@@ -3699,11 +3721,26 @@ function handleCrowdHype(ws, msg) {
   
   // Award DJ points for engagement
   party.scoreState.dj.sessionScore += 10; // 10 points for crowd hype
+=======
+  // Only host can send DJ emojis
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send emojis" }));
+    return;
+  }
+  
+  const emoji = (msg.emoji || "").trim().substring(0, 10);
+  
+  console.log(`[Party] DJ sending emoji "${emoji}" in party ${client.party}`);
+  
+  // Award DJ points for engagement
+  party.scoreState.dj.sessionScore += 5; // 5 points for DJ emoji interaction
+>>>>>>> origin/main
   party.scoreState.totalReactions += 1;
   
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
+<<<<<<< HEAD
   // Broadcast to all members (including DJ to update their unified feed)
   const broadcastMsg = JSON.stringify({ 
     t: "CROWD_HYPE",
@@ -3756,6 +3793,20 @@ function handleDjShortMessage(ws, msg) {
   
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
+=======
+  // Broadcast to all members (guests only, not back to host)
+  const broadcastMsg = JSON.stringify({ 
+    t: "GUEST_MESSAGE",
+    message: emoji,
+    guestName: "DJ",
+    guestId: "dj",
+    isEmoji: true
+  });
+  
+  party.members.forEach(m => {
+    // Send to guests only (not to host)
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+>>>>>>> origin/main
       m.ws.send(broadcastMsg);
     }
   });

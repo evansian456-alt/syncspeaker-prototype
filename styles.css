@@ -2680,6 +2680,7 @@ h2,h3{margin:0; font-weight:800}
 }
 
 /* DJ Emoji Reactions Section */
+<<<<<<< HEAD
 /* Crowd Hype Section */
 .dj-crowd-hype-section {
   margin: 30px 0;
@@ -2690,11 +2691,23 @@ h2,h3{margin:0; font-weight:800}
 }
 
 .dj-crowd-hype-header {
+=======
+.dj-emoji-reactions-section {
+  margin: 30px 0;
+  padding: 20px;
+  background: rgba(18,24,35,0.6);
+  border: 2px solid rgba(100,221,23,0.3);
+  border-radius: var(--radius-lg);
+}
+
+.dj-emoji-reactions-header {
+>>>>>>> origin/main
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 18px;
   font-weight: 700;
+<<<<<<< HEAD
   color: #ff00ff;
   margin-bottom: 15px;
   padding-bottom: 10px;
@@ -2702,6 +2715,15 @@ h2,h3{margin:0; font-weight:800}
 }
 
 .dj-crowd-hype-buttons {
+=======
+  color: #64dd17;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(100,221,23,0.2);
+}
+
+.dj-emoji-reactions {
+>>>>>>> origin/main
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
@@ -2709,12 +2731,18 @@ h2,h3{margin:0; font-weight:800}
 }
 
 @media (max-width: 640px) {
+<<<<<<< HEAD
   .dj-crowd-hype-buttons {
     grid-template-columns: repeat(2, 1fr);
+=======
+  .dj-emoji-reactions {
+    grid-template-columns: repeat(4, 1fr);
+>>>>>>> origin/main
     gap: 8px;
   }
 }
 
+<<<<<<< HEAD
 .btn-crowd-hype {
   padding: 12px 8px;
   background: linear-gradient(135deg, rgba(255,0,255,0.2), rgba(0,255,255,0.2));
@@ -2845,6 +2873,8 @@ h2,h3{margin:0; font-weight:800}
   }
 }
 
+=======
+>>>>>>> origin/main
 /* Guest DJ Messages Display */
 .guest-dj-messages {
   margin-bottom: 20px;
@@ -3247,6 +3277,7 @@ h2,h3{margin:0; font-weight:800}
   text-shadow: 0 0 15px rgba(90,169,255,0.5);
 }
 
+<<<<<<< HEAD
 /* Flash Overlay */
 .dj-flash-overlay {
   position: fixed;
@@ -3255,6 +3286,18 @@ h2,h3{margin:0; font-weight:800}
   right: 0;
   bottom: 0;
   background: radial-gradient(circle, rgba(90,169,255,0.3) 0%, transparent 70%);
+=======
+/* Flash Overlay - Made less intrusive, smaller and centered */
+.dj-flash-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(90,169,255,0.4) 0%, transparent 70%);
+>>>>>>> origin/main
   pointer-events: none;
   opacity: 0;
   z-index: 10000;
@@ -3463,7 +3506,11 @@ h2,h3{margin:0; font-weight:800}
 /* Emoji reaction animation on host DJ screen */
 .emoji-reaction-float {
   position: absolute;
+<<<<<<< HEAD
   font-size: 48px;
+=======
+  font-size: 32px; /* Reduced from 48px */
+>>>>>>> origin/main
   animation: floatUp 2s ease-out forwards;
   pointer-events: none;
   z-index: 1000;

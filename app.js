@@ -735,6 +735,7 @@ function handleServer(msg) {
     return;
   }
   
+<<<<<<< HEAD
   // Crowd Hype from DJ
   if (msg.t === "CROWD_HYPE") {
     // Show hype effect on all screens (including DJ)
@@ -766,6 +767,8 @@ function handleServer(msg) {
     return;
   }
   
+=======
+>>>>>>> origin/main
   // DJ broadcast messages to guests
   if (msg.t === "HOST_BROADCAST_MESSAGE") {
     if (!state.isHost) {
@@ -2513,6 +2516,7 @@ function triggerDjFlash() {
   }
 }
 
+<<<<<<< HEAD
 function triggerGuestFlash() {
   // Create a brief flash effect for guests
   const flashOverlay = document.createElement('div');
@@ -2533,6 +2537,8 @@ function triggerGuestFlash() {
   }, 300);
 }
 
+=======
+>>>>>>> origin/main
 function setupGuestMessageButtons() {
   const messageButtons = document.querySelectorAll(".btn-guest-message");
   
@@ -2664,6 +2670,7 @@ function setupDjPresetMessageButtons() {
   });
 }
 
+<<<<<<< HEAD
 function setupCrowdHypeButtons() {
   const hypeButtons = document.querySelectorAll(".btn-crowd-hype");
   
@@ -2688,6 +2695,32 @@ function setupCrowdHypeButtons() {
       const message = btn.getAttribute("data-message");
       
       if (hypeType && message) {
+=======
+function setupDjEmojiReactionButtons() {
+  const djEmojiButtons = document.querySelectorAll("#djEmojiReactionsSection .btn-emoji-reaction");
+  
+  djEmojiButtons.forEach(btn => {
+    btn.onclick = () => {
+      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      const now = Date.now();
+      const emojiCooldownMs = 1000;
+      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
+        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+        return;
+      }
+      
+      // Only host can send DJ emojis
+      if (!state.isHost) {
+        toast("Only the DJ can send emojis from this panel", "warning");
+        return;
+      }
+      
+      const emoji = btn.getAttribute("data-emoji");
+      const message = btn.getAttribute("data-message") || emoji;
+      
+      if (message) {
+>>>>>>> origin/main
         state.lastMessageTimestamp = now;
         
         // Visual feedback
@@ -2696,13 +2729,19 @@ function setupCrowdHypeButtons() {
           btn.classList.remove("btn-sending");
         }, 300);
         
+<<<<<<< HEAD
         // Show hype effect on DJ screen immediately
         createHypeEffect(message);
+=======
+        // Show emoji on DJ screen immediately
+        createEmojiReactionEffect(emoji);
+>>>>>>> origin/main
         
         // Trigger flash effect
         triggerDjFlash();
         
         // Add to unified feed
+<<<<<<< HEAD
         addToUnifiedFeed('DJ', 'DJ 🎧', 'hype', message, false);
       
         // Increase crowd energy
@@ -2714,11 +2753,28 @@ function setupCrowdHypeButtons() {
         }
         
         toast(`Crowd Hype: ${message}`);
+=======
+        addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
+      
+        // Track the emoji
+        trackReaction(emoji);
+        
+        // NOTE: Crowd energy is ONLY driven by guest reactions, not DJ
+        // Do not call increaseCrowdEnergy() here
+        
+        // Broadcast to guests via WebSocket if connected
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          send({ t: "DJ_EMOJI", emoji: message });
+        }
+        
+        toast(`Sent: ${emoji}`);
+>>>>>>> origin/main
       }
     };
   });
 }
 
+<<<<<<< HEAD
 function setupDjShortMessage() {
   const input = el("djShortMessageInput");
   const btnSend = el("btnSendDjMessage");
@@ -2821,6 +2877,8 @@ function createHypeEffect(message) {
   }, 1000);
 }
 
+=======
+>>>>>>> origin/main
 function setupChatModeSelector() {
   const chatModeRadios = document.querySelectorAll('input[name="chatMode"]');
   
@@ -5169,11 +5227,16 @@ function attemptAddPhone() {
   // Setup DJ preset message buttons
   setupDjPresetMessageButtons();
   
+<<<<<<< HEAD
   // Setup Crowd Hype buttons
   setupCrowdHypeButtons();
   
   // Setup DJ Short Message composer
   setupDjShortMessage();
+=======
+  // Setup DJ emoji reaction buttons
+  setupDjEmojiReactionButtons();
+>>>>>>> origin/main
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();
