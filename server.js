@@ -27,10 +27,15 @@ const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
 
 // Party capacity limits
 const FREE_PARTY_LIMIT = 2; // Free parties limited to 2 phones
+const FREE_DEFAULT_MAX_PHONES = 2; // Alias for clarity in new code
 const MAX_PRO_PARTY_DEVICES = 100; // Practical limit for Pro parties
 
 // Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
 const TEST_MODE = process.env.TEST_MODE === 'true' || process.env.NODE_ENV !== 'production';
+
+// Feature flags for phased rollout
+const ENABLE_PUBSUB = process.env.ENABLE_PUBSUB !== 'false'; // Default ON
+const ENABLE_REACTION_HISTORY = process.env.ENABLE_REACTION_HISTORY !== 'false'; // Default ON
 
 // Helper function to classify Redis error types
 function getRedisErrorType(errorMessage) {
@@ -56,6 +61,23 @@ function sanitizeRedisUrl(redisUrl) {
   } catch (err) {
     // If URL parsing fails, fall back to simple regex
     return redisUrl.replace(/:[^:@]+@/, ':***@');
+  }
+}
+
+// Helper function to normalize party codes (trim and uppercase)
+function normalizePartyCode(code) {
+  if (!code || typeof code !== 'string') return '';
+  return code.trim().toUpperCase();
+}
+
+// Helper function to safely parse JSON with fallback
+function safeJsonParse(str, fallback = null) {
+  if (!str) return fallback;
+  try {
+    return JSON.parse(str);
+  } catch (err) {
+    console.warn('[safeJsonParse] Failed to parse JSON:', err.message);
+    return fallback;
   }
 }
 
@@ -217,6 +239,81 @@ if (redis) {
   console.warn("⚠️  Redis client not created — using fallback mode");
   console.warn(`   → Parties stored in memory only (single-instance mode)`);
   useFallbackMode = true;
+}
+
+// Redis Pub/Sub for multi-instance support (Phase 8)
+let redisPub = null;
+let redisSub = null;
+const PUBSUB_CHANNEL = "party:broadcast";
+
+if (ENABLE_PUBSUB && redisConfig) {
+  try {
+    // Create separate connections for pub and sub
+    if (typeof redisConfig === 'object' && usesTls) {
+      redisPub = new Redis(process.env.REDIS_URL, redisConfig);
+      redisSub = new Redis(process.env.REDIS_URL, redisConfig);
+    } else {
+      redisPub = new Redis(redisConfig);
+      redisSub = new Redis(redisConfig);
+    }
+    
+    console.log(`[PubSub] Publisher and subscriber clients created (instance: ${INSTANCE_ID})`);
+    
+    // Subscribe to broadcast channel
+    redisSub.subscribe(PUBSUB_CHANNEL, (err, count) => {
+      if (err) {
+        console.error(`[PubSub] Failed to subscribe to ${PUBSUB_CHANNEL}:`, err.message);
+      } else {
+        console.log(`[PubSub] Subscribed to ${PUBSUB_CHANNEL} (${count} active subscriptions)`);
+      }
+    });
+    
+    // Handle incoming messages from other instances
+    redisSub.on('message', (channel, message) => {
+      if (channel !== PUBSUB_CHANNEL) return;
+      
+      try {
+        const data = safeJsonParse(message);
+        if (!data || !data.code || !data.kind || !data.payload) {
+          console.warn(`[PubSub] Invalid message format from ${channel}`);
+          return;
+        }
+        
+        // Don't forward messages from this instance
+        if (data.instanceId === INSTANCE_ID) return;
+        
+        const { code, kind, payload } = data;
+        const party = parties.get(code);
+        
+        if (!party) {
+          // Party doesn't exist locally - that's OK, means no local clients
+          return;
+        }
+        
+        console.log(`[PubSub] Received ${kind} for party ${code} from instance ${data.instanceId}`);
+        
+        // Forward to all local members of this party
+        const messageStr = JSON.stringify(payload);
+        party.members.forEach(m => {
+          if (m.ws.readyState === WebSocket.OPEN) {
+            m.ws.send(messageStr);
+          }
+        });
+      } catch (err) {
+        console.error(`[PubSub] Error handling message:`, err.message);
+      }
+    });
+    
+    redisSub.on('error', (err) => {
+      console.error(`[PubSub] Subscriber error:`, err.message);
+    });
+    
+    redisPub.on('error', (err) => {
+      console.error(`[PubSub] Publisher error:`, err.message);
+    });
+  } catch (err) {
+    console.error(`[PubSub] Failed to create pub/sub clients:`, err.message);
+  }
 }
 
 // Parse JSON bodies
@@ -1349,12 +1446,65 @@ function deletePartyFromFallback(code) {
   return fallbackPartyStorage.delete(code);
 }
 
+// Helper function to persist reaction history to Redis (best-effort)
+async function persistReactionHistoryToRedis(code, reactionHistory) {
+  if (!ENABLE_REACTION_HISTORY || !redis || !redisReady) return;
+  
+  try {
+    const partyData = await getPartyFromRedis(code);
+    if (partyData) {
+      partyData.reactionHistory = reactionHistory;
+      await setPartyInRedis(code, partyData);
+    }
+  } catch (err) {
+    // Best-effort - don't throw, just log
+    console.warn(`[ReactionHistory] Failed to persist to Redis for ${code}:`, err.message);
+  }
+}
+
+// Helper function to persist playback state to Redis (best-effort)
+async function persistPlaybackToRedis(code, currentTrack, queue) {
+  if (!redis || !redisReady) return;
+  
+  try {
+    const partyData = await getPartyFromRedis(code);
+    if (partyData) {
+      partyData.currentTrack = currentTrack;
+      partyData.queue = queue ? queue.slice(0, 5) : []; // Keep only first 5 queue items
+      await setPartyInRedis(code, partyData);
+    }
+  } catch (err) {
+    // Best-effort - don't throw, just log
+    console.warn(`[Playback] Failed to persist to Redis for ${code}:`, err.message);
+  }
+}
+
+// Helper function to publish events to other instances (Phase 8)
+async function publishToOtherInstances(code, kind, payload) {
+  if (!ENABLE_PUBSUB || !redisPub) return;
+  
+  try {
+    const message = JSON.stringify({
+      code,
+      kind,
+      payload,
+      instanceId: INSTANCE_ID,
+      ts: Date.now()
+    });
+    await redisPub.publish(PUBSUB_CHANNEL, message);
+  } catch (err) {
+    // Best-effort - don't throw, just log
+    console.warn(`[PubSub] Failed to publish ${kind} for ${code}:`, err.message);
+  }
+}
+
 // Helper function to normalize party data - ensures all required fields exist
 // This prevents issues when parties are created via different paths or when Redis data is incomplete
 function normalizePartyData(partyData) {
   if (!partyData) return null;
   
   return {
+    partyCode: partyData.partyCode || partyData.code,
     djName: partyData.djName || "Host",
     source: partyData.source || "local",
     partyPro: partyData.partyPro || false,
@@ -1369,7 +1519,11 @@ function normalizePartyData(partyData) {
     expiresAt: partyData.expiresAt || (Date.now() + PARTY_TTL_MS),
     // Optional fields from purchases
     partyPassExpiresAt: partyData.partyPassExpiresAt || null,
-    maxPhones: partyData.maxPhones || null
+    maxPhones: partyData.maxPhones || null,
+    // Reaction and playback history for late joiners
+    reactionHistory: partyData.reactionHistory || [],
+    currentTrack: partyData.currentTrack || null,
+    queue: partyData.queue || []
   };
 }
 
@@ -1418,6 +1572,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
   
   // Create full party data with all required fields
   const partyData = {
+    partyCode: code,
     djName: djName.trim().substring(0, 50),
     source: source || "local",
     partyPro: false,
@@ -1432,7 +1587,11 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     expiresAt: createdAt + PARTY_TTL_MS,
     // Optional fields (set by purchases later)
     partyPassExpiresAt: null,
-    maxPhones: null
+    maxPhones: null,
+    // History fields for late joiners
+    reactionHistory: [],
+    currentTrack: null,
+    queue: []
   };
   
   // Write to Redis first (CRITICAL for multi-instance consistency)
@@ -1553,7 +1712,7 @@ app.post("/api/join-party", async (req, res) => {
     }
     
     // Normalize party code: trim and uppercase
-    const code = partyCode.trim().toUpperCase();
+    const code = normalizePartyCode(partyCode);
     
     // Validate party code length
     if (code.length !== 6) {
@@ -1562,10 +1721,9 @@ app.post("/api/join-party", async (req, res) => {
     }
     
     // Generate guest ID and use provided nickname or generate default
-    // Use separate counter for HTTP guests to avoid collision with WS client IDs
-    const guestNumber = nextHttpGuestSeq;
-    const guestId = `guest-${nextHttpGuestSeq}`;
-    nextHttpGuestSeq++;
+    // Use nanoid for HTTP guests to avoid collision with WS client IDs
+    const guestId = `guest_${nanoid(10)}`;
+    const guestNumber = nextHttpGuestSeq++;
     const guestNickname = nickname || `Guest ${guestNumber}`;
     
     console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
@@ -3333,6 +3491,16 @@ async function handleJoin(ws, msg) {
       }));
     }
     
+    // Send playback state to newly joined client (Phase 7)
+    if (party.currentTrack || (party.queue && party.queue.length > 0)) {
+      safeSend(ws, JSON.stringify({ 
+        t: "PLAYBACK_STATE",
+        currentTrack: party.currentTrack,
+        queue: party.queue || [],
+        serverTime: Date.now()
+      }));
+    }
+    
     broadcastRoomState(code);
     
     // Send welcome DJ message for first guest
@@ -3477,17 +3645,23 @@ function handleApplyPromo(ws, msg) {
   console.log(`[Promo] Party ${client.party} unlocked with promo code ${code}, clientId: ${client.id}`);
   
   // CRITICAL: Persist to Redis so promo state survives refresh and works cross-instance
-  getPartyFromRedis(client.party).then(partyData => {
-    if (partyData) {
-      partyData.promoUsed = true;
-      partyData.partyPro = true;
-      setPartyInRedis(client.party, partyData).catch(err => {
-        console.error(`[Promo] Error persisting promo to Redis for ${client.party}:`, err.message);
-      });
+  // Use async IIFE to properly handle promises
+  (async () => {
+    try {
+      const partyData = await getPartyFromRedis(client.party);
+      if (partyData) {
+        const normalizedData = normalizePartyData(partyData);
+        normalizedData.promoUsed = true;
+        normalizedData.partyPro = true;
+        await setPartyInRedis(client.party, normalizedData);
+        console.log(`[Promo] Successfully persisted promo state to Redis for ${client.party}`);
+      } else {
+        console.warn(`[Promo] Party ${client.party} not found in Redis during promo persist`);
+      }
+    } catch (err) {
+      console.error(`[Promo] Error persisting promo to Redis for ${client.party}:`, err.message);
     }
-  }).catch(err => {
-    console.error(`[Promo] Error fetching party for promo update:`, err.message);
-  });
+  })();
   
   // Broadcast updated room state to all members
   broadcastRoomState(client.party);
@@ -3572,11 +3746,15 @@ function broadcastRoomState(code) {
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
   
+  // Broadcast to local members
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
     }
   });
+  
+  // Publish to other instances (Phase 8)
+  publishToOtherInstances(code, "ROOM", { t: "ROOM", snapshot });
 }
 
 function broadcastScoreboard(code) {
@@ -3615,12 +3793,15 @@ function broadcastScoreboard(code) {
     scoreboard: scoreboardData
   });
   
-  // Broadcast to all party members
+  // Broadcast to local party members
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
     }
   });
+  
+  // Publish to other instances (Phase 8)
+  publishToOtherInstances(code, "SCOREBOARD", { t: "SCOREBOARD_UPDATE", scoreboard: scoreboardData });
 }
 
 function handleHostPlay(ws, msg) {
@@ -3650,10 +3831,14 @@ function handleHostPlay(ws, msg) {
     trackUrl,
     filename,
     startAtServerMs: serverTimestamp,
-    startPositionSec: startPosition
+    startPositionSec: startPosition,
+    status: 'playing'
   };
   
   console.log(`[Party] Track info: ${filename}, trackId: ${trackId}, position: ${startPosition}s`);
+  
+  // Persist playback state to Redis (best-effort, async)
+  persistPlaybackToRedis(client.party, party.currentTrack, party.queue || []);
   
   // Broadcast to all guests (not host) with track info
   const message = JSON.stringify({ 
@@ -3818,8 +4003,12 @@ function handleHostTrackChanged(ws, msg) {
     trackUrl,
     filename,
     startAtServerMs: serverTimestamp,
-    startPositionSec: positionSec
+    startPositionSec: positionSec,
+    status: 'playing'
   };
+  
+  // Persist playback state to Redis (best-effort, async)
+  persistPlaybackToRedis(client.party, party.currentTrack, party.queue || []);
   
   // Broadcast to all guests (not host)
   const message = JSON.stringify({ 
@@ -3905,6 +4094,9 @@ function handleGuestMessage(ws, msg) {
   if (party.reactionHistory.length > 30) {
     party.reactionHistory = party.reactionHistory.slice(-30);
   }
+  
+  // Persist reaction history to Redis (best-effort, async)
+  persistReactionHistoryToRedis(client.party, party.reactionHistory);
   
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
@@ -4092,6 +4284,9 @@ function handleDjEmoji(ws, msg) {
   if (party.reactionHistory.length > 30) {
     party.reactionHistory = party.reactionHistory.slice(-30);
   }
+  
+  // Persist reaction history to Redis (best-effort, async)
+  persistReactionHistoryToRedis(client.party, party.reactionHistory);
   
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
