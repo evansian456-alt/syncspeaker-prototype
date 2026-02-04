@@ -1,6 +1,7 @@
 const FREE_LIMIT = 2;
 const PARTY_PASS_LIMIT = 4;
 const PRO_LIMIT = 12;
+const PARTY_CODE_LENGTH = 6; // Length of party code
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
@@ -499,6 +500,7 @@ function handleServer(msg) {
     return;
   }
   if (msg.t === "ROOM") {
+    const previousSnapshot = state.snapshot;
     state.snapshot = msg.snapshot;
     // Update chat mode from snapshot
     if (msg.snapshot?.chatMode) {
@@ -516,6 +518,33 @@ function handleServer(msg) {
     if (msg.snapshot?.source) {
       state.source = msg.snapshot.source;
     }
+    
+    // Presence feedback: detect member joins/leaves
+    if (previousSnapshot && msg.snapshot?.members) {
+      const previousMembers = previousSnapshot.members || [];
+      const currentMembers = msg.snapshot.members || [];
+      
+      // Detect new members (joined)
+      const newMembers = currentMembers.filter(m => 
+        !previousMembers.some(pm => pm.id === m.id)
+      );
+      newMembers.forEach(m => {
+        if (m.id !== state.clientId) { // Don't show notification for self
+          toast(`${m.name} joined`);
+        }
+      });
+      
+      // Detect removed members (left)
+      const leftMembers = previousMembers.filter(pm => 
+        !currentMembers.some(m => m.id === pm.id)
+      );
+      leftMembers.forEach(m => {
+        if (m.id !== state.clientId) { // Don't show notification for self
+          toast(`${m.name} left`);
+        }
+      });
+    }
+    
     setPlanPill();
     if (state.isHost) {
       renderRoom();

@@ -22,6 +22,12 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
+// Promo codes for party-wide Pro unlock (moved to top for visibility)
+const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+
+// Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
+const TEST_MODE = process.env.TEST_MODE === 'true' || process.env.NODE_ENV !== 'production';
+
 // Helper function to classify Redis error types
 function getRedisErrorType(errorMessage) {
   if (!errorMessage) return 'unknown';
@@ -2072,8 +2078,7 @@ app.post("/api/apply-promo", async (req, res) => {
       return res.status(400).json({ error: "This party already used a promo code." });
     }
     
-    // Validate promo code
-    const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+    // Validate promo code (using constant from top of file)
     if (!PROMO_CODES.includes(promo)) {
       console.log(`[Promo] Invalid promo code attempt: ${promo}, partyCode: ${code}`);
       return res.status(400).json({ error: "Invalid or expired promo code." });
@@ -2809,18 +2814,18 @@ async function startServer() {
 
   wss.on("connection", (ws) => {
     const clientId = nextClientId++;
-    clients.set(ws, { id: clientId, party: null, isAlive: true });
+    clients.set(ws, { id: clientId, party: null });
     
     console.log(`[WS] Client ${clientId} connected`);
     
+    // Set up heartbeat for this connection
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+    
     // Send welcome message
     safeSend(ws, JSON.stringify({ t: "WELCOME", clientId }));
-    
-    // Heartbeat - mark client as alive when pong received
-    ws.on("pong", () => {
-      const client = clients.get(ws);
-      if (client) client.isAlive = true;
-    });
     
     ws.on("message", (data) => {
       try {
@@ -2846,21 +2851,18 @@ async function startServer() {
   // WebSocket heartbeat interval - ping clients every 30 seconds
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
-      const client = clients.get(ws);
-      if (!client) return;
-      
-      // If client didn't respond to last ping, terminate
-      if (client.isAlive === false) {
-        console.log(`[WS] Client ${client.id} failed heartbeat, terminating`);
-        handleDisconnect(ws);
+      if (ws.isAlive === false) {
+        const client = clients.get(ws);
+        if (client) {
+          console.log(`[WS] Terminating dead connection for client ${client.id}`);
+        }
         return ws.terminate();
       }
       
-      // Mark as not alive and send ping
-      client.isAlive = false;
+      ws.isAlive = false;
       ws.ping();
     });
-  }, 30000); // 30 seconds
+  }, 30000); // Ping every 30 seconds
   
   // Cleanup heartbeat interval on server close
   wss.on("close", () => {
@@ -3307,9 +3309,6 @@ function handleSetPro(ws, msg) {
     broadcastRoomState(client.party);
   }
 }
-
-// Promo codes from README/app.js
-const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
 
 function handleApplyPromo(ws, msg) {
   const client = clients.get(ws);
