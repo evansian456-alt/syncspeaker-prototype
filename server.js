@@ -22,7 +22,7 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
-// Promo codes for party-wide Pro unlock
+// Promo codes for party-wide Pro unlock (moved to top for visibility)
 const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
 
 // Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
@@ -1319,14 +1319,18 @@ app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
-  // Extract DJ name from request body
-  const { djName } = req.body;
+  // Extract DJ name and source from request body
+  const { djName, source } = req.body;
   
   // Validate DJ name is provided
   if (!djName || !djName.trim()) {
     console.log("[HTTP] Party creation rejected: DJ name is required");
     return res.status(400).json({ error: "DJ name is required to create a party" });
   }
+  
+  // Validate and set source (default to "local" if not provided or invalid)
+  const validSources = ["local", "external", "mic"];
+  const partySource = validSources.includes(source) ? source : "local";
   
   // Determine storage backend: prefer Redis, fallback to local storage if Redis unavailable
   const useRedis = redis && redisReady;
@@ -1381,6 +1385,9 @@ app.post("/api/create-party", async (req, res) => {
     // Create party data for storage (only serializable data)
     const partyData = {
       djName: djName.trim(), // Store DJ name in party state
+      source: partySource, // Host-selected source (local/external/mic)
+      partyPro: false, // Party-wide Pro status (set via promo code only)
+      promoUsed: false, // Whether a promo code has been used
       chatMode: "OPEN",
       createdAt,
       hostId,
@@ -1420,10 +1427,7 @@ app.post("/api/create-party", async (req, res) => {
       createdAt,
       hostId,
       queue: [], // Track queue (max 5)
-      currentTrack: null, // Current playing track
-      partyPro: false, // Party-wide Pro status from promo code
-      promoUsed: false, // Whether a promo code was used
-      source: "local" // Audio source: local/external/mic
+      currentTrack: null // Current playing track
     });
     
     const totalParties = parties.size;
@@ -1707,7 +1711,9 @@ app.get("/api/party", async (req, res) => {
       guestCount: partyData.guestCount || 0,
       guests: partyData.guests || [],
       chatMode: partyData.chatMode || "OPEN",
-      createdAt: partyData.createdAt
+      createdAt: partyData.createdAt,
+      partyPro: !!partyData.partyPro, // Party-wide Pro status
+      source: partyData.source || "local" // Host-selected source
     });
     
   } catch (error) {
@@ -2012,6 +2018,108 @@ app.post("/api/end-party", async (req, res) => {
     console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);
     res.status(500).json({ 
       error: "Failed to end party",
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/apply-promo - Apply promo code to unlock party-wide Pro
+app.post("/api/apply-promo", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/apply-promo at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  
+  try {
+    const { partyCode, promoCode } = req.body;
+    
+    if (!partyCode || !promoCode) {
+      return res.status(400).json({ error: "Party code and promo code are required" });
+    }
+    
+    // Normalize codes
+    const code = partyCode.trim().toUpperCase();
+    const promo = promoCode.trim().toUpperCase();
+    
+    // Validate party code length
+    if (code.length !== 6) {
+      return res.status(400).json({ error: "Party code must be 6 characters" });
+    }
+    
+    // Determine storage backend
+    const useRedis = redis && redisReady;
+    
+    // In production mode, Redis is required
+    if (IS_PRODUCTION && !useRedis) {
+      return res.status(503).json({ 
+        error: "Server not ready - Redis unavailable",
+        details: "Multi-device features require Redis"
+      });
+    }
+    
+    // Get party data
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[HTTP] Redis error, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      return res.status(404).json({ error: "Party not found" });
+    }
+    
+    // Check if promo already used
+    if (partyData.promoUsed) {
+      console.log(`[Promo] Attempt to reuse promo in party ${code}`);
+      return res.status(400).json({ error: "This party already used a promo code." });
+    }
+    
+    // Validate promo code (using constant from top of file)
+    if (!PROMO_CODES.includes(promo)) {
+      console.log(`[Promo] Invalid promo code attempt: ${promo}, partyCode: ${code}`);
+      return res.status(400).json({ error: "Invalid or expired promo code." });
+    }
+    
+    // Valid and unused - unlock party-wide Pro
+    partyData.promoUsed = true;
+    partyData.partyPro = true;
+    console.log(`[Promo] Party ${code} unlocked with promo code ${promo} via HTTP`);
+    
+    // Save updated party data
+    if (useRedis) {
+      try {
+        await setPartyInRedis(code, partyData);
+      } catch (error) {
+        console.warn(`[HTTP] Redis write failed for ${code}, using fallback: ${error.message}`);
+        setPartyInFallback(code, partyData);
+      }
+    } else {
+      setPartyInFallback(code, partyData);
+    }
+    
+    // Also update WebSocket party if it exists
+    const wsParty = parties.get(code);
+    if (wsParty) {
+      wsParty.promoUsed = true;
+      wsParty.partyPro = true;
+      // Broadcast to all WebSocket members
+      broadcastRoomState(code);
+    }
+    
+    res.json({ 
+      ok: true, 
+      partyPro: true,
+      message: "Pro unlocked for this party!"
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error applying promo, instanceId: ${INSTANCE_ID}:`, error);
+    res.status(500).json({ 
+      error: "Failed to apply promo code",
       details: error.message 
     });
   }
@@ -2740,7 +2848,7 @@ async function startServer() {
     });
   });
   
-  // Heartbeat interval to detect dead connections
+  // WebSocket heartbeat interval - ping clients every 30 seconds
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) {
@@ -2756,7 +2864,8 @@ async function startServer() {
     });
   }, 30000); // Ping every 30 seconds
   
-  wss.on('close', () => {
+  // Cleanup heartbeat interval on server close
+  wss.on("close", () => {
     clearInterval(heartbeatInterval);
   });
   
@@ -2802,6 +2911,9 @@ function handleMessage(ws, msg) {
     case "SET_PRO":
       handleSetPro(ws, msg);
       break;
+    case "APPLY_PROMO":
+      handleApplyPromo(ws, msg);
+      break;
     case "HOST_PLAY":
       handleHostPlay(ws, msg);
       break;
@@ -2837,9 +2949,6 @@ function handleMessage(ws, msg) {
       break;
     case "DJ_EMOJI":
       handleDjEmoji(ws, msg);
-      break;
-    case "APPLY_PROMO":
-      handleApplyPromo(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -2930,7 +3039,7 @@ async function handleCreate(ws, msg) {
   // Validate and sanitize name
   const name = (msg.name || "Host").trim().substring(0, 50);
   
-  // Extract and validate source selection
+  // Capture and validate source from host
   const source = msg.source === "external" || msg.source === "mic" ? msg.source : "local";
   
   const member = {
@@ -2958,15 +3067,6 @@ async function handleCreate(ws, msg) {
   // This ensures party is persisted before guests try to join
   try {
     await setPartyInRedis(code, partyData);
-    // Structured logging for testing analytics
-    console.log(JSON.stringify({
-      event: "party_created",
-      code,
-      source,
-      clientId: client.id,
-      timestamp,
-      instanceId: INSTANCE_ID
-    }));
     console.log(`[WS] Party created: ${code}, clientId: ${client.id}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${createdAt}, storageBackend: redis, totalParties: ${parties.size + 1}`);
   } catch (err) {
     console.error(`[WS] Error writing party to Redis: ${code}, instanceId: ${INSTANCE_ID}:`, err.message);
@@ -2984,13 +3084,13 @@ async function handleCreate(ws, msg) {
     chatMode: "OPEN",
     createdAt,
     hostId,
+    source, // Host-selected source (local/external/mic)
+    partyPro: false, // Party-wide Pro status (set via promo code only)
+    promoUsed: false, // Whether a promo code has been used
     djMessages: [], // Array of DJ auto-generated messages
     currentTrack: null, // Current playing track info
     queue: [], // Track queue (max 5)
     timeoutWarningTimer: null, // Timer for timeout warning
-    partyPro: false, // Party-wide Pro status from promo code
-    promoUsed: false, // Whether a promo code was used
-    source, // Audio source: local/external/mic
     // Scoreboard state (resets each party)
     scoreState: {
       dj: {
@@ -3032,20 +3132,6 @@ async function handleJoin(ws, msg) {
   const code = msg.code?.toUpperCase().trim();
   const timestamp = new Date().toISOString();
   
-  // Validate code format first (fail fast before any database queries)
-  if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
-    console.log(JSON.stringify({
-      event: "join_attempt",
-      success: false,
-      reason: "invalid_code_format",
-      code,
-      clientId: client.id,
-      timestamp
-    }));
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid party code format" }));
-    return;
-  }
-  
   console.log(`[WS] Attempting to join party: ${code}, clientId: ${client.id}, timestamp: ${timestamp}`);
   
   // First check Redis for party existence
@@ -3064,10 +3150,7 @@ async function handleJoin(ws, msg) {
       members: [],
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
-      hostId: partyData.hostId,
-      partyPro: false, // Will be synced if promo was used
-      promoUsed: false,
-      source: "local"
+      hostId: partyData.hostId
     });
     party = parties.get(code);
   }
@@ -3078,15 +3161,6 @@ async function handleJoin(ws, msg) {
     const localPartyExists = parties.has(code);
     const rejectionReason = `Party ${code} not found. Checked Redis (${storeReadResult}) and local memory (${localPartyExists}). Total local parties: ${totalParties}`;
     console.log(`[WS] Join failed - party ${code} not found, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: false, rejectionReason: ${rejectionReason}, storeReadResult: ${storeReadResult}, localParties: ${totalParties}, storageBackend: redis`);
-    // Structured logging for testing analytics
-    console.log(JSON.stringify({
-      event: "join_attempt",
-      success: false,
-      reason: "party_not_found",
-      code,
-      clientId: client.id,
-      timestamp
-    }));
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
     return;
   }
@@ -3102,18 +3176,10 @@ async function handleJoin(ws, msg) {
     return;
   }
   
-  // SERVER-ENFORCED FREE LIMIT: Check party size before adding
-  const currentGuestCount = party.members.filter(m => !m.isHost).length;
-  if (!party.partyPro && currentGuestCount >= 2) {
-    console.log(JSON.stringify({
-      event: "join_attempt",
-      success: false,
-      reason: "party_full",
-      code,
-      clientId: client.id,
-      currentGuestCount,
-      timestamp
-    }));
+  // Enforce Free limit (2 phones) server-side
+  // Only check if party is not Pro (partyPro === false)
+  if (!party.partyPro && party.members.length >= 2) {
+    console.log(`[WS] Join blocked - Free party limit reached (2 phones), partyCode: ${code}, clientId: ${client.id}`);
     safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Free parties are limited to 2 phones" 
@@ -3121,18 +3187,8 @@ async function handleJoin(ws, msg) {
     return;
   }
   
-  // Validate and sanitize name (limit length and prevent duplicates)
-  let name = (msg.name || "Guest").trim().substring(0, 50);
-  
-  // Prevent identical names by auto-numbering
-  const existingNames = party.members.map(m => m.name);
-  if (existingNames.includes(name)) {
-    let counter = 2;
-    while (existingNames.includes(`${name} ${counter}`)) {
-      counter++;
-    }
-    name = `${name} ${counter}`;
-  }
+  // Validate and sanitize name
+  const name = (msg.name || "Guest").trim().substring(0, 50);
   
   const member = {
     ws,
@@ -3160,15 +3216,6 @@ async function handleJoin(ws, msg) {
     console.error(`[WS] Error fetching party for guest count update:`, err.message);
   });
   
-  // Structured logging for testing analytics
-  console.log(JSON.stringify({
-    event: "join_attempt",
-    success: true,
-    code,
-    clientId: client.id,
-    guestCount,
-    timestamp
-  }));
   console.log(`[WS] Client ${client.id} joined party ${code}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, exists: true, storeReadResult: ${storeReadResult}, guestCount: ${guestCount}, totalParties: ${totalParties}, storageBackend: redis`);
   
   safeSend(ws, JSON.stringify({ t: "JOINED", code }));
@@ -3256,34 +3303,35 @@ function handleSetPro(ws, msg) {
   
   const member = party.members.find(m => m.ws === ws);
   if (member) {
-    // Only mark this member as a supporter, NOT unlock party-wide Pro
-    // Only APPLY_PROMO can set partyPro = true
     member.isPro = !!msg.isPro;
-    console.log(`[Party] Client ${client.id} set Pro supporter status to ${member.isPro}`);
+    console.log(`[Party] Client ${client.id} set Pro to ${member.isPro}`);
+    // Note: SET_PRO only affects member's badge, NOT party-wide Pro status
     broadcastRoomState(client.party);
   }
 }
 
 function handleApplyPromo(ws, msg) {
   const client = clients.get(ws);
-  if (!client || !client.party) return;
+  if (!client || !client.party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Not in a party" 
+    }));
+    return;
+  }
   
   const party = parties.get(client.party);
-  if (!party) return;
-  
-  const code = msg.code?.trim().toUpperCase();
-  const timestamp = new Date().toISOString();
-  
-  // Check if promo already used
-  if (party.promoUsed) {
-    console.log(JSON.stringify({
-      event: "promo_attempt",
-      success: false,
-      reason: "already_used",
-      partyCode: client.party,
-      clientId: client.id,
-      timestamp
+  if (!party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Party not found" 
     }));
+    return;
+  }
+  
+  // Check if promo code already used
+  if (party.promoUsed) {
+    console.log(`[Promo] Attempt to reuse promo in party ${client.party}, clientId: ${client.id}`);
     safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "This party already used a promo code." 
@@ -3291,17 +3339,10 @@ function handleApplyPromo(ws, msg) {
     return;
   }
   
-  // Validate promo code
+  // Validate promo code (case-insensitive, trim spaces)
+  const code = (msg.code || "").trim().toUpperCase();
   if (!PROMO_CODES.includes(code)) {
-    console.log(JSON.stringify({
-      event: "promo_attempt",
-      success: false,
-      reason: "invalid_code",
-      partyCode: client.party,
-      clientId: client.id,
-      promoCodeAttempt: code,
-      timestamp
-    }));
+    console.log(`[Promo] Invalid promo code attempt: ${code}, partyCode: ${client.party}, clientId: ${client.id}`);
     safeSend(ws, JSON.stringify({ 
       t: "ERROR", 
       message: "Invalid or expired promo code." 
@@ -3309,21 +3350,12 @@ function handleApplyPromo(ws, msg) {
     return;
   }
   
-  // Apply promo code
-  party.partyPro = true;
+  // Valid and unused - unlock party-wide Pro
   party.promoUsed = true;
+  party.partyPro = true;
+  console.log(`[Promo] Party ${client.party} unlocked with promo code ${code}, clientId: ${client.id}`);
   
-  console.log(JSON.stringify({
-    event: "promo_attempt",
-    success: true,
-    partyCode: client.party,
-    clientId: client.id,
-    promoCode: code,
-    timestamp
-  }));
-  console.log(`[Party] Promo code applied to party ${client.party}, unlocked by client ${client.id}`);
-  
-  // Broadcast updated party state with partyPro = true
+  // Broadcast updated room state to all members
   broadcastRoomState(client.party);
 }
 
@@ -3338,17 +3370,6 @@ function handleDisconnect(ws) {
   
   if (member?.isHost) {
     // Host left, end the party
-    const timestamp = new Date().toISOString();
-    
-    // Structured logging for testing analytics
-    console.log(JSON.stringify({
-      event: "party_ended",
-      reason: "host_left",
-      code: client.party,
-      duration: Date.now() - (party.createdAt || Date.now()),
-      guestCount: party.members.filter(m => !m.isHost).length,
-      timestamp
-    }));
     console.log(`[Party] Host left, ending party ${client.party}, instanceId: ${INSTANCE_ID}`);
     
     // Persist scoreboard to database
@@ -3412,7 +3433,7 @@ function broadcastRoomState(code) {
     })),
     chatMode: party.chatMode || "OPEN",
     partyPro: !!party.partyPro, // Party-wide Pro status
-    source: party.source || "local" // Audio source
+    source: party.source || "local" // Host-selected source
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });

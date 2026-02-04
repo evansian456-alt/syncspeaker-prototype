@@ -474,6 +474,8 @@ function handleServer(msg) {
     showParty(); 
     toast(`Party created: ${msg.code}`); 
     updateDebugState();
+    // Save to localStorage for rejoin
+    localStorage.setItem('lastPartyCode', msg.code);
     return;
   }
   if (msg.t === "JOINED") {
@@ -485,6 +487,13 @@ function handleServer(msg) {
     toast(`Joined party ${msg.code}`); 
     updateDebugState();
     
+    // Save to localStorage for rejoin
+    localStorage.setItem('lastPartyCode', msg.code);
+    const guestNameInput = document.getElementById('guestName');
+    if (guestNameInput?.value) {
+      localStorage.setItem('lastGuestName', guestNameInput.value.trim());
+    }
+    
     // Check if host is already playing (mid-track join)
     checkForMidTrackJoin(msg.code);
     
@@ -493,19 +502,19 @@ function handleServer(msg) {
   if (msg.t === "ROOM") {
     const previousSnapshot = state.snapshot;
     state.snapshot = msg.snapshot;
-    
     // Update chat mode from snapshot
     if (msg.snapshot?.chatMode) {
       state.chatMode = msg.snapshot.chatMode;
       updateChatModeUI();
     }
-    
-    // Update party-wide Pro status from snapshot (server-authoritative)
-    if (msg.snapshot?.partyPro !== undefined) {
-      state.partyPro = msg.snapshot.partyPro;
+    // Party-wide Pro is now server-authoritative
+    const wasPartyPro = state.partyPro;
+    state.partyPro = !!msg.snapshot.partyPro;
+    // Show success message when party becomes Pro
+    if (!wasPartyPro && state.partyPro) {
+      toast("🎉 Pro unlocked for this party!");
     }
-    
-    // Update source from snapshot (synchronized across all clients)
+    // Update source from server (host-selected)
     if (msg.snapshot?.source) {
       state.source = msg.snapshot.source;
     }
@@ -1205,15 +1214,7 @@ function startPartyStatusPolling() {
           if (newGuestCount === 0) {
             guestCountEl.textContent = "Waiting for guests...";
           } else {
-            let text = `${newGuestCount} guest${newGuestCount !== 1 ? 's' : ''} joined`;
-            
-            // Add slot indicator for free parties
-            if (!state.partyPro && !state.partyPassActive) {
-              const slotsUsed = Math.min(newGuestCount, 2);
-              text += ` (${slotsUsed} of 2 free slots used)`;
-            }
-            
-            guestCountEl.textContent = text;
+            guestCountEl.textContent = `${newGuestCount} guest${newGuestCount !== 1 ? 's' : ''} joined`;
           }
         }
         
@@ -3915,15 +3916,7 @@ function renderRoom() {
   updatePartyPassUI();
 }
 
-function openPaywall() { 
-  // Log paywall event for testing analytics
-  console.log(JSON.stringify({
-    event: "paywall_shown",
-    reason: "free_limit_reached",
-    timestamp: new Date().toISOString()
-  }));
-  show("modalPaywall"); 
-}
+function openPaywall() { show("modalPaywall"); }
 function closePaywall(){ hide("modalPaywall"); }
 function openWarn(rec, next) {
   el("warnText").textContent =
@@ -4235,8 +4228,15 @@ function attemptAddPhone() {
         throw new Error("DJ name is required to start a party");
       }
       
+      // Validate name length (cap at 24 characters before adding DJ prefix)
+      let validatedName = hostNameInput;
+      if (validatedName.length > 24) {
+        validatedName = validatedName.substring(0, 24);
+        toast("Name shortened to 24 characters");
+      }
+      
       // Add "DJ" prefix to host name
-      const djName = `DJ ${hostNameInput}`;
+      const djName = `DJ ${validatedName}`;
       state.name = djName;
       console.log("[DJ Identity] Host name with DJ prefix:", djName);
       
@@ -4258,7 +4258,8 @@ function attemptAddPhone() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          djName: djName
+          djName: djName,
+          source: state.source || "local"
         }),
         signal: controller.signal
       });
@@ -4339,6 +4340,22 @@ function attemptAddPhone() {
     if (!code) {
       toast("Enter a party code");
       return;
+    }
+    
+    // Validate code format (6 alphanumeric characters)
+    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
+      toast("Party code must be 6 characters");
+      return;
+    }
+    
+    // Validate and sanitize guest name
+    const guestNameInput = el("guestName");
+    if (guestNameInput && guestNameInput.value) {
+      const trimmedName = guestNameInput.value.trim();
+      if (trimmedName.length > 24) {
+        guestNameInput.value = trimmedName.substring(0, 24);
+        toast("Name shortened to 24 characters");
+      }
     }
     
     // Prevent multiple clicks
@@ -4526,11 +4543,6 @@ function attemptAddPhone() {
           joinedAt: Date.now()
         };
         localStorage.setItem('syncSpeakerGuestSession', JSON.stringify(guestSession));
-        
-        // Also save last name and code for rejoin memory
-        localStorage.setItem('syncSpeaker_lastName', state.name);
-        localStorage.setItem('syncSpeaker_lastCode', code);
-        
         console.log("[Guest] Session saved for auto-reconnect:", guestSession);
       } catch (error) {
         console.warn("[Guest] Failed to save session to localStorage:", error);
@@ -4809,47 +4821,38 @@ function attemptAddPhone() {
       toast("⚠️ Prototype mode - code won't work for joining from other devices");
       return;
     }
-    try { await navigator.clipboard.writeText(state.code || ""); toast("Copied code"); }
-    catch { toast("Copy failed (permission)"); }
-  };
-
-  // Share button handler with Web Share API
-  el("btnShare").onclick = async () => {
-    if (state.offlineMode) {
-      toast("⚠️ Prototype mode - code won't work for joining from other devices");
-      return;
-    }
     
-    const shareUrl = `${window.location.origin}/?code=${state.code}`;
-    const shareData = {
-      title: 'Join my SyncSpeaker party',
-      text: `Join my party with code: ${state.code}`,
-      url: shareUrl
-    };
+    // Create shareable join link
+    const baseUrl = window.location.origin + window.location.pathname;
+    const joinLink = `${baseUrl}?code=${state.code || ""}`;
     
-    // Try Web Share API first (works on mobile)
+    // Try to use native share API if available (mobile devices)
     if (navigator.share) {
       try {
-        await navigator.share(shareData);
-        console.log('[Share] Shared successfully');
+        await navigator.share({
+          title: 'Join SyncSpeaker Party',
+          text: `Join my SyncSpeaker party! Code: ${state.code}`,
+          url: joinLink
+        });
+        toast("Shared successfully!");
+        return;
       } catch (err) {
-        // User cancelled or error occurred
+        // User cancelled or share failed, fall back to clipboard
         if (err.name !== 'AbortError') {
-          console.error('[Share] Error sharing:', err);
-          // Fallback to copying link
-          try {
-            await navigator.clipboard.writeText(shareUrl);
-            toast("Link copied to clipboard");
-          } catch {
-            toast("Share failed");
-          }
+          console.log('Share failed, falling back to clipboard:', err);
         }
       }
-    } else {
-      // Fallback: copy link to clipboard
+    }
+    
+    // Fallback to clipboard
+    try { 
+      await navigator.clipboard.writeText(joinLink); 
+      toast("Join link copied!");
+    } catch { 
+      // Final fallback - just copy the code
       try {
-        await navigator.clipboard.writeText(shareUrl);
-        toast("Link copied to clipboard");
+        await navigator.clipboard.writeText(state.code || "");
+        toast("Party code copied");
       } catch {
         toast("Copy failed (permission)");
       }
@@ -5992,87 +5995,6 @@ function updateBoostsUI() {
 // INITIALIZE ALL FEATURES
 // ========================================
 
-// Handle URL parameters for shareable join links
-function handleURLParameters() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const codeParam = urlParams.get('code');
-  
-  if (codeParam) {
-    const joinCodeInput = document.getElementById('joinCode');
-    if (joinCodeInput) {
-      joinCodeInput.value = codeParam.toUpperCase();
-      console.log(`[Join] Auto-filled code from URL: ${codeParam}`);
-    }
-  }
-}
-
-// Setup join flow enhancements (autofocus, enable button after correct length)
-function setupJoinFlowEnhancements() {
-  const joinCodeInput = document.getElementById('joinCode');
-  const joinButton = document.getElementById('btnJoin');
-  const nameInput = document.getElementById('nameInput');
-  
-  // Autofocus join input on page load
-  if (joinCodeInput) {
-    joinCodeInput.focus();
-    
-    // Enable join button only after PARTY_CODE_LENGTH characters are typed
-    if (joinButton) {
-      joinCodeInput.addEventListener('input', () => {
-        const code = joinCodeInput.value.trim();
-        joinButton.disabled = code.length !== PARTY_CODE_LENGTH;
-      });
-      
-      // Also check on page load in case URL parameter was used
-      const code = joinCodeInput.value.trim();
-      joinButton.disabled = code.length !== PARTY_CODE_LENGTH;
-    }
-  }
-  
-  // Load last used name from localStorage
-  if (nameInput) {
-    const savedName = localStorage.getItem('syncSpeaker_lastName');
-    if (savedName) {
-      nameInput.value = savedName;
-    }
-  }
-  
-  // Load last joined code and offer rejoin option
-  const savedCode = localStorage.getItem('syncSpeaker_lastCode');
-  if (savedCode && joinCodeInput && !joinCodeInput.value) {
-    // Validate saved code format to prevent XSS
-    if (/^[A-Z0-9]{6}$/.test(savedCode)) {
-      // Show rejoin hint
-      const rejoinHint = document.createElement('div');
-      rejoinHint.className = 'tiny muted';
-      rejoinHint.style.marginTop = '8px';
-      
-      // Create text safely without innerHTML
-      rejoinHint.textContent = 'Last party: ';
-      
-      const rejoinLink = document.createElement('a');
-      rejoinLink.href = '#';
-      rejoinLink.style.color = 'var(--accent)';
-      rejoinLink.textContent = savedCode; // Safe: textContent, not innerHTML
-      rejoinLink.onclick = (e) => {
-        e.preventDefault();
-        joinCodeInput.value = savedCode;
-        joinCodeInput.dispatchEvent(new Event('input')); // Trigger validation
-        rejoinHint.remove();
-      };
-      
-      rejoinHint.appendChild(rejoinLink);
-      rejoinHint.appendChild(document.createTextNode(' (click to rejoin)'));
-      
-      // Insert hint after join input
-      const joinSection = joinCodeInput.parentElement;
-      if (joinSection) {
-        joinSection.appendChild(rejoinHint);
-      }
-    }
-  }
-}
-
 function initializeAllFeatures() {
   // TEMPORARY: Skip auth initialization (no-auth mode)
   console.log('[Features] Auth initialization SKIPPED (temporary no-auth mode)');
@@ -6103,12 +6025,6 @@ function initializeAllFeatures() {
   initBoostAddons();
   
   console.log("[Features] All features initialized");
-  
-  // Handle URL parameters for shareable join links (e.g., ?code=ABC123)
-  handleURLParameters();
-  
-  // Autofocus join input on page load
-  setupJoinFlowEnhancements();
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();
@@ -6959,18 +6875,60 @@ function showToast(message) {
   }, 3000);
 }
 
+// ---- URL Query Parameter & Rejoin Memory Handling ----
+// Support shareable join links with ?code=ABC123
+// and restore last session from localStorage
+function handleUrlParamsAndRejoin() {
+  // Check for ?code= query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const codeFromUrl = urlParams.get('code');
+  
+  // Try to restore last session from localStorage
+  const lastCode = localStorage.getItem('lastPartyCode');
+  const lastGuest = localStorage.getItem('lastGuestName');
+  
+  const joinCodeInput = document.getElementById('joinCode');
+  const guestNameInput = document.getElementById('guestName');
+  
+  if (codeFromUrl) {
+    // URL parameter takes priority
+    // Validate code format (6 alphanumeric characters)
+    const normalizedCode = codeFromUrl.trim().toUpperCase();
+    if (normalizedCode.length === 6 && /^[A-Z0-9]{6}$/.test(normalizedCode)) {
+      if (joinCodeInput) {
+        joinCodeInput.value = normalizedCode;
+        // Auto-focus the name input if code is provided
+        if (guestNameInput) {
+          guestNameInput.focus();
+        }
+      }
+    } else {
+      console.warn('[URL Param] Invalid party code format in URL:', codeFromUrl);
+    }
+  } else if (lastCode) {
+    // Restore from localStorage if no URL param
+    if (joinCodeInput && !joinCodeInput.value) {
+      joinCodeInput.value = lastCode;
+    }
+    if (guestNameInput && lastGuest && !guestNameInput.value) {
+      guestNameInput.value = lastGuest;
+    }
+  }
+}
+
 // Call initialization when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeAllFeatures);
+  document.addEventListener("DOMContentLoaded", () => {
+    initializeAllFeatures();
+    handleUrlParamsAndRejoin();
+  });
 } else {
   initializeAllFeatures();
+  handleUrlParamsAndRejoin();
 }
 
 
-// ---- Promo Code Logic (Prototype) ----
-const PROMO_CODES = ["SS-PARTY-A9K2","SS-PARTY-QM7L","SS-PARTY-Z8P3"];
-let promoUsed = false;
-
+// ---- Promo Code Logic (Server-Authoritative) ----
 const promoBtn = document.getElementById("promoBtn");
 const promoModal = document.getElementById("promoModal");
 const promoApply = document.getElementById("promoApply");
@@ -6981,16 +6939,54 @@ if (promoBtn) {
   promoBtn.onclick = () => promoModal.classList.remove("hidden");
   promoClose.onclick = () => promoModal.classList.add("hidden");
 
-  promoApply.onclick = () => {
+  promoApply.onclick = async () => {
     const code = promoInput.value.trim().toUpperCase();
+    if (!code) {
+      toast("Please enter a promo code");
+      return;
+    }
     
-    // Send promo code to server for validation and application
+    // Check if we have a party code
+    if (!state.code) {
+      toast("You must be in a party to use a promo code");
+      return;
+    }
+    
+    // Try WebSocket first (if connected), fallback to HTTP
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-      state.ws.send(JSON.stringify({ t: "APPLY_PROMO", code }));
+      // Send to server via WebSocket for validation
+      send({ t: "APPLY_PROMO", code });
       promoModal.classList.add("hidden");
       promoInput.value = ""; // Clear input
     } else {
-      alert("Not connected to server. Please try again.");
+      // Use HTTP endpoint when WebSocket not available
+      try {
+        const response = await fetch("/api/apply-promo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            partyCode: state.code,
+            promoCode: code
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          toast(data.error || "Failed to apply promo code");
+        } else {
+          // Success - update state and UI
+          state.partyPro = true;
+          setPlanPill();
+          toast("🎉 Pro unlocked for this party!");
+        }
+      } catch (error) {
+        console.error("[Promo] HTTP error:", error);
+        toast("Failed to apply promo code");
+      }
+      
+      promoModal.classList.add("hidden");
+      promoInput.value = ""; // Clear input
     }
   };
 }
