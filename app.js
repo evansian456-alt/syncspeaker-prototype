@@ -735,6 +735,36 @@ function handleServer(msg) {
     return;
   }
   
+  // Crowd Hype from DJ
+  if (msg.t === "CROWD_HYPE") {
+    if (!state.isHost) {
+      // Show hype effect on guest screens
+      createHypeEffect(msg.message);
+      // Add to unified feed
+      addToUnifiedFeed('DJ', 'DJ 🎧', 'hype', msg.message, false);
+      // Increase crowd energy
+      increaseCrowdEnergy(10);
+      // Flash effect
+      triggerGuestFlash();
+    }
+    return;
+  }
+  
+  // DJ Short Message to crowd
+  if (msg.t === "DJ_SHORT_MESSAGE") {
+    if (!state.isHost) {
+      // Add to unified feed
+      addToUnifiedFeed('DJ', 'DJ 🎧', 'message', msg.message, false);
+      // Increase crowd energy
+      increaseCrowdEnergy(8);
+      // Flash effect
+      triggerGuestFlash();
+      // Show toast
+      toast(`DJ 🎧: ${msg.message}`);
+    }
+    return;
+  }
+  
   // DJ broadcast messages to guests
   if (msg.t === "HOST_BROADCAST_MESSAGE") {
     if (!state.isHost) {
@@ -2482,6 +2512,26 @@ function triggerDjFlash() {
   }
 }
 
+function triggerGuestFlash() {
+  // Create a brief flash effect for guests
+  const flashOverlay = document.createElement('div');
+  flashOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.2);
+    pointer-events: none;
+    z-index: 9997;
+    animation: flashFade 0.3s ease-out;
+  `;
+  document.body.appendChild(flashOverlay);
+  setTimeout(() => {
+    flashOverlay.remove();
+  }, 300);
+}
+
 function setupGuestMessageButtons() {
   const messageButtons = document.querySelectorAll(".btn-guest-message");
   
@@ -2613,30 +2663,30 @@ function setupDjPresetMessageButtons() {
   });
 }
 
-function setupDjEmojiReactionButtons() {
-  const djEmojiButtons = document.querySelectorAll("#djEmojiReactionsSection .btn-emoji-reaction");
+function setupCrowdHypeButtons() {
+  const hypeButtons = document.querySelectorAll(".btn-crowd-hype");
   
-  djEmojiButtons.forEach(btn => {
+  hypeButtons.forEach(btn => {
     btn.onclick = () => {
-      // Check spam cooldown (shorter cooldown for emojis - 1 second)
+      // Check spam cooldown
       const now = Date.now();
-      const emojiCooldownMs = 1000;
-      if (now - state.lastMessageTimestamp < emojiCooldownMs) {
-        const remainingMs = emojiCooldownMs - (now - state.lastMessageTimestamp);
-        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another reaction`, "warning");
+      const hypeCooldownMs = 2000; // 2 second cooldown for hype effects
+      if (now - state.lastMessageTimestamp < hypeCooldownMs) {
+        const remainingMs = hypeCooldownMs - (now - state.lastMessageTimestamp);
+        toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before triggering another hype effect`, "warning");
         return;
       }
       
-      // Only host can send DJ emojis
+      // Only host can trigger crowd hype
       if (!state.isHost) {
-        toast("Only the DJ can send emojis from this panel", "warning");
+        toast("Only the DJ can trigger crowd hype", "warning");
         return;
       }
       
-      const emoji = btn.getAttribute("data-emoji");
-      const message = btn.getAttribute("data-message") || emoji;
+      const hypeType = btn.getAttribute("data-hype");
+      const message = btn.getAttribute("data-message");
       
-      if (message) {
+      if (hypeType && message) {
         state.lastMessageTimestamp = now;
         
         // Visual feedback
@@ -2645,30 +2695,129 @@ function setupDjEmojiReactionButtons() {
           btn.classList.remove("btn-sending");
         }, 300);
         
-        // Show emoji on DJ screen immediately
-        createEmojiReactionEffect(emoji);
+        // Show hype effect on DJ screen immediately
+        createHypeEffect(message);
         
         // Trigger flash effect
         triggerDjFlash();
         
         // Add to unified feed
-        addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
+        addToUnifiedFeed('DJ', 'DJ 🎧', 'hype', message, false);
       
-        // Track the emoji
-        trackReaction(emoji);
-        
         // Increase crowd energy
-        increaseCrowdEnergy(5);
+        increaseCrowdEnergy(10);
         
-        // Broadcast to guests via WebSocket if connected
+        // Broadcast to all guests via WebSocket
         if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-          send({ t: "DJ_EMOJI", emoji: message });
+          send({ t: "CROWD_HYPE", hypeType: hypeType, message: message });
         }
         
-        toast(`Sent: ${emoji}`);
+        toast(`Crowd Hype: ${message}`);
       }
     };
   });
+}
+
+function setupDjShortMessage() {
+  const input = el("djShortMessageInput");
+  const btnSend = el("btnSendDjMessage");
+  
+  if (!btnSend || !input) return;
+  
+  const sendMessage = () => {
+    // Check spam cooldown
+    const now = Date.now();
+    if (now - state.lastMessageTimestamp < state.messageCooldownMs) {
+      const remainingMs = state.messageCooldownMs - (now - state.lastMessageTimestamp);
+      toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
+      return;
+    }
+    
+    // Only host can send DJ messages
+    if (!state.isHost) {
+      toast("Only the DJ can send messages", "warning");
+      return;
+    }
+    
+    const message = input.value.trim();
+    
+    // Validate message
+    if (!message) {
+      toast("Please enter a message", "warning");
+      return;
+    }
+    
+    if (message.length > 100) {
+      toast("Message too long (max 100 characters)", "warning");
+      return;
+    }
+    
+    state.lastMessageTimestamp = now;
+    
+    // Visual feedback
+    btnSend.classList.add("btn-sending");
+    setTimeout(() => {
+      btnSend.classList.remove("btn-sending");
+    }, 300);
+    
+    // Add to unified feed
+    addToUnifiedFeed('DJ', 'DJ 🎧', 'message', message, false);
+    
+    // Trigger flash effect
+    triggerDjFlash();
+    
+    // Increase crowd energy slightly
+    increaseCrowdEnergy(8);
+    
+    // Broadcast to all guests via WebSocket
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      send({ t: "DJ_SHORT_MESSAGE", message: message });
+    }
+    
+    // Clear input
+    input.value = "";
+    
+    toast(`Sent to all guests: ${message}`);
+  };
+  
+  btnSend.onclick = sendMessage;
+  
+  // Allow Enter key to send
+  input.onkeypress = (e) => {
+    if (e.key === "Enter") {
+      sendMessage();
+    }
+  };
+}
+
+/**
+ * Create a hype effect visual (non-blocking)
+ */
+function createHypeEffect(message) {
+  // Create a non-blocking hype effect that appears briefly
+  const hypeEffect = document.createElement('div');
+  hypeEffect.className = 'hype-effect-flash';
+  hypeEffect.textContent = message;
+  hypeEffect.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(255, 0, 255, 0.8), 0 0 40px rgba(0, 255, 255, 0.6);
+    animation: hypeFlash 1s ease-out;
+    pointer-events: none;
+    z-index: 9998;
+  `;
+  
+  document.body.appendChild(hypeEffect);
+  
+  // Remove after animation
+  setTimeout(() => {
+    hypeEffect.remove();
+  }, 1000);
 }
 
 function setupChatModeSelector() {
@@ -5019,8 +5168,11 @@ function attemptAddPhone() {
   // Setup DJ preset message buttons
   setupDjPresetMessageButtons();
   
-  // Setup DJ emoji reaction buttons
-  setupDjEmojiReactionButtons();
+  // Setup Crowd Hype buttons
+  setupCrowdHypeButtons();
+  
+  // Setup DJ Short Message composer
+  setupDjShortMessage();
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();

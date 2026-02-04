@@ -103,8 +103,8 @@
           <ul class="tier-features">
             <li>✓ Up to 4 phones</li>
             <li>✓ Preset messages</li>
-            <li>✓ Emoji reactions</li>
-            <li>✓ Hype button</li>
+            <li>✓ Guest emojis</li>
+            <li>✗ No DJ hype</li>
           </ul>
           <button class="btn-tier party-pass" id="btnSelectPartyPass">GET PARTY PASS 🎉</button>
         </div>
@@ -118,10 +118,10 @@
           <p class="tier-subtitle">UNLIMITED PHONES</p>
           <ul class="tier-features">
             <li>✓ Unlimited phones</li>
-            <li>✓ Custom messages</li>
+            <li>✓ Crowd hype buttons</li>
+            <li>✓ DJ short messages</li>
             <li>✓ Full DJ tools</li>
             <li>✓ Score system</li>
-            <li>✓ Visual packs</li>
           </ul>
           <button class="btn-tier pro" id="btnSelectPro">GO PRO 🚀</button>
         </div>
@@ -623,39 +623,60 @@
         <div class="tiny muted">Broadcast messages to all guests</div>
       </div>
 
-      <!-- DJ Emoji Reactions -->
-      <div class="dj-emoji-reactions-section" id="djEmojiReactionsSection">
-        <div class="dj-emoji-reactions-header">
-          <span class="dj-messages-icon">😀</span>
-          <span>SEND EMOJI</span>
+      <!-- Crowd Hype Buttons (DJ Controls) -->
+      <div class="dj-crowd-hype-section" id="djCrowdHypeSection">
+        <div class="dj-crowd-hype-header">
+          <span class="dj-messages-icon">🔥</span>
+          <span>CROWD HYPE</span>
         </div>
-        <div class="dj-emoji-reactions">
-          <button class="btn-emoji-reaction" id="btnDjEmojiHeart" data-emoji="❤️" data-message="❤️">
-            ❤️
+        <div class="dj-crowd-hype-buttons">
+          <button class="btn-crowd-hype" id="btnHypeAirhorn" data-hype="AIRHORN" data-message="📢 AIRHORN">
+            📢 AIRHORN
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiLove" data-emoji="😍" data-message="😍">
-            😍
+          <button class="btn-crowd-hype" id="btnHypeHandsUp" data-hype="HANDS_UP" data-message="🙌 HANDS UP">
+            🙌 HANDS UP
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiFire" data-emoji="🔥" data-message="🔥">
-            🔥
+          <button class="btn-crowd-hype" id="btnHypeLasers" data-hype="LASERS" data-message="✨ LASERS">
+            ✨ LASERS
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiParty" data-emoji="🎉" data-message="🎉">
-            🎉
+          <button class="btn-crowd-hype" id="btnHypeBassBoost" data-hype="BASS_BOOST" data-message="🔊 BASS BOOST">
+            🔊 BASS BOOST
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiDance" data-emoji="💃" data-message="💃">
-            💃
+          <button class="btn-crowd-hype" id="btnHypeDrop" data-hype="DROP" data-message="⏳ DROP IN 3…2…1">
+            ⏳ DROP IN 3…2…1
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiThumbsUp" data-emoji="👍" data-message="👍">
-            👍
+          <button class="btn-crowd-hype" id="btnHypeLetsGo" data-hype="LETS_GO" data-message="🚀 LET'S GO">
+            🚀 LET'S GO
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiStar" data-emoji="⭐" data-message="⭐">
-            ⭐
+          <button class="btn-crowd-hype" id="btnHypeClap" data-hype="CLAP" data-message="👏 CLAP">
+            👏 CLAP
           </button>
-          <button class="btn-emoji-reaction" id="btnDjEmojiLightning" data-emoji="⚡" data-message="⚡">
-            ⚡
+          <button class="btn-crowd-hype" id="btnHypeRewind" data-hype="REWIND" data-message="⏪ REWIND">
+            ⏪ REWIND
           </button>
         </div>
-        <div class="tiny muted">Send emoji reactions to all guests</div>
+        <div class="tiny muted">Trigger hype effects for the crowd</div>
+      </div>
+
+      <!-- DJ Short Messages to Crowd -->
+      <div class="dj-short-message-section" id="djShortMessageSection">
+        <div class="dj-short-message-header">
+          <span class="dj-messages-icon">💬</span>
+          <span>MESSAGE TO CROWD</span>
+        </div>
+        <div class="dj-short-message-composer">
+          <input 
+            type="text" 
+            id="djShortMessageInput" 
+            class="dj-message-input" 
+            placeholder="Type a short message to the crowd..." 
+            maxlength="100"
+          />
+          <button class="btn-send-dj-message" id="btnSendDjMessage">
+            Send 📣
+          </button>
+        </div>
+        <div class="tiny muted">Send custom messages to all guests (max 100 chars)</div>
       </div>
 
       <!-- Crowd Energy in DJ View -->

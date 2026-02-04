@@ -2800,8 +2800,11 @@ function handleMessage(ws, msg) {
     case "HOST_BROADCAST_MESSAGE":
       handleHostBroadcastMessage(ws, msg);
       break;
-    case "DJ_EMOJI":
-      handleDjEmoji(ws, msg);
+    case "CROWD_HYPE":
+      handleCrowdHype(ws, msg);
+      break;
+    case "DJ_SHORT_MESSAGE":
+      handleDjShortMessage(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -3675,42 +3678,84 @@ function handleHostBroadcastMessage(ws, msg) {
   });
 }
 
-function handleDjEmoji(ws, msg) {
+// Handle Crowd Hype from DJ
+function handleCrowdHype(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
   const party = parties.get(client.party);
   if (!party) return;
   
-  // Only host can send DJ emojis
+  // Only host can trigger crowd hype
   if (party.host !== ws) {
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send emojis" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can trigger crowd hype" }));
     return;
   }
   
-  const emoji = (msg.emoji || "").trim().substring(0, 10);
+  const hypeType = (msg.hypeType || "").trim();
+  const message = (msg.message || "").trim().substring(0, 100);
   
-  console.log(`[Party] DJ sending emoji "${emoji}" in party ${client.party}`);
+  console.log(`[Party] DJ triggering crowd hype "${hypeType}" in party ${client.party}`);
   
   // Award DJ points for engagement
-  party.scoreState.dj.sessionScore += 5; // 5 points for DJ emoji interaction
+  party.scoreState.dj.sessionScore += 10; // 10 points for crowd hype
   party.scoreState.totalReactions += 1;
   
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast to all members (guests only, not back to host)
+  // Broadcast to all members (including DJ to update their unified feed)
   const broadcastMsg = JSON.stringify({ 
-    t: "GUEST_MESSAGE",
-    message: emoji,
-    guestName: "DJ",
-    guestId: "dj",
-    isEmoji: true
+    t: "CROWD_HYPE",
+    hypeType: hypeType,
+    message: message
   });
   
   party.members.forEach(m => {
-    // Send to guests only (not to host)
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(broadcastMsg);
+    }
+  });
+}
+
+// Handle DJ Short Message to crowd
+function handleDjShortMessage(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send DJ messages
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send messages" }));
+    return;
+  }
+  
+  const message = (msg.message || "").trim().substring(0, 100);
+  
+  if (!message) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Message cannot be empty" }));
+    return;
+  }
+  
+  console.log(`[Party] DJ sending message "${message}" in party ${client.party}`);
+  
+  // Award DJ points for engagement
+  party.scoreState.dj.sessionScore += 8; // 8 points for custom message
+  party.scoreState.totalMessages += 1;
+  
+  // Broadcast updated scoreboard
+  broadcastScoreboard(client.party);
+  
+  // Broadcast to all members (including DJ to update their unified feed)
+  const broadcastMsg = JSON.stringify({ 
+    t: "DJ_SHORT_MESSAGE",
+    message: message
+  });
+  
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(broadcastMsg);
     }
   });
