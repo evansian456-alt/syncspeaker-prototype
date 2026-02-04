@@ -2248,6 +2248,13 @@ app.post("/api/end-party", async (req, res) => {
     
     console.log(`[end-party] Party ${code} ended by host`);
     
+    // Persist scoreboard before marking party as ended
+    try {
+      await persistPartyScoreboard(code, partyData);
+    } catch (err) {
+      console.error(`[end-party] Failed to persist scoreboard for ${code}:`, err.message);
+    }
+    
     // Save updated party data (or delete it)
     // Option 1: Mark as ended but keep in storage for a short time
     if (useRedis) {
