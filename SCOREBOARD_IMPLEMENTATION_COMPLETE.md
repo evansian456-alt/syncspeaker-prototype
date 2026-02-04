@@ -1,7 +1,7 @@
 # Scoreboard + Ranking + Persistence System - Implementation Complete ✅
 
 ## Overview
-This document describes the complete implementation of the **Scoreboard + Ranking + Persistence** system for the SyncSpeaker browser prototype. The system provides real-time scoring, ranking, and long-term persistence for both DJs and Guests.
+This document describes the complete implementation of the **Scoreboard + Ranking + Persistence** system for the Phone Party browser prototype. The system provides real-time scoring, ranking, and long-term persistence for both DJs and Guests.
 
 ## 🎯 Features Implemented
 

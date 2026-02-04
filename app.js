@@ -426,11 +426,13 @@ function connectWS() {
     ws.onopen = () => {
       console.log("[WS] Connected successfully");
       addDebugLog("WebSocket connected");
+      updateHeaderConnectionStatus("connected");
       resolve();
     };
     ws.onerror = (e) => {
       console.error("[WS] Connection error:", e);
       addDebugLog("WebSocket error");
+      updateHeaderConnectionStatus("error");
       reject(e);
     };
     ws.onmessage = (ev) => {
@@ -442,12 +444,41 @@ function connectWS() {
     ws.onclose = () => {
       console.log("[WS] Connection closed");
       addDebugLog("WebSocket disconnected");
+      updateHeaderConnectionStatus("disconnected");
       toast("Disconnected");
       state.ws = null;
       state.clientId = null;
       showLanding();
     };
   });
+}
+
+// Update header connection status indicator
+function updateHeaderConnectionStatus(status) {
+  const indicator = document.getElementById('connectionIndicator');
+  if (!indicator) return;
+  
+  switch (status) {
+    case 'connected':
+      indicator.textContent = '● Connected';
+      indicator.style.color = 'var(--success, #5cff8a)';
+      break;
+    case 'disconnected':
+      indicator.textContent = '● Disconnected';
+      indicator.style.color = 'var(--danger, #ff5a6a)';
+      break;
+    case 'reconnecting':
+      indicator.textContent = '● Reconnecting...';
+      indicator.style.color = 'var(--warning, #ffd15a)';
+      break;
+    case 'error':
+      indicator.textContent = '● Connection Error';
+      indicator.style.color = 'var(--danger, #ff5a6a)';
+      break;
+    default:
+      indicator.textContent = '● Unknown';
+      indicator.style.color = 'var(--muted, #999)';
+  }
 }
 
 function send(obj) {
@@ -1213,13 +1244,32 @@ function startPartyStatusPolling() {
           state.lastDjMessageTimestamp = maxTimestamp;
         }
         
-        // Update host guest count display
+        // Update host guest count display with detailed party information
         const guestCountEl = el("partyGuestCount");
         if (guestCountEl) {
-          if (newGuestCount === 0) {
-            guestCountEl.textContent = "Waiting for guests...";
+          const currentLimit = getCurrentPhoneLimit();
+          const totalConnected = newGuestCount + 1; // guests + host
+          const remaining = Math.max(0, currentLimit - totalConnected);
+          
+          // Determine party tier status
+          let tierInfo = '';
+          if (state.userTier === USER_TIER.PRO) {
+            tierInfo = 'Pro';
+          } else if (state.userTier === USER_TIER.PARTY_PASS || state.partyPassActive) {
+            tierInfo = 'Party Pass active';
           } else {
-            guestCountEl.textContent = `${newGuestCount} guest${newGuestCount !== 1 ? 's' : ''} joined`;
+            tierInfo = 'Free party';
+          }
+          
+          if (newGuestCount === 0) {
+            guestCountEl.textContent = `${tierInfo} · Waiting for guests... (${currentLimit} phone limit)`;
+          } else {
+            guestCountEl.textContent = `${tierInfo} · ${totalConnected} of ${currentLimit} phones connected`;
+            if (remaining > 0) {
+              guestCountEl.textContent += ` (${remaining} more can join)`;
+            } else {
+              guestCountEl.textContent += ` (party full)`;
+            }
           }
         }
         
@@ -1403,10 +1453,29 @@ function startGuestPartyStatusPolling() {
 
 // Update guest party info UI
 function updateGuestPartyInfo(partyData) {
-  // Update guest count display
+  // Update guest count display with detailed information
   const guestCountEl = el("guestPartyGuestCount");
   if (guestCountEl) {
-    guestCountEl.textContent = `${partyData.guestCount || 0} guest${partyData.guestCount !== 1 ? 's' : ''}`;
+    const guestCount = partyData.guestCount || 0;
+    const totalConnected = guestCount + 1; // guests + host
+    
+    // Get current phone limit (we may not have full state, so estimate based on party data)
+    // This should be enhanced to get actual limit from server response
+    let currentLimit = FREE_LIMIT; // default
+    if (state.partyPassActive || (partyData.partyPassActive)) {
+      currentLimit = PARTY_PASS_LIMIT;
+    } else if (state.userTier === USER_TIER.PRO || (partyData.isPro)) {
+      currentLimit = PRO_LIMIT;
+    }
+    
+    const remaining = Math.max(0, currentLimit - totalConnected);
+    
+    guestCountEl.textContent = `${totalConnected} of ${currentLimit} phones connected`;
+    if (remaining > 0) {
+      guestCountEl.textContent += ` (${remaining} more can join)`;
+    } else {
+      guestCountEl.textContent += ` (party full)`;
+    }
   }
   
   // Update time remaining
@@ -1422,6 +1491,11 @@ function updateGuestPartyInfo(partyData) {
 function showPartyEnded(status) {
   const message = status === "expired" ? "Party has expired" : "Party has ended";
   toast(`⏰ ${message}`);
+  
+  // Update connection status for guests
+  if (!state.isHost) {
+    updateGuestConnectionStatus('party-ended');
+  }
   
   // Show message in UI
   const partyMetaEl = el("partyMeta");
@@ -1553,20 +1627,55 @@ async function checkForMidTrackJoin(code) {
   }
 }
 
-function updateGuestConnectionStatus() {
+function updateGuestConnectionStatus(status = null) {
   const statusEl = el("guestConnectionStatus");
   if (!statusEl) return;
   
-  if (state.connected) {
-    statusEl.textContent = "Connected";
-    statusEl.className = "badge";
-    statusEl.style.background = "rgba(92, 255, 138, 0.2)";
-    statusEl.style.borderColor = "rgba(92, 255, 138, 0.4)";
-  } else {
-    statusEl.textContent = "Disconnected";
-    statusEl.className = "badge";
-    statusEl.style.background = "rgba(255, 90, 106, 0.2)";
-    statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+  // If status is explicitly provided, use it. Otherwise, use state.connected
+  const connectionStatus = status || (state.connected ? 'connected' : 'disconnected');
+  
+  switch (connectionStatus) {
+    case 'connected':
+      statusEl.textContent = "Connected";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(92, 255, 138, 0.2)";
+      statusEl.style.borderColor = "rgba(92, 255, 138, 0.4)";
+      statusEl.style.color = "#5cff8a";
+      break;
+    case 'disconnected':
+      statusEl.textContent = "Disconnected";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 90, 106, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+      statusEl.style.color = "#ff5a6a";
+      break;
+    case 'reconnecting':
+      statusEl.textContent = "Reconnecting...";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 209, 90, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 209, 90, 0.4)";
+      statusEl.style.color = "#ffd15a";
+      break;
+    case 'party-ended':
+      statusEl.textContent = "Party Ended";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(150, 150, 150, 0.2)";
+      statusEl.style.borderColor = "rgba(150, 150, 150, 0.4)";
+      statusEl.style.color = "#999";
+      break;
+    case 'host-left':
+      statusEl.textContent = "Host Left";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(255, 90, 106, 0.2)";
+      statusEl.style.borderColor = "rgba(255, 90, 106, 0.4)";
+      statusEl.style.color = "#ff5a6a";
+      break;
+    default:
+      statusEl.textContent = "Unknown";
+      statusEl.className = "badge";
+      statusEl.style.background = "rgba(150, 150, 150, 0.2)";
+      statusEl.style.borderColor = "rgba(150, 150, 150, 0.4)";
+      statusEl.style.color = "#999";
   }
 }
 
@@ -4835,8 +4944,8 @@ function attemptAddPhone() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Join SyncSpeaker Party',
-          text: `Join my SyncSpeaker party! Code: ${state.code}`,
+          title: 'Join Phone Party',
+          text: `Join my Phone Party! Code: ${state.code}`,
           url: joinLink
         });
         toast("Shared successfully!");
@@ -6389,7 +6498,7 @@ function handleSignup() {
       updateUIForLoggedInUser(loginResult.user);
       // Redirect to home to start using the app
       showHome();
-      showToast('✅ Welcome to SyncSpeaker! Account created successfully!');
+      showToast('✅ Welcome to Phone Party! Account created successfully!');
     }
   } else {
     errorEl.textContent = result.error;
@@ -6954,6 +7063,14 @@ if (promoBtn) {
       return;
     }
     
+    // Check if party already has promo applied (prevent multiple promo codes)
+    if (state.partyPro || state.partyPassActive) {
+      toast("⚠️ This party has already used a promo code");
+      promoModal.classList.add("hidden");
+      promoInput.value = "";
+      return;
+    }
+    
     // Try WebSocket first (if connected), fallback to HTTP
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       // Send to server via WebSocket for validation
@@ -6977,10 +7094,24 @@ if (promoBtn) {
         if (!response.ok) {
           toast(data.error || "Failed to apply promo code");
         } else {
-          // Success - update state and UI
+          // Success - update state and UI with clear messaging
           state.partyPro = true;
+          state.partyPassActive = true;
           setPlanPill();
-          toast("🎉 Pro unlocked for this party!");
+          updateTierDisplay();
+          toast("🎉 This Phone Party is now Pro!");
+          
+          // Update party status banner
+          const partyPassTitle = document.getElementById('partyPassTitle');
+          if (partyPassTitle) {
+            partyPassTitle.textContent = 'Party is now Pro';
+          }
+          
+          // Hide upgrade prompts
+          const partyPassUpgrade = document.getElementById('partyPassUpgrade');
+          if (partyPassUpgrade) {
+            partyPassUpgrade.classList.add('hidden');
+          }
         }
       } catch (error) {
         console.error("[Promo] HTTP error:", error);

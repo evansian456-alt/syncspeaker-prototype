@@ -1,8 +1,8 @@
-# End-to-End Test Guide for SyncSpeaker Prototype
+# End-to-End Test Guide for Phone Party Prototype
 
 ## Overview
 
-This document describes the comprehensive end-to-end (E2E) testing system for the SyncSpeaker browser prototype. The tests simulate real human users across multiple browser sessions to validate the entire user journey from registration to party features.
+This document describes the comprehensive end-to-end (E2E) testing system for the Phone Party browser prototype. The tests simulate real human users across multiple browser sessions to validate the entire user journey from registration to party features.
 
 ## Test Framework
 

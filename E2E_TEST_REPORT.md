@@ -1,4 +1,4 @@
-# End-to-End Functional Test Report: SyncSpeaker Browser Prototype
+# End-to-End Functional Test Report: Phone Party Browser Prototype
 **Test Date:** 2026-01-30  
 **Tester:** QA Agent (simulated human first-time user)  
 **Environment:** Browser prototype, localhost:8080  
@@ -11,7 +11,7 @@
 
 **Overall Status:** ⚠️ **PARTIAL PASS - Blocking bug resolved with warning banner**
 
-The SyncSpeaker browser prototype initially had a critical false state issue where it showed party codes that couldn't be used for multi-device joining. **This has been fixed** by adding a prominent warning banner that clearly communicates the prototype's single-device limitation. Single-device features (Party Pass, music playback) work correctly. Multi-device sync is not functional due to offline mode, but this is now properly communicated to users.
+The Phone Party browser prototype initially had a critical false state issue where it showed party codes that couldn't be used for multi-device joining. **This has been fixed** by adding a prominent warning banner that clearly communicates the prototype's single-device limitation. Single-device features (Party Pass, music playback) work correctly. Multi-device sync is not functional due to offline mode, but this is now properly communicated to users.
 
 **Fix Applied:** Added offline mode warning banner and copy button alert to prevent user confusion about prototype limitations.
 
@@ -25,7 +25,7 @@ The SyncSpeaker browser prototype initially had a critical false state issue whe
 **Tests Performed:**
 - ✅ Cleared localStorage and sessionStorage
 - ✅ Loaded landing page successfully
-- ✅ Verified "What is SyncSpeaker?" explanation present
+- ✅ Verified "What is Phone Party?" explanation present
 - ✅ Verified pricing tiers displayed (Free, Party Pass £2.99, Pro Monthly £9.99/month)
 - ✅ Confirmed NO "yearly" wording exists
 - ✅ Pricing information accurate and clear
@@ -524,7 +524,7 @@ Because of offline mode, the entire guest experience is broken:
 
 ## Conclusion
 
-**✅ BLOCKING BUG RESOLVED** - The SyncSpeaker browser prototype is now ready for friend testing with clear expectations.
+**✅ BLOCKING BUG RESOLVED** - The Phone Party browser prototype is now ready for friend testing with clear expectations.
 
 ### What Was Fixed
 

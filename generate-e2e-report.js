@@ -31,7 +31,7 @@ function generateReport() {
 
 ## Executive Summary
 
-This report documents the execution of the comprehensive E2E test suite for SyncSpeaker prototype.
+This report documents the execution of the comprehensive E2E test suite for Phone Party prototype.
 The tests simulate real human users across multiple browser sessions.
 
 ### Test Coverage

@@ -1,5 +1,5 @@
 # HOST DJ TEST REPORT
-**SyncSpeaker Full System Testing**  
+**Phone Party Full System Testing**  
 **Date:** 2026-02-03  
 **Tester Role:** Host DJ  
 **Test Environment:** Browser Prototype with Server Backend

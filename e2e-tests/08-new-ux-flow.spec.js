@@ -13,13 +13,13 @@ test.describe('New UX Flow - Landing, Tier Selection, and Account Creation', () 
 
   test('Flow A - Normal User: Landing → Free Tier → Account → Start/Join', async ({ page }) => {
     // Step 1: Verify landing page is displayed
-    await expect(page.locator('#viewLanding h1')).toContainText('SyncSpeaker');
-    await expect(page.locator('text=Turn multiple phones into one synced speaker system')).toBeVisible();
+    await expect(page.locator('#viewLanding h1')).toContainText('PHONE PARTY');
+    await expect(page.locator('text=Multiple Phones = Massive Sound')).toBeVisible();
     
     // Verify all three information cards are visible
-    await expect(page.locator('text=Turn multiple phones into one synced speaker system')).toBeVisible();
-    await expect(page.locator('text=Host plays music, guests hear it together')).toBeVisible();
-    await expect(page.locator('text=Perfect for parties, hangouts, and events')).toBeVisible();
+    await expect(page.locator('text=Multiple Phones = Massive Sound')).toBeVisible();
+    await expect(page.locator('text=DJ Controls the Vibe')).toBeVisible();
+    await expect(page.locator('text=Party Mode Activated')).toBeVisible();
     
     // Verify all three pricing tiers are displayed
     await expect(page.locator('#viewLanding text=FREE')).toBeVisible();
@@ -134,7 +134,7 @@ test.describe('New UX Flow - Landing, Tier Selection, and Account Creation', () 
     await page.click('button:has-text("← Back to Plans")');
     
     // Step 3: Verify we're back on landing page
-    await expect(page.locator('h1')).toContainText('SyncSpeaker');
+    await expect(page.locator('h1')).toContainText('PHONE PARTY');
     await expect(page.locator('text=Choose Your Plan')).toBeVisible();
     await expect(page.locator('button:has-text("Use Free Version")')).toBeVisible();
   });

@@ -108,7 +108,7 @@
 **Functionality:**
 - ℹ️ button in header
 - Modal with 5 sections:
-  - What is SyncSpeaker
+  - What is Phone Party
   - Safety Features
   - How It Works
   - Pricing

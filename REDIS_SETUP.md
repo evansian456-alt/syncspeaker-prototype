@@ -1,6 +1,6 @@
-# Redis Setup for SyncSpeaker
+# Redis Setup for Phone Party
 
-This guide explains how to set up Redis for the SyncSpeaker prototype to enable shared party discovery across multiple server instances.
+This guide explains how to set up Redis for the Phone Party prototype to enable shared party discovery across multiple server instances.
 
 ## Why Redis?
 
