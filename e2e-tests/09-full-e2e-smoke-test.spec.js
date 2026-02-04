@@ -14,6 +14,9 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
     await clearBrowserStorage(page);
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    
+    // Wait for the landing view to be visible
+    await page.waitForSelector('#viewLanding', { state: 'visible', timeout: 10000 });
   });
 
   test.describe('A) First Load', () => {
@@ -23,8 +26,8 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
       const landingView = page.locator('#viewLanding');
       await expect(landingView).toBeVisible();
       
-      // Check for app explanation
-      const heading = page.locator('h1');
+      // Check for app explanation - h1 within landing view
+      const heading = page.locator('#viewLanding h1').first();
       await expect(heading).toBeVisible();
       
       // Verify no JavaScript errors in console
@@ -46,23 +49,26 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
     });
 
     test('1.2 - Pricing tiers display correctly', async ({ page }) => {
+      // Scope searches to landing view to avoid matching hidden elements
+      const landingView = page.locator('#viewLanding');
+      
       // Check for Free tier
-      const freeSection = page.locator('text=/FREE|Free/i').first();
+      const freeSection = landingView.locator('text=/FREE|Free/i').first();
       await expect(freeSection).toBeVisible();
       
       // Check for Party Pass tier
-      const partyPassSection = page.locator('text=/PARTY PASS|Party Pass/i').first();
+      const partyPassSection = landingView.locator('text=/PARTY PASS|Party Pass/i').first();
       await expect(partyPassSection).toBeVisible();
       
       // Check for Pro tier pricing
-      const proSection = page.locator('text=/PRO|Pro|£9\.99/i').first();
+      const proSection = landingView.locator('text=/PRO|Pro|£9\.99/i').first();
       await expect(proSection).toBeVisible();
       
       // Verify pricing information is present
-      const partyPassPrice = page.locator('text=/£2\.99/');
+      const partyPassPrice = landingView.locator('text=/£2\.99/');
       await expect(partyPassPrice).toBeVisible();
       
-      const proPrice = page.locator('text=/£9\.99/');
+      const proPrice = landingView.locator('text=/£9\.99/');
       await expect(proPrice).toBeVisible();
       
       // Take screenshot
@@ -132,22 +138,31 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
       // Click on Party Pass tier
       const partyPassButton = page.locator('#landingPartyPassTier, button:has-text("Party Pass"), .tier-card:has-text("Party Pass")').first();
       
-      if (await partyPassButton.isVisible()) {
-        await partyPassButton.click();
+      await expect(partyPassButton).toBeVisible({ timeout: 5000 });
+      await partyPassButton.click();
+      
+      // Wait for navigation to complete
+      await page.waitForTimeout(1000);
+      
+      // Verify navigation occurred by checking if we're no longer on landing
+      // or if a new view is visible
+      const navigationHappened = await page.evaluate(() => {
+        const landing = document.querySelector('#viewLanding');
+        const landingHidden = landing && landing.style.display === 'none';
+        const hashChanged = window.location.hash !== '';
         
-        await page.waitForTimeout(500);
-        
-        // Verify navigation occurred
-        const navigationHappened = await page.evaluate(() => {
-          return window.location.hash !== '' || 
-                 document.querySelector('#viewLanding').style.display === 'none';
+        // Check if any other view is visible
+        const otherViewVisible = Array.from(document.querySelectorAll('[id^="view"]')).some(view => {
+          return view.id !== 'viewLanding' && 
+                 view.style.display !== 'none' && 
+                 view.offsetParent !== null;
         });
         
-        console.log('✓ Party Pass tier click triggered navigation');
-        expect(navigationHappened).toBe(true);
-      } else {
-        console.log('⚠ Party Pass tier button not found');
-      }
+        return landingHidden || hashChanged || otherViewVisible;
+      });
+      
+      console.log('✓ Party Pass tier click triggered navigation');
+      expect(navigationHappened).toBe(true);
     });
 
     test('1.7 - Clicking Pro tier routes correctly', async ({ page }) => {
