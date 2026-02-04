@@ -762,6 +762,16 @@ function handleServer(msg) {
     state.upNextFilename = msg.nextFilename || null;
     state.lastHostEvent = "TRACK_CHANGED";
     
+    // PHASE 7: Update currentTrack from server
+    if (msg.currentTrack) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
     if (!state.isHost) {
       updateGuestNowPlaying(msg.title || msg.filename);
       
@@ -772,7 +782,7 @@ function handleServer(msg) {
       
       // Handle audio playback for new track
       if (msg.trackUrl) {
-        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.serverTimestamp, msg.positionSec || 0);
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs || msg.serverTimestamp, msg.startPositionSec || msg.positionSec || 0);
       }
       
       updateGuestVisualMode("track-change");
@@ -782,6 +792,9 @@ function handleServer(msg) {
           updateGuestVisualMode("playing");
         }
       }, 500);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;
@@ -810,8 +823,21 @@ function handleServer(msg) {
   }
   
   if (msg.t === "QUEUE_UPDATED") {
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
+    // PHASE 7: Update currentTrack if provided
+    if (msg.currentTrack !== undefined) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
     if (!state.isHost) {
       updateGuestQueue(msg.queue || []);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;

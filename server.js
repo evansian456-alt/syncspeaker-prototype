@@ -1677,6 +1677,126 @@ function cleanupRateLimitData(partyCode) {
   messagingRateLimits.delete(partyCode);
 }
 
+// ========================================
+// PHASE 1: Canonical Track Data Shape
+// ========================================
+
+/**
+ * Normalize track input to canonical track object shape
+ * @param {Object} input - Track data from various sources
+ * @param {Object} options - Additional context (e.g., addedBy)
+ * @returns {Object} Normalized track object
+ */
+function normalizeTrack(input, options = {}) {
+  if (!input || !input.trackId || !input.trackUrl) {
+    throw new Error('Track must have trackId and trackUrl');
+  }
+  
+  // Determine source from input or options
+  const source = input.source || options.source || 'upload';
+  
+  // Determine title: prefer title, then filename, then default
+  let title = input.title;
+  if (!title && input.filename) {
+    title = input.filename;
+  }
+  if (!title) {
+    title = 'Unknown Track';
+  }
+  
+  return {
+    trackId: String(input.trackId),
+    trackUrl: String(input.trackUrl),
+    title: String(title).trim(),
+    filename: input.filename || null,
+    durationMs: typeof input.durationMs === 'number' ? input.durationMs : null,
+    contentType: input.contentType || null,
+    sizeBytes: typeof input.sizeBytes === 'number' ? input.sizeBytes : null,
+    source: source,
+    addedAt: Date.now(),
+    addedBy: options.addedBy || null
+  };
+}
+
+// ========================================
+// PHASE 2: Host-Only Auth Validation
+// ========================================
+
+/**
+ * Validate that the requester is the party host
+ * @param {string} providedHostId - Host ID from request
+ * @param {Object} partyData - Party data from storage
+ * @returns {Object} { valid: boolean, error?: string }
+ */
+function validateHostAuth(providedHostId, partyData) {
+  if (!providedHostId) {
+    return { valid: false, error: 'hostId is required for this operation' };
+  }
+  
+  if (!partyData || !partyData.hostId) {
+    return { valid: false, error: 'Party not found or invalid party data' };
+  }
+  
+  // Compare as strings to handle type coercion
+  if (String(providedHostId) !== String(partyData.hostId)) {
+    return { valid: false, error: 'Forbidden: Only the party host can perform this operation' };
+  }
+  
+  return { valid: true };
+}
+
+// ========================================
+// PHASE 3: Persist Queue + Current Track
+// ========================================
+
+/**
+ * Load party state from Redis or fallback storage
+ * @param {string} code - Party code
+ * @returns {Promise<Object|null>} Party data or null if not found
+ */
+async function loadPartyState(code) {
+  const useRedis = redis && redisReady;
+  let partyData;
+  
+  if (useRedis) {
+    try {
+      partyData = await getPartyFromRedis(code);
+    } catch (error) {
+      console.warn(`[loadPartyState] Redis error for ${code}, trying fallback:`, error.message);
+      partyData = getPartyFromFallback(code);
+    }
+  } else {
+    partyData = getPartyFromFallback(code);
+  }
+  
+  return partyData;
+}
+
+/**
+ * Save party state to Redis or fallback storage, preserving TTL
+ * @param {string} code - Party code
+ * @param {Object} partyData - Party data to save
+ * @returns {Promise<boolean>} Success status
+ */
+async function savePartyState(code, partyData) {
+  const useRedis = redis && redisReady;
+  
+  if (useRedis) {
+    try {
+      // Use setex with full TTL for simplicity in prototype
+      await setPartyInRedis(code, partyData);
+      return true;
+    } catch (error) {
+      console.warn(`[savePartyState] Redis error for ${code}, using fallback:`, error.message);
+      setPartyInFallback(code, partyData);
+      return true;
+    }
+  } else {
+    setPartyInFallback(code, partyData);
+    return true;
+  }
+}
+
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
 async function createPartyCommon({ djName, source, hostId, hostConnected }) {
@@ -2190,13 +2310,14 @@ app.get("/api/party-state", async (req, res) => {
       timeRemainingMs = Math.max(0, (partyData.createdAt + PARTY_TTL_MS) - now);
     }
     
-    // Get current track info from in-memory party state (if WebSocket connected)
+    // PHASE 6: Get queue and currentTrack from STORAGE (source of truth)
+    // Only fall back to in-memory if storage doesn't have them
     const party = parties.get(code);
-    const currentTrack = party?.currentTrack || null;
+    const currentTrack = partyData.currentTrack || party?.currentTrack || null;
+    const queue = partyData.queue || party?.queue || [];
     const djMessages = party?.djMessages || [];
-    const queue = party?.queue || [];
     
-    console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || 'none'}, queue length: ${queue.length}`);
+    console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || currentTrack?.title || 'none'}, queue length: ${queue.length}`);
     
     // Return enhanced party state with playback info
     res.json({
@@ -2692,11 +2813,11 @@ app.post("/api/party/:code/start-track", async (req, res) => {
   }
 });
 
-// POST /api/party/:code/queue-track - Add track to queue
+// POST /api/party/:code/queue-track - Add track to queue (HOST-ONLY)
 app.post("/api/party/:code/queue-track", async (req, res) => {
   const timestamp = new Date().toISOString();
   const code = req.params.code ? req.params.code.toUpperCase() : null;
-  const { trackId, trackUrl, title, durationMs } = req.body;
+  const { hostId, trackId, trackUrl, title, durationMs, filename, contentType, sizeBytes } = req.body;
   
   console.log(`[HTTP] POST /api/party/${code}/queue-track at ${timestamp}`);
   
@@ -2704,54 +2825,90 @@ app.post("/api/party/:code/queue-track", async (req, res) => {
     return res.status(400).json({ error: 'Invalid party code' });
   }
   
-  if (!trackId) {
-    return res.status(400).json({ error: 'trackId is required' });
+  if (!trackId || !trackUrl) {
+    return res.status(400).json({ error: 'trackId and trackUrl are required' });
   }
   
   try {
-    // Get party from memory
-    const party = parties.get(code);
-    if (!party) {
+    // Load party state from storage
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
       return res.status(404).json({ error: 'Party not found' });
     }
     
+    // PHASE 2: Validate host-only auth
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] Queue operation denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+    
     // Initialize queue if it doesn't exist
-    if (!party.queue) {
-      party.queue = [];
+    if (!partyData.queue) {
+      partyData.queue = [];
     }
     
-    // Check queue limit
-    if (party.queue.length >= 5) {
-      return res.status(400).json({ error: 'Queue is full (max 5 tracks)' });
+    // Check queue limit (default 5, configurable)
+    const queueLimit = 5;
+    if (partyData.queue.length >= queueLimit) {
+      return res.status(400).json({ error: `Queue is full (max ${queueLimit} tracks)` });
     }
     
-    // Add track to queue
-    const queuedTrack = {
+    // PHASE 4: Validate trackUrl security (prototype: allow /api/track/* or external if source=="external")
+    const host = req.get('host');
+    const isLocalTrack = trackUrl.includes(`/api/track/`);
+    const source = partyData.source || 'local';
+    
+    if (!isLocalTrack && source !== 'external') {
+      return res.status(400).json({ error: 'Invalid trackUrl: only local tracks are allowed for this party' });
+    }
+    
+    // PHASE 1: Normalize track to canonical shape
+    const normalizedTrack = normalizeTrack({
       trackId,
-      trackUrl: trackUrl || null,
-      title: title || 'Unknown Track',
-      durationMs: durationMs || null
-    };
-    
-    party.queue.push(queuedTrack);
-    
-    console.log(`[HTTP] Queued track ${trackId} in party ${code}, queue length: ${party.queue.length}`);
-    
-    // Broadcast QUEUE_UPDATED to all members
-    const message = JSON.stringify({
-      t: 'QUEUE_UPDATED',
-      queue: party.queue
+      trackUrl,
+      title,
+      filename,
+      durationMs,
+      contentType,
+      sizeBytes,
+      source
+    }, {
+      addedBy: { id: partyData.hostId, name: partyData.djName }
     });
     
-    party.members.forEach(m => {
-      if (m.ws.readyState === WebSocket.OPEN) {
-        m.ws.send(message);
-      }
-    });
+    // Add to queue
+    partyData.queue.push(normalizedTrack);
+    
+    // PHASE 3: Persist to storage
+    await savePartyState(code, partyData);
+    
+    // Mirror to local party for WS broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.queue = partyData.queue;
+      party.currentTrack = partyData.currentTrack;
+      
+      // PHASE 5: Broadcast QUEUE_UPDATED to all members
+      const message = JSON.stringify({
+        t: 'QUEUE_UPDATED',
+        queue: partyData.queue,
+        currentTrack: partyData.currentTrack
+      });
+      
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
+    
+    console.log(`[HTTP] Queued track ${trackId} in party ${code}, queue length: ${partyData.queue.length}`);
     
     res.json({ 
       success: true,
-      queue: party.queue
+      queue: partyData.queue,
+      currentTrack: partyData.currentTrack
     });
   } catch (error) {
     console.error(`[HTTP] Error queueing track:`, error);
@@ -2762,10 +2919,11 @@ app.post("/api/party/:code/queue-track", async (req, res) => {
   }
 });
 
-// POST /api/party/:code/play-next - Play next track from queue
+// POST /api/party/:code/play-next - Play next track from queue (HOST-ONLY)
 app.post("/api/party/:code/play-next", async (req, res) => {
   const timestamp = new Date().toISOString();
   const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { hostId } = req.body;
   
   console.log(`[HTTP] POST /api/party/${code}/play-next at ${timestamp}`);
   
@@ -2774,65 +2932,316 @@ app.post("/api/party/:code/play-next", async (req, res) => {
   }
   
   try {
-    // Get party from memory
-    const party = parties.get(code);
-    if (!party) {
+    // Load party state from storage
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
       return res.status(404).json({ error: 'Party not found' });
     }
     
+    // PHASE 2: Validate host-only auth
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] Play-next operation denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+    
     // Initialize queue if it doesn't exist
-    if (!party.queue) {
-      party.queue = [];
+    if (!partyData.queue) {
+      partyData.queue = [];
     }
     
     // Check if queue has tracks
-    if (party.queue.length === 0) {
+    if (partyData.queue.length === 0) {
       return res.status(400).json({ error: 'Queue is empty' });
     }
     
     // Get first track from queue
-    const nextTrack = party.queue.shift();
+    const nextTrack = partyData.queue.shift();
     
-    // Set as currentTrack
-    party.currentTrack = {
-      trackId: nextTrack.trackId,
-      trackUrl: nextTrack.trackUrl,
-      title: nextTrack.title,
-      durationMs: nextTrack.durationMs,
+    // Set as currentTrack with playback state
+    partyData.currentTrack = {
+      ...nextTrack,
       startAtServerMs: Date.now(),
       startPositionSec: 0,
       status: 'playing'
     };
     
+    // PHASE 3: Persist to storage
+    await savePartyState(code, partyData);
+    
     console.log(`[HTTP] Playing next track ${nextTrack.trackId} in party ${code}`);
     
-    // Broadcast TRACK_CHANGED to all members
-    const message = JSON.stringify({
-      t: 'TRACK_CHANGED',
-      trackId: nextTrack.trackId,
-      trackUrl: nextTrack.trackUrl,
-      title: nextTrack.title,
-      durationMs: nextTrack.durationMs,
-      startAtServerMs: party.currentTrack.startAtServerMs,
-      startPositionSec: 0,
-      queue: party.queue
-    });
-    
-    party.members.forEach(m => {
-      if (m.ws.readyState === WebSocket.OPEN) {
-        m.ws.send(message);
-      }
-    });
+    // Mirror to local party for WS broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.currentTrack = partyData.currentTrack;
+      party.queue = partyData.queue;
+      
+      // PHASE 5: Broadcast TRACK_CHANGED to all members
+      const message = JSON.stringify({
+        t: 'TRACK_CHANGED',
+        currentTrack: partyData.currentTrack,
+        trackId: nextTrack.trackId,
+        trackUrl: nextTrack.trackUrl,
+        title: nextTrack.title,
+        durationMs: nextTrack.durationMs,
+        startAtServerMs: partyData.currentTrack.startAtServerMs,
+        startPositionSec: 0,
+        queue: partyData.queue
+      });
+      
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
     
     res.json({ 
       success: true,
-      currentTrack: party.currentTrack,
-      queue: party.queue
+      currentTrack: partyData.currentTrack,
+      queue: partyData.queue
     });
   } catch (error) {
     console.error(`[HTTP] Error playing next track:`, error);
     res.status(500).json({ 
       error: 'Failed to play next track',
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/party/:code/remove-track - Remove a track from queue (HOST-ONLY)
+app.post("/api/party/:code/remove-track", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { hostId, trackId } = req.body;
+  
+  console.log(`[HTTP] POST /api/party/${code}/remove-track at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  if (!trackId) {
+    return res.status(400).json({ error: 'trackId is required' });
+  }
+  
+  try {
+    // Load party state from storage
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // PHASE 2: Validate host-only auth
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] Remove-track operation denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+    
+    // Initialize queue if it doesn't exist
+    if (!partyData.queue) {
+      partyData.queue = [];
+    }
+    
+    // Find and remove FIRST matching trackId
+    const initialLength = partyData.queue.length;
+    const trackIndex = partyData.queue.findIndex(t => t.trackId === trackId);
+    
+    if (trackIndex === -1) {
+      return res.status(404).json({ error: 'Track not found in queue' });
+    }
+    
+    partyData.queue.splice(trackIndex, 1);
+    
+    // PHASE 3: Persist to storage
+    await savePartyState(code, partyData);
+    
+    console.log(`[HTTP] Removed track ${trackId} from party ${code}, queue length: ${partyData.queue.length}`);
+    
+    // Mirror to local party for WS broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.queue = partyData.queue;
+      
+      // PHASE 5: Broadcast QUEUE_UPDATED to all members
+      const message = JSON.stringify({
+        t: 'QUEUE_UPDATED',
+        queue: partyData.queue,
+        currentTrack: partyData.currentTrack
+      });
+      
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
+    
+    res.json({ 
+      success: true,
+      queue: partyData.queue,
+      currentTrack: partyData.currentTrack
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error removing track:`, error);
+    res.status(500).json({ 
+      error: 'Failed to remove track',
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/party/:code/clear-queue - Clear all tracks from queue (HOST-ONLY)
+app.post("/api/party/:code/clear-queue", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { hostId } = req.body;
+  
+  console.log(`[HTTP] POST /api/party/${code}/clear-queue at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  try {
+    // Load party state from storage
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // PHASE 2: Validate host-only auth
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] Clear-queue operation denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+    
+    // Clear queue
+    partyData.queue = [];
+    
+    // PHASE 3: Persist to storage
+    await savePartyState(code, partyData);
+    
+    console.log(`[HTTP] Cleared queue for party ${code}`);
+    
+    // Mirror to local party for WS broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.queue = partyData.queue;
+      
+      // PHASE 5: Broadcast QUEUE_UPDATED to all members
+      const message = JSON.stringify({
+        t: 'QUEUE_UPDATED',
+        queue: partyData.queue,
+        currentTrack: partyData.currentTrack
+      });
+      
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
+    
+    res.json({ 
+      success: true,
+      queue: partyData.queue,
+      currentTrack: partyData.currentTrack
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error clearing queue:`, error);
+    res.status(500).json({ 
+      error: 'Failed to clear queue',
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/party/:code/reorder-queue - Reorder tracks in queue (HOST-ONLY)
+app.post("/api/party/:code/reorder-queue", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { hostId, fromIndex, toIndex } = req.body;
+  
+  console.log(`[HTTP] POST /api/party/${code}/reorder-queue at ${timestamp}`);
+  
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+  
+  if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
+    return res.status(400).json({ error: 'fromIndex and toIndex are required and must be numbers' });
+  }
+  
+  try {
+    // Load party state from storage
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // PHASE 2: Validate host-only auth
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] Reorder-queue operation denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+    
+    // Initialize queue if it doesn't exist
+    if (!partyData.queue) {
+      partyData.queue = [];
+    }
+    
+    // Validate indices
+    if (fromIndex < 0 || fromIndex >= partyData.queue.length) {
+      return res.status(400).json({ error: 'Invalid fromIndex' });
+    }
+    
+    if (toIndex < 0 || toIndex >= partyData.queue.length) {
+      return res.status(400).json({ error: 'Invalid toIndex' });
+    }
+    
+    // Reorder: remove from fromIndex and insert at toIndex
+    const [movedTrack] = partyData.queue.splice(fromIndex, 1);
+    partyData.queue.splice(toIndex, 0, movedTrack);
+    
+    // PHASE 3: Persist to storage
+    await savePartyState(code, partyData);
+    
+    console.log(`[HTTP] Reordered queue for party ${code}: moved track from ${fromIndex} to ${toIndex}`);
+    
+    // Mirror to local party for WS broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.queue = partyData.queue;
+      
+      // PHASE 5: Broadcast QUEUE_UPDATED to all members
+      const message = JSON.stringify({
+        t: 'QUEUE_UPDATED',
+        queue: partyData.queue,
+        currentTrack: partyData.currentTrack
+      });
+      
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
+    
+    res.json({ 
+      success: true,
+      queue: partyData.queue,
+      currentTrack: partyData.currentTrack
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error reordering queue:`, error);
+    res.status(500).json({ 
+      error: 'Failed to reorder queue',
       details: error.message 
     });
   }
@@ -4749,5 +5158,10 @@ module.exports = {
   fallbackPartyStorage,
   INSTANCE_ID,
   waitForRedis,
-  isRedisReady
+  isRedisReady,
+  // New queue system functions
+  normalizeTrack,
+  validateHostAuth,
+  loadPartyState,
+  savePartyState
 };
