@@ -94,3 +94,38 @@ CREATE TABLE IF NOT EXISTS party_memberships (
 
 CREATE INDEX IF NOT EXISTS idx_party_memberships_party ON party_memberships(party_code);
 CREATE INDEX IF NOT EXISTS idx_party_memberships_user ON party_memberships(user_id);
+
+-- GUEST PROFILES (track guest contribution points and ranking)
+CREATE TABLE IF NOT EXISTS guest_profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  guest_identifier TEXT UNIQUE NOT NULL, -- localStorage ID or user_id
+  nickname TEXT,
+  total_contribution_points INT NOT NULL DEFAULT 0,
+  guest_rank TEXT NOT NULL DEFAULT 'Party Newbie',
+  parties_joined INT NOT NULL DEFAULT 0,
+  total_reactions_sent INT NOT NULL DEFAULT 0,
+  total_messages_sent INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_identifier ON guest_profiles(guest_identifier);
+CREATE INDEX IF NOT EXISTS idx_guest_profiles_points ON guest_profiles(total_contribution_points DESC);
+
+-- PARTY SCOREBOARD SESSIONS (persist final scoreboard from each party)
+CREATE TABLE IF NOT EXISTS party_scoreboard_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  party_code TEXT NOT NULL,
+  host_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  host_identifier TEXT NOT NULL, -- fallback to localStorage ID if no user_id
+  dj_session_score INT NOT NULL DEFAULT 0,
+  guest_scores JSONB NOT NULL DEFAULT '[]', -- [{guestId, nickname, points, emojis, messages}]
+  party_duration_minutes INT,
+  total_reactions INT NOT NULL DEFAULT 0,
+  total_messages INT NOT NULL DEFAULT 0,
+  peak_crowd_energy INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_party_scoreboard_party ON party_scoreboard_sessions(party_code);
+CREATE INDEX IF NOT EXISTS idx_party_scoreboard_host ON party_scoreboard_sessions(host_user_id);

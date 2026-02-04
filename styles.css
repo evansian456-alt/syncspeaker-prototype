@@ -5941,3 +5941,333 @@ body.light-mode .input-field {
   color: var(--text-muted);
   text-align: center;
 }
+
+/* ===== SCOREBOARD STYLES ===== */
+
+/* DJ Scoreboard Section */
+.dj-scoreboard-section {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  backdrop-filter: blur(10px);
+}
+
+.dj-scoreboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dj-scoreboard-header h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0;
+  color: #FFD700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dj-session-score {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.session-score-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.session-score-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #5cff8a;
+  padding: 0.25rem 0.75rem;
+  background: rgba(92, 255, 138, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(92, 255, 138, 0.3);
+}
+
+.dj-scoreboard-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.scoreboard-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat-icon {
+  font-size: 1.8rem;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-color);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dj-scoreboard-guests {
+  margin-top: 1rem;
+}
+
+.dj-scoreboard-guests h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
+}
+
+.scoreboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.scoreboard-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.scoreboard-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateX(2px);
+}
+
+.scoreboard-item.rank-1 {
+  border-color: rgba(255, 215, 0, 0.5);
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.scoreboard-item.rank-2 {
+  border-color: rgba(192, 192, 192, 0.5);
+  background: rgba(192, 192, 192, 0.08);
+}
+
+.scoreboard-item.rank-3 {
+  border-color: rgba(205, 127, 50, 0.5);
+  background: rgba(205, 127, 50, 0.08);
+}
+
+.scoreboard-rank {
+  font-size: 1.2rem;
+  font-weight: 700;
+  min-width: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.scoreboard-item.rank-1 .scoreboard-rank {
+  color: #FFD700;
+}
+
+.scoreboard-item.rank-2 .scoreboard-rank {
+  color: #C0C0C0;
+}
+
+.scoreboard-item.rank-3 .scoreboard-rank {
+  color: #CD7F32;
+}
+
+.scoreboard-guest-info {
+  flex: 1;
+  margin-left: 0.75rem;
+}
+
+.scoreboard-guest-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.scoreboard-guest-stats {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.scoreboard-points {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #5cff8a;
+  padding: 0.25rem 0.5rem;
+  background: rgba(92, 255, 138, 0.1);
+  border-radius: 6px;
+}
+
+.scoreboard-placeholder {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Guest Scoreboard Section */
+.guest-scoreboard {
+  margin-bottom: 1.5rem;
+}
+
+.guest-scoreboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.guest-scoreboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.guest-your-score {
+  padding: 1rem;
+  background: rgba(92, 255, 138, 0.08);
+  border: 1px solid rgba(92, 255, 138, 0.2);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.your-score-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.your-score-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #5cff8a;
+  margin-bottom: 0.25rem;
+}
+
+.your-score-rank {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.guest-scoreboard-top h5 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
+}
+
+.guest-scoreboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.guest-scoreboard-list .scoreboard-item {
+  padding: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.guest-scoreboard-list .scoreboard-rank {
+  font-size: 1rem;
+  min-width: 1.5rem;
+}
+
+.guest-scoreboard-list .scoreboard-guest-name {
+  font-size: 0.85rem;
+}
+
+.guest-scoreboard-list .scoreboard-guest-stats {
+  font-size: 0.7rem;
+}
+
+.guest-scoreboard-list .scoreboard-points {
+  font-size: 0.95rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* Scoreboard animations */
+@keyframes scoreIncrease {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+    color: #FFD700;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.score-increase {
+  animation: scoreIncrease 0.5s ease;
+}
+
+/* Mobile responsiveness for scoreboard */
+@media (max-width: 768px) {
+  .dj-scoreboard-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .scoreboard-stat:nth-child(3) {
+    grid-column: span 2;
+  }
+  
+  .dj-scoreboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .scoreboard-item {
+    padding: 0.6rem;
+  }
+  
+  .scoreboard-guest-name {
+    font-size: 0.85rem;
+  }
+  
+  .scoreboard-points {
+    font-size: 0.95rem;
+  }
+}
