@@ -2767,6 +2767,9 @@ function handleMessage(ws, msg) {
     case "SET_PRO":
       handleSetPro(ws, msg);
       break;
+    case "APPLY_PROMO":
+      handleApplyPromo(ws, msg);
+      break;
     case "HOST_PLAY":
       handleHostPlay(ws, msg);
       break;
@@ -2935,6 +2938,9 @@ async function handleCreate(ws, msg) {
     chatMode: "OPEN",
     createdAt,
     hostId,
+    partyPro: false, // Party-wide Pro status (unlocked via promo codes)
+    promoUsed: false, // Whether a promo code has been used for this party
+    source: member.source, // Host's audio source selection
     djMessages: [], // Array of DJ auto-generated messages
     currentTrack: null, // Current playing track info
     queue: [], // Track queue (max 5)
@@ -3021,6 +3027,12 @@ async function handleJoin(ws, msg) {
   // Check if already a member (prevent duplicates)
   if (party.members.some(m => m.id === client.id)) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Already in this party" }));
+    return;
+  }
+  
+  // Enforce free limit: 2 phones max if party is not Pro
+  if (party.partyPro === false && party.members.length >= 2) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Free parties are limited to 2 phones" }));
     return;
   }
   
@@ -3140,10 +3152,58 @@ function handleSetPro(ws, msg) {
   
   const member = party.members.find(m => m.ws === ws);
   if (member) {
+    // SET_PRO only marks individual member as Pro
+    // It does NOT set room.partyPro (only APPLY_PROMO does that)
     member.isPro = !!msg.isPro;
     console.log(`[Party] Client ${client.id} set Pro to ${member.isPro}`);
     broadcastRoomState(client.party);
   }
+}
+
+// Valid promo codes
+const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+
+function handleApplyPromo(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  const code = msg.code?.trim().toUpperCase();
+  
+  // Check if promo already used for this party
+  if (party.promoUsed) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "This party already used a promo code." 
+    }));
+    return;
+  }
+  
+  // Validate promo code
+  if (!PROMO_CODES.includes(code)) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Invalid or expired promo code." 
+    }));
+    return;
+  }
+  
+  // Apply promo - unlock party-wide Pro
+  party.partyPro = true;
+  party.promoUsed = true;
+  
+  console.log(`[Party] Promo code ${code} applied to party ${client.party}, Pro unlocked for entire party`);
+  
+  // Broadcast updated room state to all members
+  broadcastRoomState(client.party);
+  
+  // Send success confirmation to requester
+  safeSend(ws, JSON.stringify({ 
+    t: "PROMO_SUCCESS", 
+    message: "🎉 Pro unlocked for this party!" 
+  }));
 }
 
 function handleDisconnect(ws) {
@@ -3218,7 +3278,9 @@ function broadcastRoomState(code) {
       isPro: m.isPro,
       isHost: m.isHost
     })),
-    chatMode: party.chatMode || "OPEN"
+    chatMode: party.chatMode || "OPEN",
+    partyPro: party.partyPro || false,
+    source: party.source || "local"
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });

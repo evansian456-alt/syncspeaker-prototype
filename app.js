@@ -496,9 +496,12 @@ function handleServer(msg) {
       state.chatMode = msg.snapshot.chatMode;
       updateChatModeUI();
     }
-    // Preserve Party Pass Pro status or detect from members
-    const membersPro = (msg.snapshot?.members || []).some(m => m.isPro);
-    state.partyPro = state.partyPassActive || membersPro;
+    // Update party Pro status from snapshot
+    state.partyPro = msg.snapshot?.partyPro === true || state.partyPassActive;
+    // Update source from snapshot (host's selection)
+    if (msg.snapshot?.source) {
+      state.source = msg.snapshot.source;
+    }
     setPlanPill();
     if (state.isHost) {
       renderRoom();
@@ -693,6 +696,11 @@ function handleServer(msg) {
       btn.textContent = "Start party";
     }
     
+    return;
+  }
+  
+  if (msg.t === "PROMO_SUCCESS") {
+    toast(msg.message || "🎉 Pro unlocked for this party!");
     return;
   }
   
@@ -6795,19 +6803,13 @@ if (promoBtn) {
 
   promoApply.onclick = () => {
     const code = promoInput.value.trim().toUpperCase();
-    if (promoUsed) {
-      alert("This party already used a promo code.");
+    if (!code) {
+      alert("Please enter a promo code.");
       return;
     }
-    if (!PROMO_CODES.includes(code)) {
-      alert("Invalid or expired promo code.");
-      return;
-    }
-    promoUsed = true;
-    window.partyPro = true;
+    // Send promo code to server for validation and application
+    send({ t: "APPLY_PROMO", code });
     promoModal.classList.add("hidden");
-    alert("🎉 Pro unlocked for this party!");
-    updateUI?.();
   };
 }
 
