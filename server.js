@@ -30,6 +30,29 @@ const FREE_PARTY_LIMIT = 2; // Free parties limited to 2 phones
 const FREE_DEFAULT_MAX_PHONES = 2; // Alias for clarity in new code
 const MAX_PRO_PARTY_DEVICES = 100; // Practical limit for Pro parties
 
+// Messaging rate limits (Party Pass feature)
+const HOST_RATE_LIMIT = { minIntervalMs: 2000, maxPerMinute: 10 };
+const GUEST_RATE_LIMIT = { minIntervalMs: 2000, maxPerMinute: 15 };
+const MESSAGE_TTL_MS = 12000; // Messages auto-disappear after 12 seconds
+
+// Host quick message mappings (DJ buttons)
+const HOST_QUICK_MESSAGES = {
+  WELCOME: "Welcome to Phone Party 🎉",
+  MAKE_NOISE: "Make some noise 🔥",
+  HANDS_UP: "Hands up 🙌",
+  NEXT_UP: "Next track coming up ⏭️",
+  THANKS: "Thanks for joining ❤️"
+};
+
+// Guest quick reply mappings
+const GUEST_QUICK_REPLIES = {
+  LOVE_THIS: "🔥 Love this",
+  TURN_IT_UP: "🙌 Turn it up",
+  WOW: "😮 Wow",
+  DANCE: "💃 Dance break",
+  BIG_VIBE: "🫶 Big vibe"
+};
+
 // Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
 const TEST_MODE = process.env.TEST_MODE === 'true' || process.env.NODE_ENV !== 'production';
 
@@ -826,6 +849,44 @@ app.get("/api/store", authMiddleware.optionalAuth, (req, res) => {
 });
 
 /**
+ * GET /api/tier-info
+ * Get tier definitions and feature information (single source of truth)
+ */
+app.get("/api/tier-info", (req, res) => {
+  res.json({
+    appName: "Phone Party",
+    tiers: {
+      FREE: {
+        label: "Free",
+        chatEnabled: false,
+        guestQuickReplies: false,
+        hostQuickMessages: false,
+        systemAutoMessages: false,
+        messageTtlMs: 0,
+        maxTextLength: 0
+      },
+      PARTY_PASS: {
+        label: "Party Pass (£2.99)",
+        chatEnabled: true,
+        guestQuickReplies: true,
+        hostQuickMessages: true,
+        systemAutoMessages: true,
+        messageTtlMs: 12000,
+        maxTextLength: 60,
+        maxEmojiLength: 10,
+        hostRateLimit: { minIntervalMs: 2000, maxPerMinute: 10 },
+        guestRateLimit: { minIntervalMs: 2000, maxPerMinute: 15 }
+      },
+      PRO: {
+        label: "Pro Monthly",
+        // Reflects only what /api/me + entitlements currently supports
+        tierAvailable: true
+      }
+    }
+  });
+});
+
+/**
  * POST /api/purchase
  * Process a purchase
  */
@@ -1542,6 +1603,68 @@ async function getMaxAllowedPhones(code, partyData) {
   
   // Default free limit
   return FREE_DEFAULT_MAX_PHONES;
+}
+
+// Helper function to check if Party Pass is active (source of truth)
+function isPartyPassActive(partyData, now = Date.now()) {
+  const expires = Number(partyData.partyPassExpiresAt || 0);
+  return expires > now;
+}
+
+// Helper function to get party max phones based on current state
+function getPartyMaxPhones(partyData) {
+  const max = parseInt(partyData.maxPhones, 10);
+  return Number.isFinite(max) ? max : 2;
+}
+
+// Rate limiting storage: Map<partyCode, Map<userId, Array<timestamp>>>
+const messagingRateLimits = new Map();
+
+// Helper function to check and enforce rate limits for messaging
+function checkRateLimit(partyCode, userId, isHost) {
+  const now = Date.now();
+  const limits = isHost ? HOST_RATE_LIMIT : GUEST_RATE_LIMIT;
+  
+  // Get or create party rate limit map
+  if (!messagingRateLimits.has(partyCode)) {
+    messagingRateLimits.set(partyCode, new Map());
+  }
+  const partyLimits = messagingRateLimits.get(partyCode);
+  
+  // Get or create user timestamps array
+  if (!partyLimits.has(userId)) {
+    partyLimits.set(userId, []);
+  }
+  const timestamps = partyLimits.get(userId);
+  
+  // Clean up old timestamps (older than 1 minute)
+  const oneMinuteAgo = now - 60000;
+  const recentTimestamps = timestamps.filter(ts => ts > oneMinuteAgo);
+  partyLimits.set(userId, recentTimestamps);
+  
+  // Check minimum interval (anti-spam)
+  if (recentTimestamps.length > 0) {
+    const lastTimestamp = recentTimestamps[recentTimestamps.length - 1];
+    if (now - lastTimestamp < limits.minIntervalMs) {
+      return { allowed: false, reason: `Please wait ${Math.ceil((limits.minIntervalMs - (now - lastTimestamp)) / 1000)}s before sending another message` };
+    }
+  }
+  
+  // Check max per minute
+  if (recentTimestamps.length >= limits.maxPerMinute) {
+    return { allowed: false, reason: `Rate limit exceeded. Maximum ${limits.maxPerMinute} messages per minute` };
+  }
+  
+  // Add current timestamp
+  recentTimestamps.push(now);
+  partyLimits.set(userId, recentTimestamps);
+  
+  return { allowed: true };
+}
+
+// Helper function to clean up rate limit data for ended parties
+function cleanupRateLimitData(partyCode) {
+  messagingRateLimits.delete(partyCode);
 }
 
 // Shared party creation function used by both HTTP and WS paths
@@ -3215,6 +3338,12 @@ function handleMessage(ws, msg) {
     case "GUEST_PAUSE_REQUEST":
       handleGuestPauseRequest(ws, msg);
       break;
+    case "GUEST_QUICK_REPLY":
+      handleGuestQuickReply(ws, msg);
+      break;
+    case "DJ_QUICK_BUTTON":
+      handleDjQuickButton(ws, msg);
+      break;
     case "CHAT_MODE_SET":
       handleChatModeSet(ws, msg);
       break;
@@ -3705,6 +3834,10 @@ function handleDisconnect(ws) {
       const c = clients.get(m.ws);
       if (c) c.party = null;
     });
+    
+    // Clean up rate limit data
+    cleanupRateLimitData(client.party);
+    
     parties.delete(client.party);
     
     // Delete from Redis
@@ -3735,9 +3868,17 @@ function handleDisconnect(ws) {
   client.party = null;
 }
 
-function broadcastRoomState(code) {
+async function broadcastRoomState(code) {
   const party = parties.get(code);
   if (!party) return;
+  
+  // Get party data from Redis for partyPass info
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(code);
+  } catch (err) {
+    console.warn(`[broadcastRoomState] Could not fetch party data from Redis:`, err.message);
+  }
   
   const snapshot = {
     members: party.members.map(m => ({
@@ -3748,7 +3889,11 @@ function broadcastRoomState(code) {
     })),
     chatMode: party.chatMode || "OPEN",
     partyPro: !!party.partyPro, // Party-wide Pro status
-    source: party.source || "local" // Host-selected source
+    source: party.source || "local", // Host-selected source
+    // Party Pass info (source of truth)
+    partyPassActive: partyData ? isPartyPassActive(partyData) : false,
+    partyPassExpiresAt: partyData ? (partyData.partyPassExpiresAt || null) : null,
+    maxPhones: partyData ? getPartyMaxPhones(partyData) : 2
   };
   
   const message = JSON.stringify({ t: "ROOM", snapshot });
@@ -3809,6 +3954,35 @@ function broadcastScoreboard(code) {
   
   // Publish to other instances (Phase 8)
   publishToOtherInstances(code, "SCOREBOARD", { t: "SCOREBOARD_UPDATE", scoreboard: scoreboardData });
+}
+
+// Helper function to broadcast feed items (unified messaging system for Party Pass)
+function broadcastFeedItem(code, item) {
+  const party = parties.get(code);
+  if (!party) return;
+  
+  // Ensure item has all required fields
+  const feedItem = {
+    id: item.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    ts: item.ts || Date.now(),
+    kind: item.kind, // "guest_text" | "guest_emoji" | "guest_quick" | "host_quick" | "system_auto"
+    name: item.name,
+    senderId: item.senderId,
+    text: item.text,
+    ttlMs: item.ttlMs || MESSAGE_TTL_MS
+  };
+  
+  const message = JSON.stringify({ t: "FEED_ITEM", item: feedItem });
+  
+  // Broadcast to local party members
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
+  
+  // Publish to other instances
+  publishToOtherInstances(code, "FEED_ITEM", { t: "FEED_ITEM", item: feedItem });
 }
 
 function handleHostPlay(ws, msg) {
@@ -4034,7 +4208,7 @@ function handleHostTrackChanged(ws, msg) {
   });
 }
 
-function handleGuestMessage(ws, msg) {
+async function handleGuestMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -4048,9 +4222,24 @@ function handleGuestMessage(ws, msg) {
     return;
   }
   
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleGuestMessage] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required to chat" }));
+    return;
+  }
+  
   // Check chat mode restrictions
   const chatMode = party.chatMode || "OPEN";
-  const messageText = (msg.message || "").trim().substring(0, 100);
   const isEmoji = msg.isEmoji || false;
   
   // LOCKED mode: no messages allowed
@@ -4062,6 +4251,30 @@ function handleGuestMessage(ws, msg) {
   // EMOJI_ONLY mode: only emoji messages allowed
   if (chatMode === "EMOJI_ONLY" && !isEmoji) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only emoji reactions allowed" }));
+    return;
+  }
+  
+  // Validate and sanitize message based on type
+  let messageText = (msg.message || "").trim();
+  
+  if (isEmoji) {
+    // Emoji: max 10 characters
+    messageText = messageText.substring(0, 10);
+  } else {
+    // Text: max 60 characters, collapse whitespace
+    messageText = messageText.replace(/\s+/g, ' ').substring(0, 60);
+  }
+  
+  // Reject empty messages
+  if (!messageText) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Message cannot be empty" }));
+    return;
+  }
+  
+  // CHECK RATE LIMITS
+  const rateLimitCheck = checkRateLimit(client.party, member.id, false);
+  if (!rateLimitCheck.allowed) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: rateLimitCheck.reason }));
     return;
   }
   
@@ -4108,7 +4321,16 @@ function handleGuestMessage(ws, msg) {
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
-  // Broadcast to all party members (including other guests)
+  // Broadcast using new FEED_ITEM format (Party Pass messaging suite)
+  broadcastFeedItem(client.party, {
+    kind: isEmoji ? "guest_emoji" : "guest_text",
+    name: guestName,
+    senderId: member.id,
+    text: messageText,
+    ttlMs: MESSAGE_TTL_MS
+  });
+  
+  // Also broadcast legacy GUEST_MESSAGE for backward compatibility
   const message = JSON.stringify({ 
     t: "GUEST_MESSAGE", 
     message: messageText,
@@ -4121,6 +4343,132 @@ function handleGuestMessage(ws, msg) {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
     }
+  });
+}
+
+async function handleDjQuickButton(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send quick buttons
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can use quick buttons" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleDjQuickButton] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for quick buttons" }));
+    return;
+  }
+  
+  // Validate button key
+  const key = msg.key;
+  if (!key || !HOST_QUICK_MESSAGES[key]) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid quick button key" }));
+    return;
+  }
+  
+  // CHECK RATE LIMITS (use "dj" as userId for host)
+  const rateLimitCheck = checkRateLimit(client.party, "dj", true);
+  if (!rateLimitCheck.allowed) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: rateLimitCheck.reason }));
+    return;
+  }
+  
+  const text = HOST_QUICK_MESSAGES[key];
+  
+  console.log(`[Party] DJ sent quick button "${key}": "${text}" in party ${client.party}`);
+  
+  // Broadcast using FEED_ITEM format
+  broadcastFeedItem(client.party, {
+    kind: "host_quick",
+    name: "DJ",
+    senderId: "dj",
+    text: text,
+    ttlMs: MESSAGE_TTL_MS
+  });
+}
+
+async function handleGuestQuickReply(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only guests can send quick replies (not host)
+  const member = party.members.find(m => m.ws === ws);
+  if (!member || member.isHost) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only guests can use quick replies" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleGuestQuickReply] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for quick replies" }));
+    return;
+  }
+  
+  // Validate reply key
+  const key = msg.key;
+  if (!key || !GUEST_QUICK_REPLIES[key]) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid quick reply key" }));
+    return;
+  }
+  
+  // CHECK RATE LIMITS
+  const rateLimitCheck = checkRateLimit(client.party, member.id, false);
+  if (!rateLimitCheck.allowed) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: rateLimitCheck.reason }));
+    return;
+  }
+  
+  const guestName = member.name || "Guest";
+  const text = GUEST_QUICK_REPLIES[key];
+  
+  console.log(`[Party] Guest "${guestName}" sent quick reply "${key}": "${text}" in party ${client.party}`);
+  
+  // Update scoreboard: award points for quick reply (treat like emoji)
+  const guestScore = ensureGuestInScoreboard(party, member.id, guestName);
+  guestScore.emojis += 1;
+  guestScore.points += 5;
+  party.scoreState.totalReactions += 1;
+  party.scoreState.dj.sessionScore += 2;
+  
+  // Broadcast updated scoreboard
+  broadcastScoreboard(client.party);
+  
+  // Broadcast using FEED_ITEM format
+  broadcastFeedItem(client.party, {
+    kind: "guest_quick",
+    name: guestName,
+    senderId: member.id,
+    text: text,
+    ttlMs: MESSAGE_TTL_MS
   });
 }
 
