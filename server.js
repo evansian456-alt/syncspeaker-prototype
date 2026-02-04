@@ -3301,7 +3301,7 @@ function safeSend(ws, data) {
   }
 }
 
-function handleMessage(ws, msg) {
+async function handleMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client) return;
   
