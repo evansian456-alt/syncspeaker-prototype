@@ -852,6 +852,121 @@ function handleGuestTapToPlay() {
   }
 }
 
+/**
+ * Fetch party state and resync playback (for late join / tab recovery)
+ * Phase 5: Tab Sleep / Background Recovery
+ */
+async function fetchPartyStateAndResync() {
+  if (!state.code) {
+    console.log("[PartyResync] No party code, skipping resync");
+    return;
+  }
+  
+  try {
+    console.log("[PartyResync] Fetching party state for:", state.code);
+    
+    const response = await fetch(`/api/party-state?code=${encodeURIComponent(state.code)}`);
+    
+    if (!response.ok) {
+      console.warn("[PartyResync] Failed to fetch party state:", response.status);
+      return;
+    }
+    
+    const partyState = await response.json();
+    
+    if (!partyState.exists || partyState.status === 'expired' || partyState.status === 'ended') {
+      console.log("[PartyResync] Party has ended or expired");
+      return;
+    }
+    
+    console.log("[PartyResync] Party state:", partyState);
+    
+    // Check if there's a current track playing
+    if (partyState.currentTrack && partyState.currentTrack.status === 'playing') {
+      const track = partyState.currentTrack;
+      
+      console.log("[PartyResync] Current track is playing:", track.filename);
+      
+      // Calculate expected playback position
+      const serverNow = nowServerMs();
+      const elapsedMs = serverNow - track.startAtServerMs;
+      const elapsedSec = elapsedMs / 1000;
+      const expectedSec = track.startPositionSec + elapsedSec;
+      
+      console.log(`[PartyResync] Expected position: ${expectedSec.toFixed(3)}s`);
+      
+      // Update state
+      state.nowPlayingFilename = track.filename || track.title;
+      updateGuestNowPlaying(state.nowPlayingFilename);
+      
+      // Set up or update audio element
+      if (!state.guestAudioElement) {
+        state.guestAudioElement = new Audio();
+        state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+      }
+      
+      // If track URL is different, update source
+      const trackUrl = track.url || track.trackUrl;
+      if (trackUrl && state.guestAudioElement.src !== trackUrl) {
+        state.guestAudioElement.src = trackUrl;
+        
+        // Wait for metadata then start
+        state.guestAudioElement.addEventListener('loadedmetadata', () => {
+          resyncToPosition(expectedSec, track.startAtServerMs, track.startPositionSec);
+        }, { once: true });
+      } else if (trackUrl) {
+        // Same track, just resync position
+        resyncToPosition(expectedSec, track.startAtServerMs, track.startPositionSec);
+      }
+    } else if (partyState.currentTrack && partyState.currentTrack.status === 'preparing') {
+      console.log("[PartyResync] Track is preparing, waiting for PLAY_AT");
+      // Store pending info
+      state.pendingStartAtServerMs = partyState.currentTrack.startAtServerMs;
+      state.pendingStartPositionSec = partyState.currentTrack.startPositionSec;
+      state.pendingTrackUrl = partyState.currentTrack.url || partyState.currentTrack.trackUrl;
+      state.pendingTrackFilename = partyState.currentTrack.filename;
+    } else {
+      console.log("[PartyResync] No active playback");
+    }
+    
+  } catch (error) {
+    console.error("[PartyResync] Error fetching party state:", error);
+  }
+}
+
+/**
+ * Resync to a specific position
+ */
+function resyncToPosition(targetSec, startAtServerMs, startPositionSec) {
+  if (!state.guestAudioElement) return;
+  
+  console.log(`[PartyResync] Resyncing to position ${targetSec.toFixed(3)}s`);
+  
+  // Set position
+  state.guestAudioElement.currentTime = Math.max(0, targetSec);
+  
+  // Start playback
+  const playPromise = state.guestAudioElement.play();
+  
+  if (playPromise !== undefined) {
+    playPromise.then(() => {
+      console.log("[PartyResync] Playback resumed at", state.guestAudioElement.currentTime.toFixed(3), "s");
+      state.guestNeedsTap = false;
+      updateGuestPlaybackState("PLAYING");
+      updateGuestVisualMode("playing");
+      
+      // Start drift correction
+      startDriftCorrection(startAtServerMs, startPositionSec);
+    }).catch((error) => {
+      console.warn("[PartyResync] Autoplay blocked, showing tap to play:", error);
+      state.guestNeedsTap = true;
+      state.pendingStartAtServerMs = startAtServerMs;
+      state.pendingStartPositionSec = startPositionSec;
+      showGuestTapToPlay();
+    });
+  }
+}
+
 // ============================================================================
 // PHASE 4: DRIFT CORRECTION (AUTO, SMOOTH, LOW-GLITCH)
 // ============================================================================
@@ -2202,42 +2317,9 @@ function showGuest() {
 
 // Check if host is already playing when guest joins mid-track
 async function checkForMidTrackJoin(code) {
-  try {
-    const response = await fetch(`/api/party-state?code=${code}`);
-    const data = await response.json();
-    
-    if (data.exists && data.currentTrack && data.currentTrack.status === 'playing') {
-      console.log("[Mid-Track Join] Host is playing:", data.currentTrack);
-      
-      // Update state
-      state.nowPlayingFilename = data.currentTrack.title || data.currentTrack.filename;
-      updateGuestNowPlaying(state.nowPlayingFilename);
-      
-      // Update queue if available
-      if (data.queue) {
-        updateGuestQueue(data.queue);
-      }
-      
-      // Trigger audio playback with sync
-      if (data.currentTrack.url || data.currentTrack.trackUrl) {
-        handleGuestAudioPlayback(
-          data.currentTrack.url || data.currentTrack.trackUrl,
-          data.currentTrack.title || data.currentTrack.filename,
-          data.currentTrack.startAtServerMs,
-          data.currentTrack.startPositionSec || data.currentTrack.startPosition || 0
-        );
-        
-        state.playing = true;
-        updateGuestPlaybackState("PLAYING");
-        updateGuestVisualMode("playing");
-      }
-    } else if (data.queue && data.queue.length > 0) {
-      // No current track but queue exists
-      updateGuestQueue(data.queue);
-    }
-  } catch (error) {
-    console.error("[Mid-Track Join] Error checking party state:", error);
-  }
+  // Phase 3: Use new fetchPartyStateAndResync for late join
+  console.log("[Mid-Track Join] Checking party state for late join");
+  await fetchPartyStateAndResync();
 }
 
 function updateGuestConnectionStatus(status = null) {
@@ -7014,7 +7096,11 @@ function initializeAllFeatures() {
       if (state.ws && state.ws.readyState === WebSocket.OPEN) {
         sendTimePing();
       }
-      // TODO: Fetch party state and resync if playing (Phase 3 onward)
+      
+      // Phase 5: Fetch party state and resync if playing
+      if (!state.isHost && state.code) {
+        fetchPartyStateAndResync();
+      }
     }
   });
   
