@@ -877,9 +877,8 @@ function handleServer(msg) {
   
   // DJ broadcast messages to guests
   if (msg.t === "HOST_BROADCAST_MESSAGE") {
-    if (!state.isHost) {
-      displayHostBroadcastMessage(msg.message);
-    }
+    // Both host and guests receive this message
+    displayHostBroadcastMessage(msg.message);
     return;
   }
   

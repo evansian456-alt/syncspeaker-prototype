@@ -4063,6 +4063,11 @@ function handleHostPause(ws, msg) {
   
   console.log(`[Party] Host paused in party ${client.party}`);
   
+  // Update currentTrack status to paused
+  if (party.currentTrack) {
+    party.currentTrack.status = 'paused';
+  }
+  
   // Broadcast to all guests (not host)
   const message = JSON.stringify({ t: "PAUSE" });
   party.members.forEach(m => {
@@ -4087,8 +4092,9 @@ function handleHostStop(ws, msg) {
   
   console.log(`[Party] Host stopped playback in party ${client.party}`);
   
-  // Reset current track position
+  // Update currentTrack status to stopped and reset position
   if (party.currentTrack) {
+    party.currentTrack.status = 'stopped';
     party.currentTrack.startPositionSec = 0;
   }
   
@@ -4598,15 +4604,15 @@ function handleHostBroadcastMessage(ws, msg) {
   
   console.log(`[Party] Host broadcasting message "${messageText}" in party ${client.party}`);
   
-  // Broadcast to all members (including guests only, not back to host)
+  // Broadcast to all members (including echo to host)
   const broadcastMsg = JSON.stringify({ 
     t: "HOST_BROADCAST_MESSAGE", 
     message: messageText
   });
   
   party.members.forEach(m => {
-    // Send to guests only (not to host)
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+    // Send to all members including host for echo
+    if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(broadcastMsg);
     }
   });
@@ -4656,7 +4662,7 @@ function handleDjEmoji(ws, msg) {
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast to all members (guests only, not back to host)
+  // Broadcast to ALL members (including host)
   const broadcastMsg = JSON.stringify({ 
     t: "GUEST_MESSAGE",
     message: emoji,
@@ -4666,8 +4672,8 @@ function handleDjEmoji(ws, msg) {
   });
   
   party.members.forEach(m => {
-    // Send to guests only (not to host)
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+    // Send to all members including host
+    if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(broadcastMsg);
     }
   });
