@@ -1313,14 +1313,18 @@ app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
-  // Extract DJ name from request body
-  const { djName } = req.body;
+  // Extract DJ name and source from request body
+  const { djName, source } = req.body;
   
   // Validate DJ name is provided
   if (!djName || !djName.trim()) {
     console.log("[HTTP] Party creation rejected: DJ name is required");
     return res.status(400).json({ error: "DJ name is required to create a party" });
   }
+  
+  // Validate and set source (default to "local" if not provided or invalid)
+  const validSources = ["local", "external", "mic"];
+  const partySource = validSources.includes(source) ? source : "local";
   
   // Determine storage backend: prefer Redis, fallback to local storage if Redis unavailable
   const useRedis = redis && redisReady;
@@ -1375,6 +1379,9 @@ app.post("/api/create-party", async (req, res) => {
     // Create party data for storage (only serializable data)
     const partyData = {
       djName: djName.trim(), // Store DJ name in party state
+      source: partySource, // Host-selected source (local/external/mic)
+      partyPro: false, // Party-wide Pro status (set via promo code only)
+      promoUsed: false, // Whether a promo code has been used
       chatMode: "OPEN",
       createdAt,
       hostId,
@@ -1698,7 +1705,9 @@ app.get("/api/party", async (req, res) => {
       guestCount: partyData.guestCount || 0,
       guests: partyData.guests || [],
       chatMode: partyData.chatMode || "OPEN",
-      createdAt: partyData.createdAt
+      createdAt: partyData.createdAt,
+      partyPro: !!partyData.partyPro, // Party-wide Pro status
+      source: partyData.source || "local" // Host-selected source
     });
     
   } catch (error) {
@@ -2003,6 +2012,109 @@ app.post("/api/end-party", async (req, res) => {
     console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);
     res.status(500).json({ 
       error: "Failed to end party",
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/apply-promo - Apply promo code to unlock party-wide Pro
+app.post("/api/apply-promo", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/apply-promo at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
+  
+  try {
+    const { partyCode, promoCode } = req.body;
+    
+    if (!partyCode || !promoCode) {
+      return res.status(400).json({ error: "Party code and promo code are required" });
+    }
+    
+    // Normalize codes
+    const code = partyCode.trim().toUpperCase();
+    const promo = promoCode.trim().toUpperCase();
+    
+    // Validate party code length
+    if (code.length !== 6) {
+      return res.status(400).json({ error: "Party code must be 6 characters" });
+    }
+    
+    // Determine storage backend
+    const useRedis = redis && redisReady;
+    
+    // In production mode, Redis is required
+    if (IS_PRODUCTION && !useRedis) {
+      return res.status(503).json({ 
+        error: "Server not ready - Redis unavailable",
+        details: "Multi-device features require Redis"
+      });
+    }
+    
+    // Get party data
+    let partyData;
+    if (useRedis) {
+      try {
+        partyData = await getPartyFromRedis(code);
+      } catch (error) {
+        console.warn(`[HTTP] Redis error, trying fallback: ${error.message}`);
+        partyData = getPartyFromFallback(code);
+      }
+    } else {
+      partyData = getPartyFromFallback(code);
+    }
+    
+    if (!partyData) {
+      return res.status(404).json({ error: "Party not found" });
+    }
+    
+    // Check if promo already used
+    if (partyData.promoUsed) {
+      console.log(`[Promo] Attempt to reuse promo in party ${code}`);
+      return res.status(400).json({ error: "This party already used a promo code." });
+    }
+    
+    // Validate promo code
+    const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
+    if (!PROMO_CODES.includes(promo)) {
+      console.log(`[Promo] Invalid promo code attempt: ${promo}, partyCode: ${code}`);
+      return res.status(400).json({ error: "Invalid or expired promo code." });
+    }
+    
+    // Valid and unused - unlock party-wide Pro
+    partyData.promoUsed = true;
+    partyData.partyPro = true;
+    console.log(`[Promo] Party ${code} unlocked with promo code ${promo} via HTTP`);
+    
+    // Save updated party data
+    if (useRedis) {
+      try {
+        await setPartyInRedis(code, partyData);
+      } catch (error) {
+        console.warn(`[HTTP] Redis write failed for ${code}, using fallback: ${error.message}`);
+        setPartyInFallback(code, partyData);
+      }
+    } else {
+      setPartyInFallback(code, partyData);
+    }
+    
+    // Also update WebSocket party if it exists
+    const wsParty = parties.get(code);
+    if (wsParty) {
+      wsParty.promoUsed = true;
+      wsParty.partyPro = true;
+      // Broadcast to all WebSocket members
+      broadcastRoomState(code);
+    }
+    
+    res.json({ 
+      ok: true, 
+      partyPro: true,
+      message: "Pro unlocked for this party!"
+    });
+    
+  } catch (error) {
+    console.error(`[HTTP] Error applying promo, instanceId: ${INSTANCE_ID}:`, error);
+    res.status(500).json({ 
+      error: "Failed to apply promo code",
       details: error.message 
     });
   }

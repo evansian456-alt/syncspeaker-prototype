@@ -4229,7 +4229,8 @@ function attemptAddPhone() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          djName: djName
+          djName: djName,
+          source: state.source || "local"
         }),
         signal: controller.signal
       });
@@ -6903,17 +6904,55 @@ if (promoBtn) {
   promoBtn.onclick = () => promoModal.classList.remove("hidden");
   promoClose.onclick = () => promoModal.classList.add("hidden");
 
-  promoApply.onclick = () => {
+  promoApply.onclick = async () => {
     const code = promoInput.value.trim().toUpperCase();
     if (!code) {
       toast("Please enter a promo code");
       return;
     }
     
-    // Send to server for validation
-    send({ t: "APPLY_PROMO", code });
-    promoModal.classList.add("hidden");
-    promoInput.value = ""; // Clear input
+    // Check if we have a party code
+    if (!state.code) {
+      toast("You must be in a party to use a promo code");
+      return;
+    }
+    
+    // Try WebSocket first (if connected), fallback to HTTP
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      // Send to server via WebSocket for validation
+      send({ t: "APPLY_PROMO", code });
+      promoModal.classList.add("hidden");
+      promoInput.value = ""; // Clear input
+    } else {
+      // Use HTTP endpoint when WebSocket not available
+      try {
+        const response = await fetch("/api/apply-promo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            partyCode: state.code,
+            promoCode: code
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          toast(data.error || "Failed to apply promo code");
+        } else {
+          // Success - update state and UI
+          state.partyPro = true;
+          setPlanPill();
+          toast("🎉 Pro unlocked for this party!");
+        }
+      } catch (error) {
+        console.error("[Promo] HTTP error:", error);
+        toast("Failed to apply promo code");
+      }
+      
+      promoModal.classList.add("hidden");
+      promoInput.value = ""; // Clear input
+    }
   };
 }
 
