@@ -6,9 +6,18 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
-const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
-const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
+const DRIFT_CORRECTION_THRESHOLD_SEC = 0.20; // Ignore drift below this threshold
+const DRIFT_SOFT_CORRECTION_THRESHOLD_SEC = 0.80; // Soft correction threshold
+const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
+const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
+const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
+
+// Sync quality indicator labels
+const SYNC_QUALITY_EXCELLENT = "Excellent";
+const SYNC_QUALITY_GOOD = "Good";
+const SYNC_QUALITY_MEDIUM = "Medium";
+const SYNC_QUALITY_POOR = "Poor";
 
 // All views in the application
 const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
@@ -50,6 +59,7 @@ const state = {
   ws: null,
   clientId: null,
   code: null,
+  hostId: null, // PHASE 7: Host ID for queue operations (returned from create-party)
   isHost: false,
   name: "Guest",
   djName: null, // DJ name for guest view
@@ -78,6 +88,9 @@ const state = {
   guestAudioElement: null, // Audio element for guest playback
   guestAudioReady: false, // Flag if guest audio is loaded and ready
   guestNeedsTap: false, // Flag if guest needs to tap to play
+  audioUnlocked: false, // Flag if audio has been unlocked by user interaction (for autoplay restrictions)
+  showResyncButton: false, // Flag to show/hide Re-sync button conditionally
+  driftCheckFailures: 0, // Counter for consecutive large drift failures
   // Crowd Energy state
   crowdEnergy: 0, // 0-100
   crowdEnergyPeak: 0,
@@ -115,24 +128,7 @@ const state = {
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
-  temporaryUserId: null, // Temporary ID for prototype mode users
-  // Server time sync state (Phase 1)
-  serverOffsetMs: 0, // Estimated offset from server time (serverTime ≈ Date.now() + offset)
-  offsetQuality: 0, // Quality indicator based on RTT (0-1)
-  timeSyncInterval: null, // Interval for periodic time sync
-  lastTimeSyncRtt: null, // Last measured RTT for diagnostics
-  // Scheduled playback state (Phase 3)
-  pendingStartAtServerMs: null, // Server timestamp when playback should start
-  pendingStartPositionSec: null, // Position at which to start
-  pendingTrackUrl: null, // Track URL for pending playback
-  pendingTrackFilename: null, // Track filename for pending playback
-  // Drift correction state (Phase 4)
-  driftCorrectionInterval: null, // Interval for drift monitoring
-  smoothedDriftSec: 0, // EWMA smoothed drift value
-  playbackStartAtServerMs: null, // Server timestamp when current playback started
-  playbackStartPositionSec: null, // Position when current playback started
-  hardResyncCount: 0, // Count of hard resyncs in recent window
-  lastHardResyncTime: 0 // Timestamp of last hard resync
+  temporaryUserId: null // Temporary ID for prototype mode users
 };
 
 /**
@@ -549,634 +545,6 @@ function sendGuestQuickReply(key) {
   send({ t: "GUEST_QUICK_REPLY", key: key });
 }
 
-// ============================================================================
-// PHASE 1: SERVER TIME SYNC (PING/PONG)
-// ============================================================================
-
-/**
- * Get current server time estimate
- * @returns {number} Estimated server timestamp in milliseconds
- */
-function nowServerMs() {
-  return Date.now() + state.serverOffsetMs;
-}
-
-/**
- * Send a time ping to the server
- */
-function sendTimePing() {
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-    console.log("[TimeSync] Cannot ping - WebSocket not connected");
-    return;
-  }
-  
-  const t0 = Date.now();
-  const pingId = `ping-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-  
-  console.log(`[TimeSync] Sending TIME_PING with id ${pingId}`);
-  send({
-    t: "TIME_PING",
-    clientNowMs: t0,
-    pingId: pingId
-  });
-}
-
-/**
- * Handle TIME_PONG response from server
- */
-function handleTimePong(msg) {
-  const t2 = Date.now();
-  const t0 = msg.clientNowMs;
-  const t1 = msg.serverNowMs;
-  
-  // Calculate round-trip time and one-way delay
-  const rtt = t2 - t0;
-  const oneWay = rtt / 2;
-  
-  // Ignore samples with high RTT (> 800ms) - likely unreliable
-  if (rtt > 800) {
-    console.log(`[TimeSync] Ignoring sample with high RTT: ${rtt}ms`);
-    return;
-  }
-  
-  // Estimate server time at t2
-  const estimatedServerAtT2 = t1 + oneWay;
-  const newOffset = estimatedServerAtT2 - t2;
-  
-  // Apply EWMA smoothing to reduce jitter (80% old, 20% new)
-  state.serverOffsetMs = 0.8 * state.serverOffsetMs + 0.2 * newOffset;
-  
-  // Update quality indicator based on RTT (lower RTT = higher quality)
-  // Quality range 0-1, where RTT < 50ms = 1.0, RTT > 500ms = 0.0
-  const quality = Math.max(0, Math.min(1, (500 - rtt) / 450));
-  state.offsetQuality = 0.8 * state.offsetQuality + 0.2 * quality;
-  
-  // Store last RTT for diagnostics
-  state.lastTimeSyncRtt = rtt;
-  
-  console.log(`[TimeSync] Offset: ${state.serverOffsetMs.toFixed(2)}ms, RTT: ${rtt}ms, Quality: ${state.offsetQuality.toFixed(2)}`);
-}
-
-/**
- * Start periodic time sync
- */
-function startTimeSync() {
-  // Send initial ping immediately
-  sendTimePing();
-  
-  // Then ping every 30 seconds
-  if (state.timeSyncInterval) {
-    clearInterval(state.timeSyncInterval);
-  }
-  state.timeSyncInterval = setInterval(() => {
-    sendTimePing();
-  }, 30000); // 30 seconds
-  
-  console.log("[TimeSync] Started periodic time sync (every 30s)");
-}
-
-/**
- * Stop periodic time sync
- */
-function stopTimeSync() {
-  if (state.timeSyncInterval) {
-    clearInterval(state.timeSyncInterval);
-    state.timeSyncInterval = null;
-    console.log("[TimeSync] Stopped periodic time sync");
-  }
-}
-
-// ============================================================================
-// PHASE 3: SCHEDULED START (PREPARE_PLAY → PLAY_AT)
-// ============================================================================
-
-/**
- * Handle PREPARE_PLAY message from server
- * Guest should preload audio and prepare for synchronized start
- */
-function handlePreparePlay(msg) {
-  if (state.isHost) return; // Only guests handle this
-  
-  console.log("[ScheduledStart] Received PREPARE_PLAY:", msg);
-  
-  // Store pending playback info
-  state.pendingStartAtServerMs = msg.startAtServerMs;
-  state.pendingStartPositionSec = msg.startPositionSec || 0;
-  state.pendingTrackUrl = msg.trackUrl;
-  state.pendingTrackFilename = msg.filename || "Unknown Track";
-  
-  // Update now playing display
-  state.nowPlayingFilename = state.pendingTrackFilename;
-  updateGuestNowPlaying(state.pendingTrackFilename);
-  
-  // Preload audio if URL provided
-  if (msg.trackUrl) {
-    if (!state.guestAudioElement) {
-      state.guestAudioElement = new Audio();
-      state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
-      
-      // Add event listeners
-      state.guestAudioElement.addEventListener('loadedmetadata', () => {
-        console.log("[Guest Audio] Metadata loaded, ready for scheduled start");
-        state.guestAudioReady = true;
-      });
-      
-      state.guestAudioElement.addEventListener('canplay', () => {
-        console.log("[Guest Audio] Can play, buffered and ready");
-      });
-      
-      state.guestAudioElement.addEventListener('error', (e) => {
-        const errorCode = state.guestAudioElement.error?.code;
-        const errorMsg = state.guestAudioElement.error?.message || "Unknown error";
-        console.error("[Guest Audio] Error during preload:", errorCode, errorMsg);
-        toast(`❌ Audio error: ${errorMsg}`);
-      });
-    }
-    
-    // Set source to preload
-    if (state.guestAudioElement.src !== msg.trackUrl) {
-      state.guestAudioElement.src = msg.trackUrl;
-      state.guestAudioReady = false;
-      
-      // Trigger load
-      state.guestAudioElement.load();
-      console.log("[ScheduledStart] Audio preload started for:", msg.trackUrl);
-    }
-  }
-  
-  toast("🎵 Track loading...");
-  updateGuestPlaybackState("PREPARING");
-  updateGuestVisualMode("preparing");
-}
-
-/**
- * Handle PLAY_AT message from server
- * Start playback at exact server time
- */
-function handlePlayAt(msg) {
-  if (state.isHost) return; // Only guests handle this
-  
-  console.log("[ScheduledStart] Received PLAY_AT:", msg);
-  
-  const startAtServerMs = msg.startAtServerMs;
-  const startPositionSec = msg.startPositionSec || 0;
-  
-  // Calculate target time using server offset
-  const serverNow = nowServerMs();
-  const elapsedMs = serverNow - startAtServerMs;
-  const elapsedSec = elapsedMs / 1000;
-  const targetTimeSec = startPositionSec + elapsedSec;
-  
-  console.log(`[ScheduledStart] Server now: ${serverNow}, Start at: ${startAtServerMs}, Elapsed: ${elapsedSec.toFixed(3)}s, Target: ${targetTimeSec.toFixed(3)}s`);
-  
-  // Update state
-  state.playing = true;
-  state.lastHostEvent = "PLAY_AT";
-  updateGuestPlaybackState("PLAYING");
-  updateGuestVisualMode("playing");
-  
-  // Attempt to play at exact time
-  if (state.guestAudioElement && msg.trackUrl) {
-    // Wait for metadata to be loaded
-    const attemptPlay = () => {
-      if (state.guestAudioElement.readyState >= 1) { // HAVE_METADATA
-        // Set current time to target
-        state.guestAudioElement.currentTime = Math.max(0, targetTimeSec);
-        
-        // Attempt to play
-        const playPromise = state.guestAudioElement.play();
-        
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            console.log("[ScheduledStart] Playback started successfully at", state.guestAudioElement.currentTime.toFixed(3), "s");
-            state.guestNeedsTap = false;
-            
-            // Start drift correction (Phase 4)
-            startDriftCorrection(startAtServerMs, startPositionSec);
-          }).catch((error) => {
-            console.warn("[ScheduledStart] Autoplay blocked:", error);
-            // Autoplay restriction - show tap to play
-            state.guestNeedsTap = true;
-            showGuestTapToPlay();
-            toast("👆 Tap Play to start audio");
-          });
-        }
-      } else {
-        // Wait for metadata
-        console.log("[ScheduledStart] Waiting for metadata...");
-        state.guestAudioElement.addEventListener('loadedmetadata', () => {
-          attemptPlay();
-        }, { once: true });
-      }
-    };
-    
-    attemptPlay();
-  } else {
-    toast("Host is playing locally - no audio sync available");
-  }
-}
-
-/**
- * Show guest tap to play button
- */
-function showGuestTapToPlay() {
-  // Find or create tap to play button
-  let tapButton = document.getElementById('guestTapToPlay');
-  
-  if (!tapButton) {
-    tapButton = document.createElement('button');
-    tapButton.id = 'guestTapToPlay';
-    tapButton.className = 'btn-primary';
-    tapButton.textContent = '▶️ TAP TO PLAY';
-    tapButton.style.cssText = `
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 1000;
-      font-size: 1.5rem;
-      padding: 1.5rem 3rem;
-      animation: pulse 2s infinite;
-    `;
-    
-    tapButton.onclick = () => {
-      handleGuestTapToPlay();
-    };
-    
-    document.body.appendChild(tapButton);
-  }
-  
-  tapButton.style.display = 'block';
-}
-
-/**
- * Handle guest tap to play (overcome autoplay restriction)
- */
-function handleGuestTapToPlay() {
-  const tapButton = document.getElementById('guestTapToPlay');
-  if (tapButton) {
-    tapButton.style.display = 'none';
-  }
-  
-  if (!state.guestAudioElement) return;
-  
-  // Calculate current expected time based on server time
-  if (state.pendingStartAtServerMs !== null && state.pendingStartPositionSec !== null) {
-    const serverNow = nowServerMs();
-    const elapsedMs = serverNow - state.pendingStartAtServerMs;
-    const elapsedSec = elapsedMs / 1000;
-    const targetTimeSec = state.pendingStartPositionSec + elapsedSec;
-    
-    console.log(`[GuestTap] Snapping to expected time: ${targetTimeSec.toFixed(3)}s`);
-    
-    // Snap to correct time
-    state.guestAudioElement.currentTime = Math.max(0, targetTimeSec);
-    
-    // Play
-    state.guestAudioElement.play().then(() => {
-      console.log("[GuestTap] Playback started at", state.guestAudioElement.currentTime.toFixed(3), "s");
-      state.guestNeedsTap = false;
-      
-      // Start drift correction
-      startDriftCorrection(state.pendingStartAtServerMs, state.pendingStartPositionSec);
-    }).catch((error) => {
-      console.error("[GuestTap] Play failed:", error);
-      toast("❌ Failed to start playback");
-    });
-  } else {
-    // Fallback: just play from current position
-    state.guestAudioElement.play().catch((error) => {
-      console.error("[GuestTap] Play failed:", error);
-      toast("❌ Failed to start playback");
-    });
-  }
-}
-
-/**
- * Fetch party state and resync playback (for late join / tab recovery)
- * Phase 5: Tab Sleep / Background Recovery
- */
-async function fetchPartyStateAndResync() {
-  if (!state.code) {
-    console.log("[PartyResync] No party code, skipping resync");
-    return;
-  }
-  
-  try {
-    console.log("[PartyResync] Fetching party state for:", state.code);
-    
-    const response = await fetch(`/api/party-state?code=${encodeURIComponent(state.code)}`);
-    
-    if (!response.ok) {
-      console.warn("[PartyResync] Failed to fetch party state:", response.status);
-      return;
-    }
-    
-    const partyState = await response.json();
-    
-    if (!partyState.exists || partyState.status === 'expired' || partyState.status === 'ended') {
-      console.log("[PartyResync] Party has ended or expired");
-      return;
-    }
-    
-    console.log("[PartyResync] Party state:", partyState);
-    
-    // Check if there's a current track playing
-    if (partyState.currentTrack && partyState.currentTrack.status === 'playing') {
-      const track = partyState.currentTrack;
-      
-      console.log("[PartyResync] Current track is playing:", track.filename);
-      
-      // Calculate expected playback position
-      const serverNow = nowServerMs();
-      const elapsedMs = serverNow - track.startAtServerMs;
-      const elapsedSec = elapsedMs / 1000;
-      const expectedSec = track.startPositionSec + elapsedSec;
-      
-      console.log(`[PartyResync] Expected position: ${expectedSec.toFixed(3)}s`);
-      
-      // Update state
-      state.nowPlayingFilename = track.filename || track.title;
-      updateGuestNowPlaying(state.nowPlayingFilename);
-      
-      // Set up or update audio element
-      if (!state.guestAudioElement) {
-        state.guestAudioElement = new Audio();
-        state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
-      }
-      
-      // If track URL is different, update source
-      const trackUrl = track.url || track.trackUrl;
-      if (trackUrl && state.guestAudioElement.src !== trackUrl) {
-        state.guestAudioElement.src = trackUrl;
-        
-        // Wait for metadata then start
-        state.guestAudioElement.addEventListener('loadedmetadata', () => {
-          resyncToPosition(expectedSec, track.startAtServerMs, track.startPositionSec);
-        }, { once: true });
-      } else if (trackUrl) {
-        // Same track, just resync position
-        resyncToPosition(expectedSec, track.startAtServerMs, track.startPositionSec);
-      }
-    } else if (partyState.currentTrack && partyState.currentTrack.status === 'preparing') {
-      console.log("[PartyResync] Track is preparing, waiting for PLAY_AT");
-      // Store pending info
-      state.pendingStartAtServerMs = partyState.currentTrack.startAtServerMs;
-      state.pendingStartPositionSec = partyState.currentTrack.startPositionSec;
-      state.pendingTrackUrl = partyState.currentTrack.url || partyState.currentTrack.trackUrl;
-      state.pendingTrackFilename = partyState.currentTrack.filename;
-    } else {
-      console.log("[PartyResync] No active playback");
-    }
-    
-  } catch (error) {
-    console.error("[PartyResync] Error fetching party state:", error);
-  }
-}
-
-/**
- * Resync to a specific position
- */
-function resyncToPosition(targetSec, startAtServerMs, startPositionSec) {
-  if (!state.guestAudioElement) return;
-  
-  console.log(`[PartyResync] Resyncing to position ${targetSec.toFixed(3)}s`);
-  
-  // Set position
-  state.guestAudioElement.currentTime = Math.max(0, targetSec);
-  
-  // Start playback
-  const playPromise = state.guestAudioElement.play();
-  
-  if (playPromise !== undefined) {
-    playPromise.then(() => {
-      console.log("[PartyResync] Playback resumed at", state.guestAudioElement.currentTime.toFixed(3), "s");
-      state.guestNeedsTap = false;
-      updateGuestPlaybackState("PLAYING");
-      updateGuestVisualMode("playing");
-      
-      // Start drift correction
-      startDriftCorrection(startAtServerMs, startPositionSec);
-    }).catch((error) => {
-      console.warn("[PartyResync] Autoplay blocked, showing tap to play:", error);
-      state.guestNeedsTap = true;
-      state.pendingStartAtServerMs = startAtServerMs;
-      state.pendingStartPositionSec = startPositionSec;
-      showGuestTapToPlay();
-    });
-  }
-}
-
-// ============================================================================
-// PHASE 4: DRIFT CORRECTION (AUTO, SMOOTH, LOW-GLITCH)
-// ============================================================================
-
-/**
- * Start drift correction monitoring
- */
-function startDriftCorrection(startAtServerMs, startPositionSec) {
-  // Store playback start reference
-  state.playbackStartAtServerMs = startAtServerMs;
-  state.playbackStartPositionSec = startPositionSec;
-  state.smoothedDriftSec = 0;
-  
-  // Stop any existing drift correction
-  stopDriftCorrection();
-  
-  // Start monitoring loop every 2 seconds
-  state.driftCorrectionInterval = setInterval(() => {
-    monitorAndCorrectDrift();
-  }, 2000);
-  
-  console.log("[DriftCorrection] Started drift monitoring");
-}
-
-/**
- * Stop drift correction monitoring
- */
-function stopDriftCorrection() {
-  if (state.driftCorrectionInterval) {
-    clearInterval(state.driftCorrectionInterval);
-    state.driftCorrectionInterval = null;
-    console.log("[DriftCorrection] Stopped drift monitoring");
-  }
-  
-  // Reset playback rate to normal if it was adjusted
-  if (state.guestAudioElement && state.guestAudioElement.playbackRate !== 1.0) {
-    state.guestAudioElement.playbackRate = 1.0;
-  }
-}
-
-/**
- * Monitor drift and apply corrections
- */
-function monitorAndCorrectDrift() {
-  if (!state.guestAudioElement || state.guestAudioElement.paused) {
-    return;
-  }
-  
-  if (state.playbackStartAtServerMs === null || state.playbackStartPositionSec === null) {
-    return;
-  }
-  
-  // Calculate expected position
-  const serverNow = nowServerMs();
-  const elapsedMs = serverNow - state.playbackStartAtServerMs;
-  const elapsedSec = elapsedMs / 1000;
-  const expectedSec = state.playbackStartPositionSec + elapsedSec;
-  
-  // Calculate actual position
-  const actualSec = state.guestAudioElement.currentTime;
-  
-  // Calculate drift (positive = ahead, negative = behind)
-  const driftSec = actualSec - expectedSec;
-  
-  // Apply EWMA smoothing (70% old, 30% new)
-  state.smoothedDriftSec = 0.7 * state.smoothedDriftSec + 0.3 * driftSec;
-  
-  console.log(`[DriftCorrection] Expected: ${expectedSec.toFixed(3)}s, Actual: ${actualSec.toFixed(3)}s, Drift: ${driftSec.toFixed(3)}s, Smoothed: ${state.smoothedDriftSec.toFixed(3)}s`);
-  
-  // Ignore small drift (< 0.20s)
-  if (Math.abs(state.smoothedDriftSec) < 0.20) {
-    // Reset playback rate to normal if it was adjusted
-    if (state.guestAudioElement.playbackRate !== 1.0) {
-      state.guestAudioElement.playbackRate = 1.0;
-      console.log("[DriftCorrection] Reset playback rate to 1.0");
-    }
-    return;
-  }
-  
-  // Hard resync for large drift (> 1.0s)
-  if (Math.abs(state.smoothedDriftSec) > 1.0) {
-    console.warn(`[DriftCorrection] Large drift detected (${state.smoothedDriftSec.toFixed(3)}s), performing hard resync`);
-    
-    // Hard resync: seek to expected position
-    state.guestAudioElement.currentTime = expectedSec;
-    state.smoothedDriftSec = 0; // Reset smoothed drift
-    
-    // Track hard resyncs
-    state.hardResyncCount++;
-    state.lastHardResyncTime = Date.now();
-    
-    // Show re-sync button if too many resyncs (2+ in 30s) or drift > 1.5s
-    if (state.hardResyncCount >= 2 && (Date.now() - state.lastHardResyncTime < 30000)) {
-      showResyncButton();
-    } else if (Math.abs(driftSec) > 1.5) {
-      showResyncButton();
-    }
-    
-    // Reset hard resync counter after 30 seconds
-    setTimeout(() => {
-      if (state.hardResyncCount > 0) {
-        state.hardResyncCount--;
-      }
-    }, 30000);
-    
-    return;
-  }
-  
-  // Soft correction for medium drift (0.20s - 0.80s)
-  if (Math.abs(state.smoothedDriftSec) >= 0.20 && Math.abs(state.smoothedDriftSec) <= 0.80) {
-    // Use playback rate adjustment
-    if (state.smoothedDriftSec < -0.25) {
-      // Behind: speed up slightly
-      state.guestAudioElement.playbackRate = 1.05;
-      console.log("[DriftCorrection] Speeding up (rate 1.05) to catch up");
-      
-      // Reset after 3 seconds
-      setTimeout(() => {
-        if (state.guestAudioElement && state.guestAudioElement.playbackRate === 1.05) {
-          state.guestAudioElement.playbackRate = 1.0;
-          console.log("[DriftCorrection] Reset playback rate to 1.0");
-        }
-      }, 3000);
-    } else if (state.smoothedDriftSec > 0.25) {
-      // Ahead: slow down slightly
-      state.guestAudioElement.playbackRate = 0.95;
-      console.log("[DriftCorrection] Slowing down (rate 0.95) to fall back");
-      
-      // Reset after 3 seconds
-      setTimeout(() => {
-        if (state.guestAudioElement && state.guestAudioElement.playbackRate === 0.95) {
-          state.guestAudioElement.playbackRate = 1.0;
-          console.log("[DriftCorrection] Reset playback rate to 1.0");
-        }
-      }, 3000);
-    }
-  }
-}
-
-/**
- * Show re-sync button for manual intervention
- */
-function showResyncButton() {
-  let resyncButton = document.getElementById('guestResyncButton');
-  
-  if (!resyncButton) {
-    resyncButton = document.createElement('button');
-    resyncButton.id = 'guestResyncButton';
-    resyncButton.className = 'btn-secondary';
-    resyncButton.textContent = '🔄 Re-sync';
-    resyncButton.style.cssText = `
-      position: fixed;
-      bottom: 2rem;
-      right: 2rem;
-      z-index: 999;
-      font-size: 1rem;
-      padding: 0.75rem 1.5rem;
-    `;
-    
-    resyncButton.onclick = () => {
-      manualResync();
-    };
-    
-    document.body.appendChild(resyncButton);
-  }
-  
-  resyncButton.style.display = 'block';
-}
-
-/**
- * Hide re-sync button
- */
-function hideResyncButton() {
-  const resyncButton = document.getElementById('guestResyncButton');
-  if (resyncButton) {
-    resyncButton.style.display = 'none';
-  }
-}
-
-/**
- * Manually trigger a resync
- */
-function manualResync() {
-  console.log("[DriftCorrection] Manual resync triggered");
-  
-  if (!state.guestAudioElement || !state.playbackStartAtServerMs || !state.playbackStartPositionSec) {
-    toast("Cannot resync - no active playback");
-    return;
-  }
-  
-  // Calculate expected position
-  const serverNow = nowServerMs();
-  const elapsedMs = serverNow - state.playbackStartAtServerMs;
-  const elapsedSec = elapsedMs / 1000;
-  const expectedSec = state.playbackStartPositionSec + elapsedSec;
-  
-  // Seek to expected position
-  state.guestAudioElement.currentTime = expectedSec;
-  
-  // Reset drift tracking
-  state.smoothedDriftSec = 0;
-  state.hardResyncCount = 0;
-  
-  // Hide resync button
-  hideResyncButton();
-  
-  toast("✅ Re-synced");
-  console.log(`[DriftCorrection] Manual resync to ${expectedSec.toFixed(3)}s`);
-}
-
 function handleServer(msg) {
   // Track last WebSocket message for diagnostics
   if (msg.t) {
@@ -1188,10 +556,6 @@ function handleServer(msg) {
     state.clientId = msg.clientId; 
     state.connected = true;
     updateDebugState();
-    
-    // Start time sync on connection (Phase 1)
-    startTimeSync();
-    
     return; 
   }
   if (msg.t === "CREATED") {
@@ -1374,9 +738,23 @@ function handleServer(msg) {
       updateGuestPlaybackState("PAUSED");
       updateGuestVisualMode("paused");
       
-      // Pause guest audio if playing
-      if (state.guestAudioElement && !state.guestAudioElement.paused) {
-        state.guestAudioElement.pause();
+      // Pause guest audio if playing and sync to paused position if provided
+      if (state.guestAudioElement) {
+        if (!state.guestAudioElement.paused) {
+          state.guestAudioElement.pause();
+        }
+        
+        // If server provides pausedPositionSec, seek to that position
+        if (hasPausedPosition(msg) && state.guestAudioElement.duration) {
+          clampAndSeekAudio(state.guestAudioElement, msg.pausedPositionSec);
+          console.log("[Guest] Paused at position:", msg.pausedPositionSec.toFixed(2), "s");
+        }
+        
+        // Update dataset for future sync operations
+        if (msg.pausedAtServerMs && hasPausedPosition(msg)) {
+          state.guestAudioElement.dataset.startAtServerMs = msg.pausedAtServerMs.toString();
+          state.guestAudioElement.dataset.startPositionSec = msg.pausedPositionSec.toString();
+        }
       }
       
       // Stop drift correction when paused
@@ -1414,6 +792,16 @@ function handleServer(msg) {
     state.upNextFilename = msg.nextFilename || null;
     state.lastHostEvent = "TRACK_CHANGED";
     
+    // PHASE 7: Update currentTrack from server
+    if (msg.currentTrack) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
     if (!state.isHost) {
       updateGuestNowPlaying(msg.title || msg.filename);
       
@@ -1424,7 +812,7 @@ function handleServer(msg) {
       
       // Handle audio playback for new track
       if (msg.trackUrl) {
-        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.serverTimestamp, msg.positionSec || 0);
+        handleGuestAudioPlayback(msg.trackUrl, msg.title || msg.filename, msg.startAtServerMs || msg.serverTimestamp, msg.startPositionSec || msg.positionSec || 0);
       }
       
       updateGuestVisualMode("track-change");
@@ -1434,6 +822,9 @@ function handleServer(msg) {
           updateGuestVisualMode("playing");
         }
       }, 500);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;
@@ -1462,8 +853,21 @@ function handleServer(msg) {
   }
   
   if (msg.t === "QUEUE_UPDATED") {
+    // PHASE 7: Update queue from server
+    if (msg.queue !== undefined) {
+      musicState.queue = msg.queue || [];
+    }
+    
+    // PHASE 7: Update currentTrack if provided
+    if (msg.currentTrack !== undefined) {
+      musicState.currentTrack = msg.currentTrack;
+    }
+    
     if (!state.isHost) {
       updateGuestQueue(msg.queue || []);
+    } else {
+      // PHASE 7: Update host queue UI
+      updateHostQueueUI();
     }
     updateDebugState();
     return;
@@ -1601,24 +1005,6 @@ function handleServer(msg) {
     
     return;
   }
-  
-  // Phase 1: Server Time Sync - Handle TIME_PONG response
-  if (msg.t === "TIME_PONG") {
-    handleTimePong(msg);
-    return;
-  }
-  
-  // Phase 3: Scheduled Start - Handle PREPARE_PLAY
-  if (msg.t === "PREPARE_PLAY") {
-    handlePreparePlay(msg);
-    return;
-  }
-  
-  // Phase 3: Scheduled Start - Handle PLAY_AT
-  if (msg.t === "PLAY_AT") {
-    handlePlayAt(msg);
-    return;
-  }
 }
 
 function showHome() {
@@ -1651,12 +1037,6 @@ function showHome() {
   
   // Stop party status polling
   stopPartyStatusPolling();
-  
-  // Cleanup sync features (Phase 1, 4)
-  stopTimeSync();
-  stopDriftCorrection();
-  hideResyncButton();
-  hideTapToPlayButton();
   
   setPlanPill();
   updateDebugState();
@@ -2041,6 +1421,68 @@ function stopPartyStatusPolling() {
   }
 }
 
+// Helper: Check if track has valid paused position
+function hasPausedPosition(track) {
+  return track && track.pausedPositionSec != null; // Checks for both undefined and null
+}
+
+// Helper: Check if guest audio can auto-resume (is paused and unlocked)
+function canResumeGuestAudio() {
+  return state.guestAudioElement && 
+         state.guestAudioElement.paused && 
+         state.audioUnlocked;
+}
+
+// Helper: Handle playing track from polling
+function handlePlayingTrackFromPolling(track) {
+  // Check if this is a new track or track start
+  if (track.filename !== state.nowPlayingFilename) {
+    console.log("[Polling] New track detected:", track.filename);
+    state.nowPlayingFilename = track.filename;
+    updateGuestNowPlaying(track.filename);
+    
+    // If track has URL, prepare guest audio
+    if (track.url) {
+      handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+    } else {
+      // No URL - host playing local file
+      toast("🎵 Host is playing: " + track.filename);
+    }
+  } else if (canResumeGuestAudio()) {
+    // Track is same but guest audio is paused while host is playing - resume with sync
+    console.log("[Polling] Resuming paused audio to match host playing state");
+    const elapsedSec = (Date.now() - track.startAtServerMs) / 1000;
+    const targetSec = (track.startPosition || 0) + elapsedSec;
+    clampAndSeekAudio(state.guestAudioElement, targetSec);
+    state.guestAudioElement.play().catch(err => {
+      console.warn("[Polling] Could not auto-resume:", err);
+    });
+  }
+}
+
+// Helper: Handle paused track from polling
+function handlePausedTrackFromPolling(track) {
+  // Host paused - ensure guest is also paused at correct position
+  if (state.guestAudioElement && !state.guestAudioElement.paused) {
+    console.log("[Polling] Pausing guest audio to match host");
+    state.guestAudioElement.pause();
+    if (hasPausedPosition(track)) {
+      clampAndSeekAudio(state.guestAudioElement, track.pausedPositionSec);
+    }
+  }
+}
+
+// Helper: Handle stopped track from polling
+function handleStoppedTrackFromPolling(track) {
+  // Host stopped - ensure guest is also stopped
+  if (state.guestAudioElement) {
+    console.log("[Polling] Stopping guest audio to match host");
+    state.guestAudioElement.pause();
+    state.guestAudioElement.currentTime = 0;
+    stopDriftCorrection();
+  }
+}
+
 // Start polling party status for guests
 function startGuestPartyStatusPolling() {
   // Only poll for guests
@@ -2129,19 +1571,13 @@ function startGuestPartyStatusPolling() {
         if (data.currentTrack) {
           const track = data.currentTrack;
           
-          // Check if this is a new track or track start
-          if (track.filename !== state.nowPlayingFilename) {
-            console.log("[Polling] New track detected:", track.filename);
-            state.nowPlayingFilename = track.filename;
-            updateGuestNowPlaying(track.filename);
-            
-            // If track has URL, prepare guest audio
-            if (track.url) {
-              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
-            } else {
-              // No URL - host playing local file
-              toast("🎵 Host is playing: " + track.filename);
-            }
+          // Handle different playback statuses
+          if (track.status === 'playing') {
+            handlePlayingTrackFromPolling(track);
+          } else if (track.status === 'paused') {
+            handlePausedTrackFromPolling(track);
+          } else if (track.status === 'stopped') {
+            handleStoppedTrackFromPolling(track);
           }
         }
         
@@ -2314,6 +1750,10 @@ function showGuest() {
   // Setup volume control
   setupGuestVolumeControl();
   
+  // Initialize resync button to hidden (will show only when needed)
+  state.showResyncButton = false;
+  updateResyncButtonVisibility();
+  
   setPlanPill();
   updateDebugState();
   
@@ -2323,9 +1763,42 @@ function showGuest() {
 
 // Check if host is already playing when guest joins mid-track
 async function checkForMidTrackJoin(code) {
-  // Phase 3: Use new fetchPartyStateAndResync for late join
-  console.log("[Mid-Track Join] Checking party state for late join");
-  await fetchPartyStateAndResync();
+  try {
+    const response = await fetch(`/api/party-state?code=${code}`);
+    const data = await response.json();
+    
+    if (data.exists && data.currentTrack && data.currentTrack.status === 'playing') {
+      console.log("[Mid-Track Join] Host is playing:", data.currentTrack);
+      
+      // Update state
+      state.nowPlayingFilename = data.currentTrack.title || data.currentTrack.filename;
+      updateGuestNowPlaying(state.nowPlayingFilename);
+      
+      // Update queue if available
+      if (data.queue) {
+        updateGuestQueue(data.queue);
+      }
+      
+      // Trigger audio playback with sync
+      if (data.currentTrack.url || data.currentTrack.trackUrl) {
+        handleGuestAudioPlayback(
+          data.currentTrack.url || data.currentTrack.trackUrl,
+          data.currentTrack.title || data.currentTrack.filename,
+          data.currentTrack.startAtServerMs,
+          data.currentTrack.startPositionSec || data.currentTrack.startPosition || 0
+        );
+        
+        state.playing = true;
+        updateGuestPlaybackState("PLAYING");
+        updateGuestVisualMode("playing");
+      }
+    } else if (data.queue && data.queue.length > 0) {
+      // No current track but queue exists
+      updateGuestQueue(data.queue);
+    }
+  } catch (error) {
+    console.error("[Mid-Track Join] Error checking party state:", error);
+  }
 }
 
 function updateGuestConnectionStatus(status = null) {
@@ -2639,7 +2112,7 @@ function updateGuestSyncDebug(startAtServerMs, startPositionSec) {
   if (startEl) startEl.textContent = `Start Pos: ${startPositionSec.toFixed(2)}s`;
 }
 
-// Play guest audio with metadata-safe seek
+// Play guest audio with metadata-safe seek and autoplay unlock handling
 function playGuestAudio() {
   if (!state.guestAudioElement || !state.guestAudioElement.src) {
     toast("No audio loaded");
@@ -2655,21 +2128,23 @@ function playGuestAudio() {
     const elapsedSec = (Date.now() - startAtServerMs) / 1000;
     let targetSec = startPositionSec + elapsedSec;
     
-    // Handle edge case: don't seek past duration
-    if (audioEl.duration && targetSec > audioEl.duration) {
-      targetSec = audioEl.duration;
+    // Clamp target to valid range
+    if (audioEl.duration && targetSec > audioEl.duration - 0.25) {
+      targetSec = Math.max(0, audioEl.duration - 0.25);
     }
     
     console.log("[Guest Audio] Syncing to position:", targetSec.toFixed(2), "s");
     console.log("[Guest Audio] Debug - elapsedSec:", elapsedSec.toFixed(2), "startPositionSec:", startPositionSec);
     
-    audioEl.currentTime = targetSec;
+    // Safely seek to target position
+    clampAndSeekAudio(audioEl, targetSec);
     
     audioEl.play()
       .then(() => {
         console.log("[Guest Audio] Playing from position:", targetSec.toFixed(2), "s");
         toast("🎵 Audio synced and playing!");
         state.guestNeedsTap = false;
+        state.audioUnlocked = true; // Mark audio as unlocked
         
         // Hide tap overlay
         const overlay = el("guestTapOverlay");
@@ -2679,10 +2154,23 @@ function playGuestAudio() {
         
         // Start drift correction
         startDriftCorrection(startAtServerMs, startPositionSec);
+        
+        // Hide re-sync button initially
+        state.showResyncButton = false;
+        updateResyncButtonVisibility();
       })
       .catch((error) => {
         console.error("[Guest Audio] Play failed:", error);
-        toast("❌ Could not play audio: " + error.message);
+        
+        // Autoplay was blocked
+        state.audioUnlocked = false;
+        toast("⚠️ Tap Play button to start audio");
+        
+        // Keep the tap overlay or show a message
+        const overlay = el("guestTapOverlay");
+        if (overlay) {
+          overlay.style.display = "flex";
+        }
       });
   };
   
@@ -2698,7 +2186,7 @@ function playGuestAudio() {
   }
 }
 
-// Drift correction - runs every 5 seconds
+// Drift correction - runs every 2 seconds with multi-threshold correction
 let driftCorrectionInterval = null;
 let lastDriftValue = 0; // Track last drift for UI updates
 
@@ -2708,33 +2196,72 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     clearInterval(driftCorrectionInterval);
   }
   
-  console.log("[Drift Correction] Started");
+  console.log("[Drift Correction] Started with multi-threshold approach");
   
   driftCorrectionInterval = setInterval(() => {
     if (!state.guestAudioElement || state.guestAudioElement.paused) {
       return;
     }
     
-    // Calculate ideal position
+    // Calculate ideal position based on server timestamp
     const elapsedSec = (Date.now() - startAtServerMs) / 1000;
     const idealSec = startPositionSec + elapsedSec;
     
-    // Calculate drift
+    // Calculate drift (positive = ahead, negative = behind)
     const currentSec = state.guestAudioElement.currentTime;
-    const drift = Math.abs(currentSec - idealSec);
-    lastDriftValue = drift;
+    const signedDrift = currentSec - idealSec;
+    const absDrift = Math.abs(signedDrift);
+    lastDriftValue = absDrift;
     
-    console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
+    console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", signedDrift.toFixed(3), "s");
     
     // Update drift UI
-    updateGuestSyncQuality(drift);
+    updateGuestSyncQuality(absDrift);
     
-    // Correct if drift > threshold
-    if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
-      console.log("[Drift Correction] Correcting drift of", drift.toFixed(3), "seconds");
-      state.guestAudioElement.currentTime = idealSec;
+    // Multi-threshold drift correction
+    if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
+      // Drift < 0.20s - ignore, within acceptable range
+      state.driftCheckFailures = 0;
+      state.showResyncButton = false;
+      updateResyncButtonVisibility();
+    } else if (absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
+      // Drift 0.20s - 0.80s - soft correction (small seek)
+      console.log("[Drift Correction] Soft correction - adjusting by", signedDrift.toFixed(3), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures = 0;
+    } else if (absDrift < DRIFT_HARD_RESYNC_THRESHOLD_SEC) {
+      // Drift 0.80s - 1.00s - still soft correction but more aggressive
+      console.log("[Drift Correction] Moderate drift - hard seeking to", idealSec.toFixed(2), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures++;
+    } else {
+      // Drift > 1.00s - hard resync
+      console.log("[Drift Correction] Large drift detected - hard resync to", idealSec.toFixed(2), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures++;
+      
+      // Show re-sync button if drift is very large or repeated failures
+      if (absDrift > DRIFT_SHOW_RESYNC_THRESHOLD_SEC || state.driftCheckFailures > 3) {
+        state.showResyncButton = true;
+        updateResyncButtonVisibility();
+        console.log("[Drift Correction] Re-sync button shown due to large/persistent drift");
+      }
     }
   }, DRIFT_CORRECTION_INTERVAL_MS);
+}
+
+// Helper function to clamp and safely seek audio
+function clampAndSeekAudio(audioEl, targetSec) {
+  if (!audioEl || !audioEl.duration) return;
+  
+  // Clamp target time to valid range [0, duration - 0.25]
+  const clampedSec = Math.max(0, Math.min(targetSec, audioEl.duration - 0.25));
+  
+  try {
+    audioEl.currentTime = clampedSec;
+  } catch (err) {
+    console.error("[Drift Correction] Failed to seek:", err);
+  }
 }
 
 function stopDriftCorrection() {
@@ -2742,6 +2269,22 @@ function stopDriftCorrection() {
     clearInterval(driftCorrectionInterval);
     driftCorrectionInterval = null;
     console.log("[Drift Correction] Stopped");
+  }
+  // Reset drift-related state
+  state.driftCheckFailures = 0;
+  state.showResyncButton = false;
+  updateResyncButtonVisibility();
+}
+
+// Update resync button visibility based on state
+function updateResyncButtonVisibility() {
+  const btnResync = el("btnGuestResync");
+  if (btnResync) {
+    if (state.showResyncButton) {
+      btnResync.style.display = "block";
+    } else {
+      btnResync.style.display = "none";
+    }
   }
 }
 
@@ -2758,23 +2301,27 @@ function updateGuestSyncQuality(drift) {
     // Remove all quality classes
     qualityBadgeEl.classList.remove("medium", "bad");
     
-    // Classify sync quality based on drift
-    if (drift < 0.15) {
-      // Good sync (< 150ms)
-      qualityBadgeEl.textContent = "Good";
-    } else if (drift < 0.5) {
-      // Medium sync (150-500ms)
-      qualityBadgeEl.textContent = "Medium";
+    // Classify sync quality based on new drift thresholds
+    if (drift < DRIFT_CORRECTION_THRESHOLD_SEC) {
+      // Excellent sync (< 200ms) - within ignore threshold
+      qualityBadgeEl.textContent = SYNC_QUALITY_EXCELLENT;
+    } else if (drift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
+      // Good sync (200-800ms) - soft correction range
+      qualityBadgeEl.textContent = SYNC_QUALITY_GOOD;
+      qualityBadgeEl.classList.add("medium");
+    } else if (drift < DRIFT_SHOW_RESYNC_THRESHOLD_SEC) {
+      // Medium sync (800ms-1.5s) - hard correction range
+      qualityBadgeEl.textContent = SYNC_QUALITY_MEDIUM;
       qualityBadgeEl.classList.add("medium");
     } else {
-      // Bad sync (> 500ms)
-      qualityBadgeEl.textContent = "Bad";
+      // Poor sync (> 1.5s) - show resync button
+      qualityBadgeEl.textContent = SYNC_QUALITY_POOR;
       qualityBadgeEl.classList.add("bad");
     }
   }
 }
 
-// Manual resync function for guests
+// Manual resync function for guests - improved with forced sync
 function manualResyncGuest() {
   console.log("[Guest] Manual resync triggered");
   
@@ -2782,16 +2329,39 @@ function manualResyncGuest() {
   toast("Resyncing audio...");
   
   // Force re-sync by reloading current playback state
-  if (state.guestAudioElement && state.snapshot && state.snapshot.startAtServerMs) {
-    const elapsedSec = (Date.now() - state.snapshot.startAtServerMs) / 1000;
-    const idealSec = (state.snapshot.startPositionSec || 0) + elapsedSec;
+  if (state.guestAudioElement && state.guestAudioElement.dataset.startAtServerMs) {
+    const startAtServerMs = parseFloat(state.guestAudioElement.dataset.startAtServerMs);
+    const startPositionSec = parseFloat(state.guestAudioElement.dataset.startPositionSec || "0");
     
-    console.log("[Guest] Jumping to ideal position:", idealSec.toFixed(2));
-    state.guestAudioElement.currentTime = idealSec;
+    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    const idealSec = startPositionSec + elapsedSec;
     
-    toast("✓ Resynced!", "success");
+    console.log("[Guest] Manual resync - jumping to ideal position:", idealSec.toFixed(2), "s");
+    
+    // Use clamped seek
+    clampAndSeekAudio(state.guestAudioElement, idealSec);
+    
+    // If audio is paused, try to play it (if unlocked)
+    if (state.guestAudioElement.paused && state.audioUnlocked) {
+      state.guestAudioElement.play()
+        .then(() => {
+          console.log("[Guest] Resumed playback after resync");
+          toast("✓ Resynced!", "success");
+        })
+        .catch(err => {
+          console.warn("[Guest] Could not resume after resync:", err);
+          toast("✓ Position resynced (tap Play if needed)", "success");
+        });
+    } else {
+      toast("✓ Resynced!", "success");
+    }
+    
+    // Reset drift failures and hide resync button
+    state.driftCheckFailures = 0;
+    state.showResyncButton = false;
+    updateResyncButtonVisibility();
   } else {
-    console.warn("[Guest] Cannot resync - no active playback");
+    console.warn("[Guest] Cannot resync - no active playback state");
     toast("No active playback to resync", "warning");
   }
 }
@@ -2817,6 +2387,34 @@ function cleanupGuestAudio() {
     stopDriftCorrection();
 
 // Update guest queue display
+// PHASE 7: Update host queue UI display
+function updateHostQueueUI() {
+  console.log("[Host] Updating queue UI:", musicState.queue);
+  
+  const queueEl = el("hostQueueList");
+  if (!queueEl) {
+    console.warn("[Host] Queue element not found");
+    return;
+  }
+  
+  if (!musicState.queue || musicState.queue.length === 0) {
+    queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
+    return;
+  }
+  
+  queueEl.innerHTML = musicState.queue.map((track, index) => `
+    <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
+      <span class="queue-number">${index + 1}.</span>
+      <span class="queue-title">${track.title || 'Unknown Track'}</span>
+      <div class="queue-controls">
+        ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
+        ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
+        <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function updateGuestQueue(queue) {
   console.log("[Guest] Updating queue:", queue);
   
@@ -4283,6 +3881,232 @@ function playQueuedTrack() {
   toast(`♫ Now playing: ${musicState.selectedFile.name}`);
 }
 
+// ========================================
+// PHASE 7: Queue Management API Functions
+// ========================================
+
+/**
+ * Add a track to the queue (host only)
+ */
+async function queueTrackToServer(track) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot queue track: not host or missing hostId/code");
+    toast("Only the host can manage the queue", "error");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/queue-track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        trackId: track.trackId,
+        trackUrl: track.trackUrl,
+        title: track.title,
+        durationMs: track.durationMs,
+        filename: track.filename,
+        contentType: track.contentType,
+        sizeBytes: track.sizeBytes
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to queue track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Track queued successfully:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Track added to queue");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error queueing track:", error);
+    toast(error.message || "Failed to queue track", "error");
+    return false;
+  }
+}
+
+/**
+ * Play next track from queue (host only)
+ */
+async function playNextFromQueue() {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot play next: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/play-next`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to play next track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Playing next track:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.currentTrack = data.currentTrack;
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("♫ Playing next track");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error playing next:", error);
+    toast(error.message || "Failed to play next track", "error");
+    return false;
+  }
+}
+
+/**
+ * Remove a track from queue (host only)
+ */
+async function removeQueueTrack(trackId) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot remove track: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/remove-track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        trackId: trackId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to remove track');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Track removed:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Track removed from queue");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error removing track:", error);
+    toast(error.message || "Failed to remove track", "error");
+    return false;
+  }
+}
+
+/**
+ * Clear all tracks from queue (host only)
+ */
+async function clearQueue() {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot clear queue: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/clear-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to clear queue');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Queue cleared:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    toast("✓ Queue cleared");
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error clearing queue:", error);
+    toast(error.message || "Failed to clear queue", "error");
+    return false;
+  }
+}
+
+/**
+ * Move track up in queue (host only)
+ */
+async function moveQueueTrackUp(index) {
+  if (index <= 0) return;
+  await reorderQueueTrack(index, index - 1);
+}
+
+/**
+ * Move track down in queue (host only)
+ */
+async function moveQueueTrackDown(index) {
+  if (index >= musicState.queue.length - 1) return;
+  await reorderQueueTrack(index, index + 1);
+}
+
+/**
+ * Reorder track in queue (host only)
+ */
+async function reorderQueueTrack(fromIndex, toIndex) {
+  if (!state.isHost || !state.hostId || !state.code) {
+    console.error("[Queue] Cannot reorder: not host or missing hostId/code");
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`/api/party/${state.code}/reorder-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hostId: state.hostId,
+        fromIndex: fromIndex,
+        toIndex: toIndex
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to reorder queue');
+    }
+    
+    const data = await response.json();
+    console.log("[Queue] Queue reordered:", data);
+    
+    // Update local state (will also be updated via WS broadcast)
+    musicState.queue = data.queue;
+    updateHostQueueUI();
+    
+    return true;
+  } catch (error) {
+    console.error("[Queue] Error reordering queue:", error);
+    toast(error.message || "Failed to reorder queue", "error");
+    return false;
+  }
+}
+
 function checkFileTypeSupport(file) {
   const audio = musicState.audioElement || document.createElement("audio");
   
@@ -5319,12 +5143,14 @@ function attemptAddPhone() {
       
       const data = await response.json();
       const partyCode = data.partyCode;
+      const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
       
-      console.log("[Party] Party created via API:", partyCode);
+      console.log("[Party] Party created via API:", partyCode, "hostId:", hostId);
       
       // Set party state
       state.code = partyCode;
       state.isHost = true;
+      state.hostId = hostId; // PHASE 7: Store hostId for later use
       state.offlineMode = false; // Mark as server-backed mode
       
       // Initialize snapshot with host member
@@ -7093,22 +6919,6 @@ function initializeAllFeatures() {
   initBeatAwareUI();
   initSessionStats();
   initBoostAddons();
-  
-  // Phase 5: Tab Sleep / Background Recovery - Visibility change listener
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      console.log("[TimeSync] Tab became visible - triggering time sync");
-      // Immediately sync time
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        sendTimePing();
-      }
-      
-      // Phase 5: Fetch party state and resync if playing
-      if (!state.isHost && state.code) {
-        fetchPartyStateAndResync();
-      }
-    }
-  });
   
   console.log("[Features] All features initialized");
   
