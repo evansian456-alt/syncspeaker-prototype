@@ -2417,7 +2417,8 @@ app.get("/api/party/:code/scoreboard", async (req, res) => {
         live: false,
         partyCode: code,
         dj: {
-          djName: "DJ", // Historical data doesn't store DJ name
+          // DJ name stored in host_identifier - could look up from users/dj_profiles if needed
+          djName: "DJ",
           sessionScore: historicalScoreboard.dj_session_score,
           lifetimeScore: 0
         },
@@ -2578,14 +2579,18 @@ async function persistPartyScoreboard(partyCode, party) {
       console.log(`[Database] Updated DJ score for user ${party.scoreState.dj.djUserId}`);
     }
     
-    // Update guest profiles
+    // Update guest profiles (UPSERT pattern creates if not exists)
     for (const guest of guestScores) {
       try {
+        // Update guest stats (UPSERT)
         await db.updateGuestProfile(guest.guestId, {
           contributionPoints: guest.points,
           reactionsCount: guest.emojis,
           messagesCount: guest.messages
         });
+        
+        // Increment parties_joined counter (once per party)
+        await db.incrementGuestPartiesJoined(guest.guestId);
       } catch (err) {
         console.error(`[Database] Error updating guest profile ${guest.guestId}:`, err.message);
       }
@@ -3065,6 +3070,21 @@ async function handleJoin(ws, msg) {
   }
 }
 
+// Helper function to ensure guest exists in scoreboard
+function ensureGuestInScoreboard(party, guestId, nickname) {
+  if (!party.scoreState.guests[guestId]) {
+    party.scoreState.guests[guestId] = {
+      guestId,
+      nickname: nickname || "Guest",
+      points: 0,
+      emojis: 0,
+      messages: 0,
+      rank: 1
+    };
+  }
+  return party.scoreState.guests[guestId];
+}
+
 function handleKick(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
@@ -3505,18 +3525,7 @@ function handleGuestMessage(ws, msg) {
   console.log(`[Party] Guest "${guestName}" sent message "${messageText}" in party ${client.party}`);
   
   // Update scoreboard: award points for messages/emojis
-  if (!party.scoreState.guests[member.id]) {
-    party.scoreState.guests[member.id] = {
-      guestId: member.id,
-      nickname: guestName,
-      points: 0,
-      emojis: 0,
-      messages: 0,
-      rank: 1
-    };
-  }
-  
-  const guestScore = party.scoreState.guests[member.id];
+  const guestScore = ensureGuestInScoreboard(party, member.id, guestName);
   
   if (isEmoji) {
     guestScore.emojis += 1;

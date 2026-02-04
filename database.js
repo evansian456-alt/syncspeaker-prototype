@@ -122,20 +122,22 @@ async function getOrCreateGuestProfile(guestIdentifier, nickname = null) {
 }
 
 /**
- * Update guest profile stats
+ * Update guest profile stats with UPSERT to handle missing profiles
  */
 async function updateGuestProfile(guestIdentifier, updates) {
   try {
     const { contributionPoints, reactionsCount, messagesCount } = updates;
     
+    // Use UPSERT pattern to create profile if it doesn't exist
     const result = await query(
-      `UPDATE guest_profiles 
-       SET total_contribution_points = total_contribution_points + $2,
-           total_reactions_sent = total_reactions_sent + $3,
-           total_messages_sent = total_messages_sent + $4,
-           parties_joined = parties_joined + 1,
-           updated_at = NOW()
-       WHERE guest_identifier = $1
+      `INSERT INTO guest_profiles (guest_identifier, total_contribution_points, total_reactions_sent, total_messages_sent)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (guest_identifier) 
+       DO UPDATE SET 
+         total_contribution_points = guest_profiles.total_contribution_points + $2,
+         total_reactions_sent = guest_profiles.total_reactions_sent + $3,
+         total_messages_sent = guest_profiles.total_messages_sent + $4,
+         updated_at = NOW()
        RETURNING *`,
       [guestIdentifier, contributionPoints || 0, reactionsCount || 0, messagesCount || 0]
     );
@@ -143,6 +145,27 @@ async function updateGuestProfile(guestIdentifier, updates) {
     return result.rows[0];
   } catch (error) {
     console.error('[Database] Error in updateGuestProfile:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Increment parties_joined counter for a guest (call once per party)
+ */
+async function incrementGuestPartiesJoined(guestIdentifier) {
+  try {
+    const result = await query(
+      `UPDATE guest_profiles 
+       SET parties_joined = parties_joined + 1,
+           updated_at = NOW()
+       WHERE guest_identifier = $1
+       RETURNING *`,
+      [guestIdentifier]
+    );
+    
+    return result.rows[0];
+  } catch (error) {
+    console.error('[Database] Error in incrementGuestPartiesJoined:', error.message);
     throw error;
   }
 }
@@ -290,5 +313,6 @@ module.exports = {
   savePartyScoreboard,
   getPartyScoreboard,
   getTopDjs,
-  getTopGuests
+  getTopGuests,
+  incrementGuestPartiesJoined
 };
