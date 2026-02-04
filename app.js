@@ -3902,7 +3902,7 @@ function attemptAddPhone() {
 (async function init(){
   // TODO: Enable real-time sync later in native app
   // For browser prototype, we skip WebSocket connection for Start Party to work instantly
-  // await connectWS();
+  await connectWS();
   showLanding();
   
   // Initialize music player
