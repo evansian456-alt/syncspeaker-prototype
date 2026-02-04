@@ -17,7 +17,7 @@
     </div>
     <div class="header-right">
       <span id="connectionIndicator">● Connected</span>
-      <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
+      <button class="btn-parent-info" id="btnParentInfo" title="Help & About">ℹ️</button>
       <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
       <button class="btn-upgrade" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options">⭐</button>
       <button class="btn-account" id="btnAccount" title="Account">👤</button>
@@ -1388,14 +1388,56 @@
   <!-- Parent Info Panel -->
   <div class="modal hidden" id="modalParentInfo">
     <div class="modal-card parent-info-card">
-      <h2>👪 For Parents</h2>
+      <h2>📖 About Phone Party</h2>
       <div class="parent-info-content">
         <div class="info-section">
           <h3>What is Phone Party?</h3>
-          <p>Phone Party is a music synchronization app that allows multiple phones to play music together in perfect sync. It's designed for parties and social gatherings.</p>
+          <p>Phone Party is a music synchronization app that allows multiple phones to play music together in perfect sync. It's designed for parties and social gatherings where you want to create a massive sound experience by connecting everyone's phones.</p>
         </div>
         <div class="info-section">
-          <h3>🔒 Safety Features</h3>
+          <h3>🎵 How to Start and Join a Party</h3>
+          <ol>
+            <li><strong>Start a Party:</strong> Click "Create Party", choose your DJ name, optionally select music, and click "Start the party"</li>
+            <li><strong>Share the Code:</strong> Share your 6-character party code with friends</li>
+            <li><strong>Join a Party:</strong> Click "Join Party", enter the party code, and optionally add your nickname</li>
+            <li><strong>Everyone Syncs:</strong> Music plays in perfect sync across all connected devices</li>
+          </ol>
+        </div>
+        <div class="info-section">
+          <h3>🎧 Source Options</h3>
+          <ul>
+            <li><strong>Local Device:</strong> Play music files from your phone (MP3, WAV, M4A, etc.)</li>
+            <li><strong>Another App:</strong> Stream from Spotify, YouTube, or other apps (audio will sync to all devices)</li>
+            <li><strong>Microphone Mode:</strong> Broadcast live audio from your device microphone</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h3>💬 Chat Modes</h3>
+          <ul>
+            <li><strong>OPEN:</strong> Guests can send text messages and emojis (Party Pass/Pro only)</li>
+            <li><strong>EMOJI ONLY:</strong> Guests can only send emoji reactions</li>
+            <li><strong>LOCKED:</strong> All guest messaging is disabled</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h3>💰 Plans & Features</h3>
+          <ul>
+            <li><strong>Free Plan:</strong> Up to 2 phones, unlimited time, basic features, includes ads</li>
+            <li><strong>Party Pass (£2.99):</strong> One-time unlock for one party - 2-hour session, up to 10 phones, Pro DJ mode, no ads, guest reactions</li>
+            <li><strong>Pro Monthly (£9.99):</strong> Unlimited use, up to 10 phones, all Pro features, no ads, cancel anytime</li>
+          </ul>
+          <p class="tiny muted">Party Pass unlocks Pro features for all guests in that party for 2 hours.</p>
+        </div>
+        <div class="info-section">
+          <h3>🏆 How Scoring Works</h3>
+          <ul>
+            <li><strong>DJ Score:</strong> Earn points based on party duration, guest engagement, and reactions</li>
+            <li><strong>Guest Points:</strong> Earn contribution points by sending reactions and messages</li>
+            <li><strong>Live Leaderboard:</strong> See top contributors in real-time during the party</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h3>🔒 Safety & Privacy</h3>
           <ul>
             <li><strong>No Music Included:</strong> Users provide their own music files</li>
             <li><strong>Local Network:</strong> Works best on home Wi-Fi or hotspots</li>
@@ -1404,29 +1446,12 @@
           </ul>
         </div>
         <div class="info-section">
-          <h3>💡 How It Works</h3>
-          <ol>
-            <li>One person starts a party and gets a code</li>
-            <li>Friends join using the code on their phones</li>
-            <li>Music plays in sync across all devices</li>
-            <li>Host controls playback and permissions</li>
-          </ol>
-        </div>
-        <div class="info-section">
-          <h3>💰 Pricing</h3>
-          <ul>
-            <li><strong>Free Plan:</strong> Up to 2 phones, includes ads</li>
-            <li><strong>Party Pass (£2.99):</strong> One-time unlock for one party (2-Hour Session)</li>
-            <li><strong>Pro Monthly (£9.99):</strong> Unlimited use, up to 10 phones</li>
-          </ul>
-        </div>
-        <div class="info-section">
           <h3>⚠️ Important Notes</h3>
           <ul>
-            <li>This is a browser prototype for testing purposes</li>
-            <li>Users are responsible for their music source</li>
-            <li>Best experience with same Wi-Fi network</li>
-            <li>Host can control chat permissions (Open/Emoji Only/Locked)</li>
+            <li>Users are responsible for their music source and content</li>
+            <li>Best experience with same Wi-Fi network or mobile hotspot</li>
+            <li>Host can control chat permissions</li>
+            <li>Party expires after 2 hours (or when host ends it)</li>
           </ul>
         </div>
       </div>

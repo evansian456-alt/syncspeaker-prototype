@@ -1208,13 +1208,32 @@ function startPartyStatusPolling() {
           state.lastDjMessageTimestamp = maxTimestamp;
         }
         
-        // Update host guest count display
+        // Update host guest count display with detailed party information
         const guestCountEl = el("partyGuestCount");
         if (guestCountEl) {
-          if (newGuestCount === 0) {
-            guestCountEl.textContent = "Waiting for guests...";
+          const currentLimit = getCurrentPhoneLimit();
+          const totalConnected = newGuestCount + 1; // guests + host
+          const remaining = Math.max(0, currentLimit - totalConnected);
+          
+          // Determine party tier status
+          let tierInfo = '';
+          if (state.userTier === USER_TIER.PRO) {
+            tierInfo = 'Pro';
+          } else if (state.userTier === USER_TIER.PARTY_PASS || state.partyPassActive) {
+            tierInfo = 'Party Pass active';
           } else {
-            guestCountEl.textContent = `${newGuestCount} guest${newGuestCount !== 1 ? 's' : ''} joined`;
+            tierInfo = 'Free party';
+          }
+          
+          if (newGuestCount === 0) {
+            guestCountEl.textContent = `${tierInfo} · Waiting for guests... (${currentLimit} phone limit)`;
+          } else {
+            guestCountEl.textContent = `${tierInfo} · ${totalConnected} of ${currentLimit} phones connected`;
+            if (remaining > 0) {
+              guestCountEl.textContent += ` (${remaining} more can join)`;
+            } else {
+              guestCountEl.textContent += ` (party full)`;
+            }
           }
         }
         
@@ -1398,10 +1417,29 @@ function startGuestPartyStatusPolling() {
 
 // Update guest party info UI
 function updateGuestPartyInfo(partyData) {
-  // Update guest count display
+  // Update guest count display with detailed information
   const guestCountEl = el("guestPartyGuestCount");
   if (guestCountEl) {
-    guestCountEl.textContent = `${partyData.guestCount || 0} guest${partyData.guestCount !== 1 ? 's' : ''}`;
+    const guestCount = partyData.guestCount || 0;
+    const totalConnected = guestCount + 1; // guests + host
+    
+    // Get current phone limit (we may not have full state, so estimate based on party data)
+    // This should be enhanced to get actual limit from server response
+    let currentLimit = FREE_LIMIT; // default
+    if (state.partyPassActive || (partyData.partyPassActive)) {
+      currentLimit = PARTY_PASS_LIMIT;
+    } else if (state.userTier === USER_TIER.PRO || (partyData.isPro)) {
+      currentLimit = PRO_LIMIT;
+    }
+    
+    const remaining = Math.max(0, currentLimit - totalConnected);
+    
+    guestCountEl.textContent = `${totalConnected} of ${currentLimit} phones connected`;
+    if (remaining > 0) {
+      guestCountEl.textContent += ` (${remaining} more can join)`;
+    } else {
+      guestCountEl.textContent += ` (party full)`;
+    }
   }
   
   // Update time remaining
@@ -6952,6 +6990,14 @@ if (promoBtn) {
       return;
     }
     
+    // Check if party already has promo applied (prevent multiple promo codes)
+    if (state.partyPro || state.partyPassActive) {
+      toast("⚠️ This party has already used a promo code");
+      promoModal.classList.add("hidden");
+      promoInput.value = "";
+      return;
+    }
+    
     // Try WebSocket first (if connected), fallback to HTTP
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       // Send to server via WebSocket for validation
@@ -6975,10 +7021,24 @@ if (promoBtn) {
         if (!response.ok) {
           toast(data.error || "Failed to apply promo code");
         } else {
-          // Success - update state and UI
+          // Success - update state and UI with clear messaging
           state.partyPro = true;
+          state.partyPassActive = true;
           setPlanPill();
-          toast("🎉 Pro unlocked for this party!");
+          updateTierDisplay();
+          toast("🎉 This Phone Party is now Pro!");
+          
+          // Update party status banner
+          const partyPassTitle = document.getElementById('partyPassTitle');
+          if (partyPassTitle) {
+            partyPassTitle.textContent = 'Party is now Pro';
+          }
+          
+          // Hide upgrade prompts
+          const partyPassUpgrade = document.getElementById('partyPassUpgrade');
+          if (partyPassUpgrade) {
+            partyPassUpgrade.classList.add('hidden');
+          }
         }
       } catch (error) {
         console.error("[Promo] HTTP error:", error);
