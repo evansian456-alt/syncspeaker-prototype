@@ -3116,7 +3116,7 @@ h2,h3{margin:0; font-weight:800}
   text-shadow: 0 0 15px rgba(90,169,255,0.5);
 }
 
-/* Flash Overlay - Made less intrusive, smaller and corner-based */
+/* Flash Overlay - Made less intrusive, smaller and centered */
 .dj-flash-overlay {
   position: fixed;
   top: 50%;
