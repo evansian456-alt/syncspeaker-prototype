@@ -6,8 +6,11 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
-const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
-const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
+const DRIFT_CORRECTION_THRESHOLD_SEC = 0.20; // Ignore drift below this threshold
+const DRIFT_SOFT_CORRECTION_THRESHOLD_SEC = 0.80; // Soft correction threshold
+const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
+const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
+const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
 // All views in the application
@@ -78,6 +81,9 @@ const state = {
   guestAudioElement: null, // Audio element for guest playback
   guestAudioReady: false, // Flag if guest audio is loaded and ready
   guestNeedsTap: false, // Flag if guest needs to tap to play
+  audioUnlocked: false, // Flag if audio has been unlocked by user interaction (for autoplay restrictions)
+  showResyncButton: false, // Flag to show/hide Re-sync button conditionally
+  driftCheckFailures: 0, // Counter for consecutive large drift failures
   // Crowd Energy state
   crowdEnergy: 0, // 0-100
   crowdEnergyPeak: 0,
@@ -1938,7 +1944,7 @@ function updateGuestSyncDebug(startAtServerMs, startPositionSec) {
   if (startEl) startEl.textContent = `Start Pos: ${startPositionSec.toFixed(2)}s`;
 }
 
-// Play guest audio with metadata-safe seek
+// Play guest audio with metadata-safe seek and autoplay unlock handling
 function playGuestAudio() {
   if (!state.guestAudioElement || !state.guestAudioElement.src) {
     toast("No audio loaded");
@@ -1954,21 +1960,23 @@ function playGuestAudio() {
     const elapsedSec = (Date.now() - startAtServerMs) / 1000;
     let targetSec = startPositionSec + elapsedSec;
     
-    // Handle edge case: don't seek past duration
-    if (audioEl.duration && targetSec > audioEl.duration) {
-      targetSec = audioEl.duration;
+    // Clamp target to valid range
+    if (audioEl.duration && targetSec > audioEl.duration - 0.25) {
+      targetSec = Math.max(0, audioEl.duration - 0.25);
     }
     
     console.log("[Guest Audio] Syncing to position:", targetSec.toFixed(2), "s");
     console.log("[Guest Audio] Debug - elapsedSec:", elapsedSec.toFixed(2), "startPositionSec:", startPositionSec);
     
-    audioEl.currentTime = targetSec;
+    // Safely seek to target position
+    clampAndSeekAudio(audioEl, targetSec);
     
     audioEl.play()
       .then(() => {
         console.log("[Guest Audio] Playing from position:", targetSec.toFixed(2), "s");
         toast("🎵 Audio synced and playing!");
         state.guestNeedsTap = false;
+        state.audioUnlocked = true; // Mark audio as unlocked
         
         // Hide tap overlay
         const overlay = el("guestTapOverlay");
@@ -1978,10 +1986,23 @@ function playGuestAudio() {
         
         // Start drift correction
         startDriftCorrection(startAtServerMs, startPositionSec);
+        
+        // Hide re-sync button initially
+        state.showResyncButton = false;
+        updateResyncButtonVisibility();
       })
       .catch((error) => {
         console.error("[Guest Audio] Play failed:", error);
-        toast("❌ Could not play audio: " + error.message);
+        
+        // Autoplay was blocked
+        state.audioUnlocked = false;
+        toast("⚠️ Tap Play button to start audio");
+        
+        // Keep the tap overlay or show a message
+        const overlay = el("guestTapOverlay");
+        if (overlay) {
+          overlay.style.display = "flex";
+        }
       });
   };
   
@@ -1997,7 +2018,7 @@ function playGuestAudio() {
   }
 }
 
-// Drift correction - runs every 5 seconds
+// Drift correction - runs every 2 seconds with multi-threshold correction
 let driftCorrectionInterval = null;
 let lastDriftValue = 0; // Track last drift for UI updates
 
@@ -2007,33 +2028,72 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     clearInterval(driftCorrectionInterval);
   }
   
-  console.log("[Drift Correction] Started");
+  console.log("[Drift Correction] Started with multi-threshold approach");
   
   driftCorrectionInterval = setInterval(() => {
     if (!state.guestAudioElement || state.guestAudioElement.paused) {
       return;
     }
     
-    // Calculate ideal position
+    // Calculate ideal position based on server timestamp
     const elapsedSec = (Date.now() - startAtServerMs) / 1000;
     const idealSec = startPositionSec + elapsedSec;
     
-    // Calculate drift
+    // Calculate drift (positive = ahead, negative = behind)
     const currentSec = state.guestAudioElement.currentTime;
-    const drift = Math.abs(currentSec - idealSec);
-    lastDriftValue = drift;
+    const signedDrift = currentSec - idealSec;
+    const absDrift = Math.abs(signedDrift);
+    lastDriftValue = absDrift;
     
-    console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", drift.toFixed(3));
+    console.log("[Drift Correction] Current:", currentSec.toFixed(2), "Ideal:", idealSec.toFixed(2), "Drift:", signedDrift.toFixed(3), "s");
     
     // Update drift UI
-    updateGuestSyncQuality(drift);
+    updateGuestSyncQuality(absDrift);
     
-    // Correct if drift > threshold
-    if (drift > DRIFT_CORRECTION_THRESHOLD_SEC) {
-      console.log("[Drift Correction] Correcting drift of", drift.toFixed(3), "seconds");
-      state.guestAudioElement.currentTime = idealSec;
+    // Multi-threshold drift correction
+    if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
+      // Drift < 0.20s - ignore, within acceptable range
+      state.driftCheckFailures = 0;
+      state.showResyncButton = false;
+      updateResyncButtonVisibility();
+    } else if (absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
+      // Drift 0.20s - 0.80s - soft correction (small seek)
+      console.log("[Drift Correction] Soft correction - adjusting by", signedDrift.toFixed(3), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures = 0;
+    } else if (absDrift < DRIFT_HARD_RESYNC_THRESHOLD_SEC) {
+      // Drift 0.80s - 1.00s - still soft correction but more aggressive
+      console.log("[Drift Correction] Moderate drift - hard seeking to", idealSec.toFixed(2), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures++;
+    } else {
+      // Drift > 1.00s - hard resync
+      console.log("[Drift Correction] Large drift detected - hard resync to", idealSec.toFixed(2), "s");
+      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      state.driftCheckFailures++;
+      
+      // Show re-sync button if drift is very large or repeated failures
+      if (absDrift > DRIFT_SHOW_RESYNC_THRESHOLD_SEC || state.driftCheckFailures > 3) {
+        state.showResyncButton = true;
+        updateResyncButtonVisibility();
+        console.log("[Drift Correction] Re-sync button shown due to large/persistent drift");
+      }
     }
   }, DRIFT_CORRECTION_INTERVAL_MS);
+}
+
+// Helper function to clamp and safely seek audio
+function clampAndSeekAudio(audioEl, targetSec) {
+  if (!audioEl || !audioEl.duration) return;
+  
+  // Clamp target time to valid range [0, duration - 0.25]
+  const clampedSec = Math.max(0, Math.min(targetSec, audioEl.duration - 0.25));
+  
+  try {
+    audioEl.currentTime = clampedSec;
+  } catch (err) {
+    console.error("[Drift Correction] Failed to seek:", err);
+  }
 }
 
 function stopDriftCorrection() {
@@ -2041,6 +2101,22 @@ function stopDriftCorrection() {
     clearInterval(driftCorrectionInterval);
     driftCorrectionInterval = null;
     console.log("[Drift Correction] Stopped");
+  }
+  // Reset drift-related state
+  state.driftCheckFailures = 0;
+  state.showResyncButton = false;
+  updateResyncButtonVisibility();
+}
+
+// Update resync button visibility based on state
+function updateResyncButtonVisibility() {
+  const btnResync = el("btnGuestResync");
+  if (btnResync) {
+    if (state.showResyncButton) {
+      btnResync.style.display = "block";
+    } else {
+      btnResync.style.display = "none";
+    }
   }
 }
 
@@ -2073,7 +2149,7 @@ function updateGuestSyncQuality(drift) {
   }
 }
 
-// Manual resync function for guests
+// Manual resync function for guests - improved with forced sync
 function manualResyncGuest() {
   console.log("[Guest] Manual resync triggered");
   
@@ -2081,16 +2157,39 @@ function manualResyncGuest() {
   toast("Resyncing audio...");
   
   // Force re-sync by reloading current playback state
-  if (state.guestAudioElement && state.snapshot && state.snapshot.startAtServerMs) {
-    const elapsedSec = (Date.now() - state.snapshot.startAtServerMs) / 1000;
-    const idealSec = (state.snapshot.startPositionSec || 0) + elapsedSec;
+  if (state.guestAudioElement && state.guestAudioElement.dataset.startAtServerMs) {
+    const startAtServerMs = parseFloat(state.guestAudioElement.dataset.startAtServerMs);
+    const startPositionSec = parseFloat(state.guestAudioElement.dataset.startPositionSec || "0");
     
-    console.log("[Guest] Jumping to ideal position:", idealSec.toFixed(2));
-    state.guestAudioElement.currentTime = idealSec;
+    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    const idealSec = startPositionSec + elapsedSec;
     
-    toast("✓ Resynced!", "success");
+    console.log("[Guest] Manual resync - jumping to ideal position:", idealSec.toFixed(2), "s");
+    
+    // Use clamped seek
+    clampAndSeekAudio(state.guestAudioElement, idealSec);
+    
+    // If audio is paused, try to play it (if unlocked)
+    if (state.guestAudioElement.paused && state.audioUnlocked) {
+      state.guestAudioElement.play()
+        .then(() => {
+          console.log("[Guest] Resumed playback after resync");
+          toast("✓ Resynced!", "success");
+        })
+        .catch(err => {
+          console.warn("[Guest] Could not resume after resync:", err);
+          toast("✓ Position resynced (tap Play if needed)", "success");
+        });
+    } else {
+      toast("✓ Resynced!", "success");
+    }
+    
+    // Reset drift failures and hide resync button
+    state.driftCheckFailures = 0;
+    state.showResyncButton = false;
+    updateResyncButtonVisibility();
   } else {
-    console.warn("[Guest] Cannot resync - no active playback");
+    console.warn("[Guest] Cannot resync - no active playback state");
     toast("No active playback to resync", "warning");
   }
 }
