@@ -25,6 +25,10 @@ const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 // Promo codes for party-wide Pro unlock (moved to top for visibility)
 const PROMO_CODES = ["SS-PARTY-A9K2", "SS-PARTY-QM7L", "SS-PARTY-Z8P3"];
 
+// Party capacity limits
+const FREE_PARTY_LIMIT = 2; // Free parties limited to 2 phones
+const MAX_PRO_PARTY_DEVICES = 100; // Practical limit for Pro parties
+
 // Test mode flag - enables Pro checkbox, promo codes, demo ads in testing
 const TEST_MODE = process.env.TEST_MODE === 'true' || process.env.NODE_ENV !== 'production';
 
@@ -1371,19 +1375,19 @@ function normalizePartyData(partyData) {
 
 // Helper function to calculate max allowed phones/devices based on party state
 async function getMaxAllowedPhones(code, partyData) {
-  // If party is Pro, allow unlimited (use a large number)
+  // If party is Pro, allow practical maximum
   if (partyData.partyPro) {
-    return 100; // Practical limit
+    return MAX_PRO_PARTY_DEVICES;
   }
   
   // Check if party pass is active and not expired
   if (partyData.partyPassExpiresAt && Date.now() < partyData.partyPassExpiresAt) {
     const maxPhones = parseInt(partyData.maxPhones);
-    return isNaN(maxPhones) ? 2 : maxPhones;
+    return isNaN(maxPhones) ? FREE_PARTY_LIMIT : maxPhones;
   }
   
   // Default free limit
-  return 2;
+  return FREE_PARTY_LIMIT;
 }
 
 // Shared party creation function used by both HTTP and WS paths
@@ -3890,7 +3894,7 @@ function handleGuestMessage(ws, msg) {
     party.reactionHistory = [];
   }
   party.reactionHistory.push({
-    id: Date.now() + Math.random(), // Unique ID
+    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     type: isEmoji ? "emoji" : "text",
     message: messageText,
     guestName: guestName,
@@ -4077,7 +4081,7 @@ function handleDjEmoji(ws, msg) {
     party.reactionHistory = [];
   }
   party.reactionHistory.push({
-    id: Date.now() + Math.random(), // Unique ID
+    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     type: "dj",
     message: emoji,
     guestName: "DJ",
