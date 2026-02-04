@@ -505,6 +505,15 @@ function handleServer(msg) {
     updateDebugState();
     return;
   }
+  
+  // Scoreboard update
+  if (msg.t === "SCOREBOARD_UPDATE") {
+    if (msg.scoreboard) {
+      updateScoreboard(msg.scoreboard);
+    }
+    return;
+  }
+  
   if (msg.t === "ENDED") { 
     state.connected = false;
     state.lastHostEvent = "PARTY_ENDED";
@@ -2084,6 +2093,137 @@ function setupGuestVolumeControl() {
     valueEl.textContent = `${state.guestVolume}%`;
     // In a real app, this would control local audio volume
   };
+}
+
+// Scoreboard Functions
+function updateScoreboard(scoreboard) {
+  if (!scoreboard) return;
+  
+  // Update DJ scoreboard (visible to host)
+  if (state.isHost) {
+    updateDjScoreboard(scoreboard);
+  }
+  
+  // Update guest scoreboard (visible to all)
+  updateGuestScoreboard(scoreboard);
+}
+
+function updateDjScoreboard(scoreboard) {
+  // Update DJ session score
+  const djSessionScoreEl = el("djSessionScore");
+  if (djSessionScoreEl && scoreboard.dj) {
+    const newScore = scoreboard.dj.sessionScore || 0;
+    const oldScore = parseInt(djSessionScoreEl.textContent) || 0;
+    
+    djSessionScoreEl.textContent = newScore;
+    
+    // Animate if score increased
+    if (newScore > oldScore) {
+      djSessionScoreEl.classList.add("score-increase");
+      setTimeout(() => djSessionScoreEl.classList.remove("score-increase"), 500);
+    }
+  }
+  
+  // Update stats
+  const totalReactionsEl = el("totalReactions");
+  if (totalReactionsEl) {
+    totalReactionsEl.textContent = scoreboard.totalReactions || 0;
+  }
+  
+  const totalMessagesEl = el("totalMessages");
+  if (totalMessagesEl) {
+    totalMessagesEl.textContent = scoreboard.totalMessages || 0;
+  }
+  
+  const peakEnergyEl = el("peakEnergy");
+  if (peakEnergyEl) {
+    peakEnergyEl.textContent = scoreboard.peakCrowdEnergy || 0;
+  }
+  
+  // Update guest list
+  const djScoreboardListEl = el("djScoreboardList");
+  if (djScoreboardListEl && scoreboard.guests) {
+    if (scoreboard.guests.length === 0) {
+      djScoreboardListEl.innerHTML = `
+        <div class="scoreboard-placeholder">
+          <span class="tiny muted">No guest activity yet...</span>
+        </div>
+      `;
+    } else {
+      djScoreboardListEl.innerHTML = scoreboard.guests.map((guest, index) => `
+        <div class="scoreboard-item rank-${guest.rank}">
+          <div class="scoreboard-rank">#${guest.rank}</div>
+          <div class="scoreboard-guest-info">
+            <div class="scoreboard-guest-name">${escapeHtml(guest.nickname || 'Guest')}</div>
+            <div class="scoreboard-guest-stats">
+              ${guest.emojis || 0} emojis · ${guest.messages || 0} messages
+            </div>
+          </div>
+          <div class="scoreboard-points">${guest.points || 0}</div>
+        </div>
+      `).join('');
+    }
+  }
+}
+
+function updateGuestScoreboard(scoreboard) {
+  // Show scoreboard card for guests
+  const guestScoreboardCardEl = el("guestScoreboardCard");
+  if (guestScoreboardCardEl && !state.isHost && scoreboard.guests && scoreboard.guests.length > 0) {
+    guestScoreboardCardEl.classList.remove("hidden");
+  }
+  
+  // Find current guest's score
+  const guestScoreboardListEl = el("guestScoreboardList");
+  const yourScoreEl = el("guestYourScore");
+  const yourRankEl = el("guestYourRank");
+  
+  if (scoreboard.guests) {
+    // Find my score if I'm a guest
+    const myGuest = scoreboard.guests.find(g => g.guestId === state.clientId);
+    
+    if (yourScoreEl && myGuest) {
+      const newScore = myGuest.points || 0;
+      const oldScore = parseInt(yourScoreEl.textContent) || 0;
+      
+      yourScoreEl.textContent = newScore;
+      
+      // Animate if score increased
+      if (newScore > oldScore) {
+        yourScoreEl.classList.add("score-increase");
+        setTimeout(() => yourScoreEl.classList.remove("score-increase"), 500);
+      }
+    }
+    
+    if (yourRankEl && myGuest) {
+      yourRankEl.textContent = `#${myGuest.rank}`;
+    }
+    
+    // Update top 5 list
+    if (guestScoreboardListEl) {
+      const top5 = scoreboard.guests.slice(0, 5);
+      if (top5.length === 0) {
+        guestScoreboardListEl.innerHTML = `
+          <div class="scoreboard-placeholder">
+            <span class="tiny muted">No activity yet...</span>
+          </div>
+        `;
+      } else {
+        guestScoreboardListEl.innerHTML = top5.map((guest, index) => `
+          <div class="scoreboard-item rank-${guest.rank}">
+            <div class="scoreboard-rank">#${guest.rank}</div>
+            <div class="scoreboard-guest-info">
+              <div class="scoreboard-guest-name">${escapeHtml(guest.nickname || 'Guest')}</div>
+              <div class="scoreboard-guest-stats">
+                ${guest.emojis || 0} 🎉 · ${guest.messages || 0} 💬
+              </div>
+            </div>
+            <div class="scoreboard-points">${guest.points || 0}</div>
+          </div>
+        `).join('');
+      }
+    }
+  }
 }
 
 // DJ Screen Functions

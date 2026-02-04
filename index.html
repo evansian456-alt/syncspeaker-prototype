@@ -666,6 +666,48 @@
         </div>
       </div>
 
+      <!-- Live Scoreboard in DJ View -->
+      <div class="dj-scoreboard-section">
+        <div class="dj-scoreboard-header">
+          <h3>🏆 LIVE SCOREBOARD</h3>
+          <div class="dj-session-score">
+            <span class="session-score-label">Your Score:</span>
+            <span class="session-score-value" id="djSessionScore">0</span>
+          </div>
+        </div>
+        <div class="dj-scoreboard-stats">
+          <div class="scoreboard-stat">
+            <div class="stat-icon">🎉</div>
+            <div class="stat-info">
+              <div class="stat-value" id="totalReactions">0</div>
+              <div class="stat-label">Reactions</div>
+            </div>
+          </div>
+          <div class="scoreboard-stat">
+            <div class="stat-icon">💬</div>
+            <div class="stat-info">
+              <div class="stat-value" id="totalMessages">0</div>
+              <div class="stat-label">Messages</div>
+            </div>
+          </div>
+          <div class="scoreboard-stat">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <div class="stat-value" id="peakEnergy">0</div>
+              <div class="stat-label">Peak Energy</div>
+            </div>
+          </div>
+        </div>
+        <div class="dj-scoreboard-guests">
+          <h4>Top Contributors</h4>
+          <div class="scoreboard-list" id="djScoreboardList">
+            <div class="scoreboard-placeholder">
+              <span class="tiny muted">No guest activity yet...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- DJ Moments in DJ View -->
       <div class="dj-moments-section">
         <h3>⚡ DJ MOMENTS</h3>
@@ -936,6 +978,28 @@
         </button>
 
         <div class="tiny muted">Use resync if audio feels off</div>
+      </div>
+
+      <!-- Guest Scoreboard Section -->
+      <div class="glass-card guest-scoreboard hidden" id="guestScoreboardCard">
+        <div class="guest-scoreboard-header">
+          <h4 class="section-title-small">🏆 Party Scoreboard</h4>
+        </div>
+        <div class="guest-scoreboard-content">
+          <div class="guest-your-score">
+            <div class="your-score-label">Your Points</div>
+            <div class="your-score-value" id="guestYourScore">0</div>
+            <div class="your-score-rank tiny muted">Rank: <span id="guestYourRank">#-</span></div>
+          </div>
+          <div class="guest-scoreboard-top">
+            <h5 class="tiny">Top 5 Contributors</h5>
+            <div class="guest-scoreboard-list" id="guestScoreboardList">
+              <div class="scoreboard-placeholder">
+                <span class="tiny muted">No activity yet...</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- DJ Messages to Guests -->
