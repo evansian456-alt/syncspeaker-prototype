@@ -19,8 +19,10 @@
       <span id="connectionIndicator">● Connected</span>
       <button class="btn-parent-info" id="btnParentInfo" title="For parents">ℹ️</button>
       <button class="btn-theme-toggle" id="btnThemeToggle" title="Change theme">🎨</button>
+      <button class="btn-leaderboard" id="btnLeaderboard" title="Leaderboard">🏆</button>
+      <button class="btn-profile" id="btnProfile" title="My Profile">👤</button>
       <button class="btn-upgrade" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options">⭐</button>
-      <button class="btn-account" id="btnAccount" title="Account">👤</button>
+      <button class="btn-account" id="btnAccount" title="Account">🔑</button>
       <div class="pill" id="planPill">Free · 2 phones</div>
     </div>
   </header>
@@ -1904,6 +1906,113 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- Leaderboard Screen -->
+  <section class="card hidden" id="viewLeaderboard">
+    <h1>🏆 LEADERBOARD</h1>
+    <p class="muted">Top DJs and Guests</p>
+    
+    <!-- Toggle Tabs -->
+    <div class="leaderboard-tabs">
+      <button class="btn secondary leaderboard-tab active" id="btnTabDjs">Top DJs</button>
+      <button class="btn secondary leaderboard-tab" id="btnTabGuests">Top Guests</button>
+    </div>
+    
+    <!-- Top DJs List -->
+    <div class="leaderboard-section" id="leaderboardDjs">
+      <div class="loading-state" id="loadingDjs">Loading...</div>
+      <div class="error-state hidden" id="errorDjs">Failed to load leaderboard</div>
+      <div class="leaderboard-list" id="djsList"></div>
+    </div>
+    
+    <!-- Top Guests List -->
+    <div class="leaderboard-section hidden" id="leaderboardGuests">
+      <div class="loading-state" id="loadingGuests">Loading...</div>
+      <div class="error-state hidden" id="errorGuests">Failed to load leaderboard</div>
+      <div class="leaderboard-list" id="guestsList"></div>
+    </div>
+    
+    <button class="btn" id="btnBackFromLeaderboard">Back</button>
+  </section>
+
+  <!-- My Profile Screen -->
+  <section class="card hidden" id="viewMyProfile">
+    <h1>👤 MY PROFILE</h1>
+    
+    <div class="loading-state" id="loadingProfile">Loading...</div>
+    <div class="error-state hidden" id="errorProfile">Failed to load profile</div>
+    
+    <div class="profile-content hidden" id="profileContent">
+      <!-- Profile Header -->
+      <div class="profile-header">
+        <h2 id="profileDjName">Guest DJ</h2>
+        <div class="profile-tier" id="profileTier">FREE</div>
+      </div>
+      
+      <!-- DJ Stats -->
+      <div class="profile-section">
+        <h3>DJ Stats</h3>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-label">DJ Score</div>
+            <div class="stat-value" id="profileDjScore">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">DJ Rank</div>
+            <div class="stat-value" id="profileDjRank">Bedroom DJ</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Profile Upgrades -->
+      <div class="profile-section">
+        <h3>Profile Upgrades</h3>
+        <div class="upgrades-list">
+          <div class="upgrade-item">
+            <span>Verified Badge</span>
+            <span class="upgrade-status" id="upgradeVerifiedBadge">❌</span>
+          </div>
+          <div class="upgrade-item">
+            <span>Crown Effect</span>
+            <span class="upgrade-status" id="upgradeCrownEffect">❌</span>
+          </div>
+          <div class="upgrade-item">
+            <span>Animated Name</span>
+            <span class="upgrade-status" id="upgradeAnimatedName">❌</span>
+          </div>
+          <div class="upgrade-item">
+            <span>Reaction Trail</span>
+            <span class="upgrade-status" id="upgradeReactionTrail">❌</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Active Customizations -->
+      <div class="profile-section">
+        <h3>Active Customizations</h3>
+        <div class="active-items">
+          <div class="active-item">
+            <span>Visual Pack:</span>
+            <span id="profileVisualPack">None</span>
+          </div>
+          <div class="active-item">
+            <span>Title:</span>
+            <span id="profileTitle">None</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Entitlements -->
+      <div class="profile-section">
+        <h3>Owned Items</h3>
+        <div class="entitlements-list" id="profileEntitlements">
+          <p class="muted">No items owned yet</p>
+        </div>
+      </div>
+    </div>
+    
+    <button class="btn" id="btnBackFromProfile">Back</button>
   </section>
 
   <!-- SCREEN 6: Checkout Flow -->

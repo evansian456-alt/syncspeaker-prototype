@@ -6172,7 +6172,8 @@ async function checkAutoReconnect() {
 function showView(viewId) {
   // Hide all main views
   const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
-                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile'];
+                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
+                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
   
   views.forEach(id => {
     const el = document.getElementById(id);
@@ -7473,9 +7474,299 @@ function addHostLobbyUpgradeButton() {
   }
 }
 
+/**
+ * Leaderboard and Profile functionality
+ */
+
+// Show Leaderboard view
+function showLeaderboard() {
+  // Update showView to include new views
+  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
+                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
+  
+  views.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+  
+  const viewLeaderboard = document.getElementById('viewLeaderboard');
+  if (viewLeaderboard) {
+    viewLeaderboard.classList.remove('hidden');
+  }
+  
+  // Load DJ leaderboard by default
+  loadDjLeaderboard();
+}
+
+// Show My Profile view
+function showMyProfile() {
+  const views = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+                 'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
+                 'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
+  
+  views.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+  
+  const viewMyProfile = document.getElementById('viewMyProfile');
+  if (viewMyProfile) {
+    viewMyProfile.classList.remove('hidden');
+  }
+  
+  // Load profile data
+  loadMyProfile();
+}
+
+// Load DJ Leaderboard
+async function loadDjLeaderboard() {
+  const loadingDjs = document.getElementById('loadingDjs');
+  const errorDjs = document.getElementById('errorDjs');
+  const djsList = document.getElementById('djsList');
+  
+  // Show loading state
+  if (loadingDjs) loadingDjs.classList.remove('hidden');
+  if (errorDjs) errorDjs.classList.add('hidden');
+  if (djsList) djsList.innerHTML = '';
+  
+  try {
+    const response = await fetch('/api/leaderboard/djs?limit=10');
+    if (!response.ok) throw new Error('Failed to load DJ leaderboard');
+    
+    const data = await response.json();
+    
+    // Hide loading
+    if (loadingDjs) loadingDjs.classList.add('hidden');
+    
+    // Render DJ list
+    if (djsList && data.leaderboard && data.leaderboard.length > 0) {
+      djsList.innerHTML = data.leaderboard.map((dj, index) => {
+        const rank = index + 1;
+        const rankClass = rank <= 3 ? `rank-${rank}` : '';
+        const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+        
+        return `
+          <div class="leaderboard-item">
+            <div class="leaderboard-rank ${rankClass}">${rankEmoji} ${rank}</div>
+            <div class="leaderboard-info">
+              <div class="leaderboard-name">${escapeHtml(dj.dj_name || 'Anonymous DJ')}</div>
+              <div class="leaderboard-subtitle">${dj.dj_rank || 'DJ'}</div>
+            </div>
+            <div class="leaderboard-score">${dj.dj_score || 0}</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      djsList.innerHTML = '<p class="muted" style="text-align: center; padding: 40px;">No DJs yet</p>';
+    }
+  } catch (error) {
+    console.error('[Leaderboard] Error loading DJ leaderboard:', error);
+    if (loadingDjs) loadingDjs.classList.add('hidden');
+    if (errorDjs) errorDjs.classList.remove('hidden');
+  }
+}
+
+// Load Guest Leaderboard
+async function loadGuestLeaderboard() {
+  const loadingGuests = document.getElementById('loadingGuests');
+  const errorGuests = document.getElementById('errorGuests');
+  const guestsList = document.getElementById('guestsList');
+  
+  // Show loading state
+  if (loadingGuests) loadingGuests.classList.remove('hidden');
+  if (errorGuests) errorGuests.classList.add('hidden');
+  if (guestsList) guestsList.innerHTML = '';
+  
+  try {
+    const response = await fetch('/api/leaderboard/guests?limit=10');
+    if (!response.ok) throw new Error('Failed to load guest leaderboard');
+    
+    const data = await response.json();
+    
+    // Hide loading
+    if (loadingGuests) loadingGuests.classList.add('hidden');
+    
+    // Render guest list
+    if (guestsList && data.leaderboard && data.leaderboard.length > 0) {
+      guestsList.innerHTML = data.leaderboard.map((guest, index) => {
+        const rank = index + 1;
+        const rankClass = rank <= 3 ? `rank-${rank}` : '';
+        const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+        
+        return `
+          <div class="leaderboard-item">
+            <div class="leaderboard-rank ${rankClass}">${rankEmoji} ${rank}</div>
+            <div class="leaderboard-info">
+              <div class="leaderboard-name">${escapeHtml(guest.nickname || 'Guest')}</div>
+              <div class="leaderboard-subtitle">${guest.parties_joined || 0} parties joined</div>
+            </div>
+            <div class="leaderboard-score">${guest.total_contribution_points || 0}</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      guestsList.innerHTML = '<p class="muted" style="text-align: center; padding: 40px;">No guests yet</p>';
+    }
+  } catch (error) {
+    console.error('[Leaderboard] Error loading guest leaderboard:', error);
+    if (loadingGuests) loadingGuests.classList.add('hidden');
+    if (errorGuests) errorGuests.classList.remove('hidden');
+  }
+}
+
+// Load My Profile
+async function loadMyProfile() {
+  const loadingProfile = document.getElementById('loadingProfile');
+  const errorProfile = document.getElementById('errorProfile');
+  const profileContent = document.getElementById('profileContent');
+  
+  // Show loading state
+  if (loadingProfile) loadingProfile.classList.remove('hidden');
+  if (errorProfile) errorProfile.classList.add('hidden');
+  if (profileContent) profileContent.classList.add('hidden');
+  
+  try {
+    const response = await fetch('/api/me');
+    if (!response.ok) throw new Error('Failed to load profile');
+    
+    const data = await response.json();
+    
+    // Hide loading
+    if (loadingProfile) loadingProfile.classList.add('hidden');
+    if (profileContent) profileContent.classList.remove('hidden');
+    
+    // Update profile data
+    const djName = document.getElementById('profileDjName');
+    if (djName) djName.textContent = data.user.djName || 'Guest DJ';
+    
+    const tier = document.getElementById('profileTier');
+    if (tier) tier.textContent = data.tier || 'FREE';
+    
+    const djScore = document.getElementById('profileDjScore');
+    if (djScore) djScore.textContent = data.profile.djScore || 0;
+    
+    const djRank = document.getElementById('profileDjRank');
+    if (djRank) djRank.textContent = data.profile.djRank || 'Bedroom DJ';
+    
+    // Update upgrades
+    const upgradeVerifiedBadge = document.getElementById('upgradeVerifiedBadge');
+    if (upgradeVerifiedBadge) upgradeVerifiedBadge.textContent = data.profile.verifiedBadge ? '✅' : '❌';
+    
+    const upgradeCrownEffect = document.getElementById('upgradeCrownEffect');
+    if (upgradeCrownEffect) upgradeCrownEffect.textContent = data.profile.crownEffect ? '✅' : '❌';
+    
+    const upgradeAnimatedName = document.getElementById('upgradeAnimatedName');
+    if (upgradeAnimatedName) upgradeAnimatedName.textContent = data.profile.animatedName ? '✅' : '❌';
+    
+    const upgradeReactionTrail = document.getElementById('upgradeReactionTrail');
+    if (upgradeReactionTrail) upgradeReactionTrail.textContent = data.profile.reactionTrail ? '✅' : '❌';
+    
+    // Update active customizations
+    const visualPack = document.getElementById('profileVisualPack');
+    if (visualPack) visualPack.textContent = data.profile.activeVisualPack || 'None';
+    
+    const title = document.getElementById('profileTitle');
+    if (title) title.textContent = data.profile.activeTitle || 'None';
+    
+    // Update entitlements
+    const entitlementsList = document.getElementById('profileEntitlements');
+    if (entitlementsList) {
+      if (data.entitlements && data.entitlements.length > 0) {
+        entitlementsList.innerHTML = data.entitlements.map(item => `
+          <div class="entitlement-item">${item.item_type}: ${item.item_key}</div>
+        `).join('');
+      } else {
+        entitlementsList.innerHTML = '<p class="muted">No items owned yet</p>';
+      }
+    }
+  } catch (error) {
+    console.error('[Profile] Error loading profile:', error);
+    if (loadingProfile) loadingProfile.classList.add('hidden');
+    if (errorProfile) errorProfile.classList.remove('hidden');
+  }
+}
+
+// Initialize leaderboard and profile UI
+function initLeaderboardProfileUI() {
+  // Leaderboard button
+  const btnLeaderboard = document.getElementById('btnLeaderboard');
+  if (btnLeaderboard) {
+    btnLeaderboard.addEventListener('click', showLeaderboard);
+  }
+  
+  // Profile button
+  const btnProfile = document.getElementById('btnProfile');
+  if (btnProfile) {
+    btnProfile.addEventListener('click', showMyProfile);
+  }
+  
+  // Leaderboard tab buttons
+  const btnTabDjs = document.getElementById('btnTabDjs');
+  const btnTabGuests = document.getElementById('btnTabGuests');
+  const leaderboardDjs = document.getElementById('leaderboardDjs');
+  const leaderboardGuests = document.getElementById('leaderboardGuests');
+  
+  if (btnTabDjs) {
+    btnTabDjs.addEventListener('click', () => {
+      // Switch tabs
+      btnTabDjs.classList.add('active');
+      btnTabGuests.classList.remove('active');
+      leaderboardDjs.classList.remove('hidden');
+      leaderboardGuests.classList.add('hidden');
+      
+      // Load DJ leaderboard
+      loadDjLeaderboard();
+    });
+  }
+  
+  if (btnTabGuests) {
+    btnTabGuests.addEventListener('click', () => {
+      // Switch tabs
+      btnTabGuests.classList.add('active');
+      btnTabDjs.classList.remove('active');
+      leaderboardGuests.classList.remove('hidden');
+      leaderboardDjs.classList.add('hidden');
+      
+      // Load guest leaderboard
+      loadGuestLeaderboard();
+    });
+  }
+  
+  // Back buttons
+  const btnBackFromLeaderboard = document.getElementById('btnBackFromLeaderboard');
+  if (btnBackFromLeaderboard) {
+    btnBackFromLeaderboard.addEventListener('click', () => {
+      showView('viewLanding');
+    });
+  }
+  
+  const btnBackFromProfile = document.getElementById('btnBackFromProfile');
+  if (btnBackFromProfile) {
+    btnBackFromProfile.addEventListener('click', () => {
+      showView('viewLanding');
+    });
+  }
+}
+
+// HTML escape function
+function escapeHtml(unsafe) {
+  if (unsafe === null || unsafe === undefined) return '';
+  return String(unsafe)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // Initialize monetization UI when DOM is loaded
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initMonetizationUI);
+  document.addEventListener('DOMContentLoaded', () => {
+    initMonetizationUI();
+    initLeaderboardProfileUI();
+  });
 } else {
   initMonetizationUI();
+  initLeaderboardProfileUI();
 }
