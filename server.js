@@ -3543,7 +3543,7 @@ function handleGuestMessage(ws, msg) {
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
-  // Send to host only
+  // Broadcast to all party members (including other guests)
   const message = JSON.stringify({ 
     t: "GUEST_MESSAGE", 
     message: messageText,
@@ -3552,9 +3552,11 @@ function handleGuestMessage(ws, msg) {
     isEmoji: isEmoji
   });
   
-  if (party.host && party.host.readyState === WebSocket.OPEN) {
-    party.host.send(message);
-  }
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(message);
+    }
+  });
 }
 
 function handleGuestPlayRequest(ws, msg) {

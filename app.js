@@ -2657,8 +2657,8 @@ function setupDjEmojiReactionButtons() {
         // Track the emoji
         trackReaction(emoji);
         
-        // Increase crowd energy
-        increaseCrowdEnergy(5);
+        // NOTE: Crowd energy is ONLY driven by guest reactions, not DJ
+        // Do not call increaseCrowdEnergy() here
         
         // Broadcast to guests via WebSocket if connected
         if (state.ws && state.ws.readyState === WebSocket.OPEN) {

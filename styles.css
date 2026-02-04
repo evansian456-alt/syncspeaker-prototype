@@ -3116,14 +3116,16 @@ h2,h3{margin:0; font-weight:800}
   text-shadow: 0 0 15px rgba(90,169,255,0.5);
 }
 
-/* Flash Overlay */
+/* Flash Overlay - Made less intrusive, smaller and centered */
 .dj-flash-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: radial-gradient(circle, rgba(90,169,255,0.3) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(90,169,255,0.4) 0%, transparent 70%);
   pointer-events: none;
   opacity: 0;
   z-index: 10000;
@@ -3332,7 +3334,7 @@ h2,h3{margin:0; font-weight:800}
 /* Emoji reaction animation on host DJ screen */
 .emoji-reaction-float {
   position: absolute;
-  font-size: 48px;
+  font-size: 32px; /* Reduced from 48px */
   animation: floatUp 2s ease-out forwards;
   pointer-events: none;
   z-index: 1000;
