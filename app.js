@@ -7,6 +7,7 @@ const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in mi
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
 const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
 const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
+const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
 // User tier constants
 const USER_TIER = {
@@ -3597,10 +3598,10 @@ function attemptAddPhone() {
       if (state.selectedTier !== USER_TIER.FREE) {
         upgradeWarning.classList.remove("hidden");
         
-        // Wait 2 seconds to show warning, then proceed
+        // Wait to show warning, then proceed
         setTimeout(() => {
           proceedWithPrototypeMode();
-        }, 2000);
+        }, WARNING_DISPLAY_DURATION_MS);
       } else {
         proceedWithPrototypeMode();
       }
@@ -3624,8 +3625,13 @@ function attemptAddPhone() {
     state.prototypeMode = true;
     state.userTier = USER_TIER.FREE; // Always use FREE tier in prototype mode
     
-    // Generate temporary user ID
-    state.temporaryUserId = 'proto_' + Math.random().toString(36).substring(7);
+    // Generate cryptographically secure temporary user ID
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      state.temporaryUserId = 'proto_' + crypto.randomUUID();
+    } else {
+      // Fallback for older browsers
+      state.temporaryUserId = 'proto_' + Date.now() + '_' + Math.random().toString(36).substring(7);
+    }
     localStorage.setItem('syncSpeakerPrototypeId', state.temporaryUserId);
     
     toast("Prototype mode activated - No account required");

@@ -110,10 +110,9 @@ test.describe('New UX Flow - Landing, Tier Selection, and Account Creation', () 
     await expect(page.locator('text=Upgrades require an account to activate')).toBeVisible({ timeout: 1000 });
     await expect(page.locator('text=You selected a paid tier, but skipped account creation')).toBeVisible();
     
-    // Step 5: Wait for redirect (2 second delay) and verify Start/Join page
-    await page.waitForTimeout(2500);
-    await expect(page.locator('text=Prototype mode activated - No account required')).toBeVisible();
-    await expect(page.locator('h1')).toContainText('Play music together');
+    // Step 5: Wait for toast message and verify Start/Join page
+    await expect(page.locator('text=Prototype mode activated - No account required')).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('#viewHome h1')).toContainText('Play music together');
   });
 
   test('Flow E - Pro Tier: Landing → Pro Tier → Account Creation', async ({ page }) => {
