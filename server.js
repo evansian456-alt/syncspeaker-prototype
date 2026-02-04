@@ -4471,7 +4471,7 @@ async function handleDjQuickMessage(ws, msg) {
   
   // Create reaction feed item with TTL
   const item = {
-    id: `djmsg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    id: `djmsg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
     ts: Date.now(),
     type: "dj_quick",
     message: messageText,
