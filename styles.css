@@ -2704,6 +2704,49 @@ h2,h3{margin:0}
   animation: messageFadeOut 0.3s ease;
 }
 
+/* Unified Reactions Feed */
+.guest-reactions-feed {
+  margin-bottom: 20px;
+}
+
+.guest-reactions-feed-header {
+  margin-bottom: 15px;
+}
+
+.guest-reactions-feed-header .tiny {
+  display: block;
+  margin-top: 4px;
+}
+
+.guest-reactions-feed-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(18,24,35,0.4);
+  border-radius: var(--radius-sm);
+}
+
+.guest-no-reactions {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 20px;
+}
+
+.dj-message-from-dj {
+  background: linear-gradient(135deg, rgba(90,169,255,0.15) 0%, rgba(139,124,255,0.15) 100%);
+  border: 2px solid rgba(90,169,255,0.4);
+  box-shadow: 0 2px 8px rgba(90,169,255,0.3);
+}
+
+.dj-message-from-dj .dj-message-sender {
+  color: rgba(90,169,255,1);
+  font-weight: 800;
+}
+
 /* DJ Screen Crowd Energy */
 .dj-crowd-energy {
   margin: 30px 0;
