@@ -141,15 +141,10 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
       await expect(partyPassButton).toBeVisible({ timeout: 5000 });
       await partyPassButton.click();
       
-      // Wait for navigation to complete
-      await page.waitForTimeout(1000);
-      
-      // Verify navigation occurred by checking if we're no longer on landing
-      // or if a new view is visible
-      const navigationHappened = await page.evaluate(() => {
+      // Wait for navigation by checking that landing view is hidden or another view is visible
+      await page.waitForFunction(() => {
         const landing = document.querySelector('#viewLanding');
         const landingHidden = landing && landing.style.display === 'none';
-        const hashChanged = window.location.hash !== '';
         
         // Check if any other view is visible
         const otherViewVisible = Array.from(document.querySelectorAll('[id^="view"]')).some(view => {
@@ -158,11 +153,10 @@ test.describe('Phase 1 - Smoke Test: App Load + Navigation', () => {
                  view.offsetParent !== null;
         });
         
-        return landingHidden || hashChanged || otherViewVisible;
-      });
+        return landingHidden || otherViewVisible;
+      }, { timeout: 5000 });
       
       console.log('✓ Party Pass tier click triggered navigation');
-      expect(navigationHappened).toBe(true);
     });
 
     test('1.7 - Clicking Pro tier routes correctly', async ({ page }) => {
