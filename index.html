@@ -489,6 +489,39 @@
 
       <div class="line"></div>
 
+      <!-- Music Upload Section (Host Only) -->
+      <div class="box" id="musicUploadSection">
+        <h3>🎵 Music (from your phone)</h3>
+        <div class="music-upload-controls">
+          <input type="file" id="musicFileInput" accept="audio/*" style="display: none;" />
+          <button class="btn primary" id="btnChooseMusicFile">
+            📁 Choose Audio File
+          </button>
+          
+          <!-- Upload Status -->
+          <div class="upload-status hidden" id="uploadStatus">
+            <div class="upload-info">
+              <div class="upload-filename" id="uploadFilename">No file selected</div>
+              <div class="upload-size" id="uploadFileSize"></div>
+            </div>
+            <div class="upload-state" id="uploadState">
+              <span class="status-badge" id="uploadStateBadge">Ready</span>
+            </div>
+          </div>
+          
+          <!-- Upload Progress -->
+          <div class="upload-progress hidden" id="uploadProgress">
+            <div class="progress-bar">
+              <div class="progress-fill" id="uploadProgressFill" style="width: 0%"></div>
+            </div>
+            <div class="progress-text" id="uploadProgressText">Uploading... 0%</div>
+          </div>
+        </div>
+        <div class="tiny muted">Upload an audio file from your device to play for guests</div>
+      </div>
+
+      <div class="line"></div>
+
       <div class="row space">
         <h3>Friends connected</h3>
         <div class="row gap">
@@ -1183,6 +1216,38 @@
         <div class="debug-row">
           <span class="debug-label">Last Event:</span>
           <span class="debug-value" id="debugLastEvent">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Audio Src:</span>
+          <span class="debug-value" id="debugAudioSrc" style="word-break: break-all; font-size: 0.7em;">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Ready State:</span>
+          <span class="debug-value" id="debugAudioReadyState">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Network State:</span>
+          <span class="debug-value" id="debugAudioNetworkState">-</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Audio Error:</span>
+          <span class="debug-value" id="debugAudioError">None</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Last WS Msg:</span>
+          <span class="debug-value" id="debugLastWsMsg">-</span>
+        </div>
+      </div>
+      
+      <div class="debug-section">
+        <h5>Track State (Host)</h5>
+        <div class="debug-row">
+          <span class="debug-label">Current Track:</span>
+          <span class="debug-value" id="debugCurrentTrackStatus">none</span>
+        </div>
+        <div class="debug-row">
+          <span class="debug-label">Track URL:</span>
+          <span class="debug-value" id="debugCurrentTrackUrl" style="word-break: break-all; font-size: 0.7em;">-</span>
         </div>
       </div>
       

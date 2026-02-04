@@ -931,6 +931,75 @@ app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
   }
 });
 
+// POST /api/set-party-track - Set current track for a party and broadcast to guests
+app.post("/api/set-party-track", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[HTTP] POST /api/set-party-track at ${timestamp}`);
+  
+  try {
+    const { partyCode, trackId, trackUrl, filename, sizeBytes, contentType } = req.body;
+    
+    if (!partyCode) {
+      return res.status(400).json({ error: 'Party code is required' });
+    }
+    
+    if (!trackUrl) {
+      return res.status(400).json({ error: 'Track URL is required' });
+    }
+    
+    // Find party in local memory
+    const party = parties.get(partyCode);
+    if (!party) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    
+    // Update party state with track info
+    party.currentTrack = {
+      trackId,
+      trackUrl,
+      filename,
+      sizeBytes,
+      contentType,
+      setAt: Date.now()
+    };
+    
+    console.log(`[HTTP] Track set for party ${partyCode}: ${filename}`);
+    
+    // Broadcast TRACK_READY to all party members
+    const message = JSON.stringify({
+      t: "TRACK_READY",
+      track: {
+        trackId,
+        trackUrl,
+        filename,
+        sizeBytes,
+        contentType
+      }
+    });
+    
+    let broadcastCount = 0;
+    party.members.forEach(m => {
+      if (m.ws.readyState === WebSocket.OPEN) {
+        m.ws.send(message);
+        broadcastCount++;
+      }
+    });
+    
+    console.log(`[HTTP] TRACK_READY broadcast to ${broadcastCount} members in party ${partyCode}`);
+    
+    res.json({
+      ok: true,
+      broadcastCount
+    });
+  } catch (error) {
+    console.error(`[HTTP] Error setting party track:`, error);
+    res.status(500).json({
+      error: 'Failed to set party track',
+      details: error.message
+    });
+  }
+});
+
 // Endpoint to stream audio tracks with Range support (required for seeking and mobile playback)
 app.get("/api/track/:trackId", async (req, res) => {
   const timestamp = new Date().toISOString();

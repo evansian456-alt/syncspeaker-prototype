@@ -36,7 +36,8 @@ const musicState = {
 const debugState = {
   lastEndpoint: null,
   lastError: null,
-  serverHealth: null // Last server health check result
+  serverHealth: null, // Last server health check result
+  lastWsMessage: null // Last WebSocket message type received
 };
 
 const state = {
@@ -450,6 +451,12 @@ function send(obj) {
 }
 
 function handleServer(msg) {
+  // Track last WebSocket message for diagnostics
+  if (msg.t) {
+    debugState.lastWsMessage = msg.t;
+    updateDebugState();
+  }
+  
   if (msg.t === "WELCOME") { 
     state.clientId = msg.clientId; 
     state.connected = true;
@@ -696,6 +703,65 @@ function handleServer(msg) {
     state.chatMode = msg.mode;
     updateChatModeUI();
     updateDebugState();
+    return;
+  }
+  
+  // Track ready for playback
+  if (msg.t === "TRACK_READY") {
+    console.log("[WS] Track ready:", msg.track);
+    addDebugLog(`Track ready: ${msg.track.filename}`);
+    
+    if (!state.isHost) {
+      // Update guest state with track URL
+      if (msg.track && msg.track.trackUrl) {
+        state.nowPlayingFilename = msg.track.filename || "Unknown Track";
+        updateGuestNowPlaying(state.nowPlayingFilename);
+        
+        // Set up guest audio element
+        if (!state.guestAudioElement) {
+          state.guestAudioElement = new Audio();
+          state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+          
+          // Add event listeners for diagnostics
+          state.guestAudioElement.addEventListener('loadeddata', () => {
+            console.log("[Guest Audio] Track loaded");
+            state.guestAudioReady = true;
+            addDebugLog("Audio loaded");
+            updateDebugState();
+          });
+          
+          state.guestAudioElement.addEventListener('error', (e) => {
+            const errorCode = state.guestAudioElement.error?.code;
+            const errorMsg = state.guestAudioElement.error?.message || "Unknown error";
+            console.error("[Guest Audio] Error:", errorCode, errorMsg);
+            addDebugLog(`Audio error: ${errorCode} - ${errorMsg}`);
+            toast(`❌ Audio error: ${errorMsg}`);
+            updateDebugState();
+          });
+          
+          state.guestAudioElement.addEventListener('canplay', () => {
+            console.log("[Guest Audio] Can play");
+            addDebugLog("Audio can play");
+          });
+          
+          state.guestAudioElement.addEventListener('waiting', () => {
+            console.log("[Guest Audio] Waiting for data");
+            addDebugLog("Audio buffering");
+          });
+        }
+        
+        // Set the source
+        state.guestAudioElement.src = msg.track.trackUrl;
+        state.guestAudioReady = false;
+        
+        console.log("[Guest Audio] Audio src set to:", msg.track.trackUrl);
+        addDebugLog(`Audio src set: ${msg.track.filename}`);
+        
+        toast(`🎵 Track ready: ${msg.track.filename}`);
+        updateDebugState();
+      }
+    }
+    
     return;
   }
 }
@@ -2646,6 +2712,67 @@ function updateDebugState() {
   if (debugLastApiCallEl) {
     debugLastApiCallEl.textContent = debugState.lastEndpoint || "None";
   }
+  
+  // Update new audio diagnostics fields
+  const debugAudioSrcEl = el("debugAudioSrc");
+  const debugAudioReadyStateEl = el("debugAudioReadyState");
+  const debugAudioNetworkStateEl = el("debugAudioNetworkState");
+  const debugAudioErrorEl = el("debugAudioError");
+  const debugLastWsMsgEl = el("debugLastWsMsg");
+  const debugCurrentTrackStatusEl = el("debugCurrentTrackStatus");
+  const debugCurrentTrackUrlEl = el("debugCurrentTrackUrl");
+  
+  if (debugAudioSrcEl && state.guestAudioElement) {
+    debugAudioSrcEl.textContent = state.guestAudioElement.src || "Not set";
+  } else if (debugAudioSrcEl) {
+    debugAudioSrcEl.textContent = "No audio element";
+  }
+  
+  if (debugAudioReadyStateEl && state.guestAudioElement) {
+    const readyStates = ["HAVE_NOTHING", "HAVE_METADATA", "HAVE_CURRENT_DATA", "HAVE_FUTURE_DATA", "HAVE_ENOUGH_DATA"];
+    const readyState = state.guestAudioElement.readyState;
+    debugAudioReadyStateEl.textContent = `${readyState} (${readyStates[readyState] || "UNKNOWN"})`;
+  } else if (debugAudioReadyStateEl) {
+    debugAudioReadyStateEl.textContent = "-";
+  }
+  
+  if (debugAudioNetworkStateEl && state.guestAudioElement) {
+    const networkStates = ["NETWORK_EMPTY", "NETWORK_IDLE", "NETWORK_LOADING", "NETWORK_NO_SOURCE"];
+    const networkState = state.guestAudioElement.networkState;
+    debugAudioNetworkStateEl.textContent = `${networkState} (${networkStates[networkState] || "UNKNOWN"})`;
+  } else if (debugAudioNetworkStateEl) {
+    debugAudioNetworkStateEl.textContent = "-";
+  }
+  
+  if (debugAudioErrorEl && state.guestAudioElement?.error) {
+    const errorCodes = ["", "MEDIA_ERR_ABORTED", "MEDIA_ERR_NETWORK", "MEDIA_ERR_DECODE", "MEDIA_ERR_SRC_NOT_SUPPORTED"];
+    const errorCode = state.guestAudioElement.error.code;
+    debugAudioErrorEl.textContent = `${errorCode} (${errorCodes[errorCode] || "UNKNOWN"}) - ${state.guestAudioElement.error.message || ""}`;
+    debugAudioErrorEl.style.color = "#f00";
+  } else if (debugAudioErrorEl) {
+    debugAudioErrorEl.textContent = "None";
+    debugAudioErrorEl.style.color = "#888";
+  }
+  
+  if (debugLastWsMsgEl) {
+    debugLastWsMsgEl.textContent = debugState.lastWsMessage || "-";
+  }
+  
+  if (debugCurrentTrackStatusEl) {
+    if (musicState.currentTrack) {
+      debugCurrentTrackStatusEl.textContent = musicState.currentTrack.uploadStatus || "unknown";
+    } else {
+      debugCurrentTrackStatusEl.textContent = "none";
+    }
+  }
+  
+  if (debugCurrentTrackUrlEl) {
+    if (musicState.currentTrack && musicState.currentTrack.trackUrl) {
+      debugCurrentTrackUrlEl.textContent = musicState.currentTrack.trackUrl;
+    } else {
+      debugCurrentTrackUrlEl.textContent = "-";
+    }
+  }
 }
 
 // Add debug log entry
@@ -4248,13 +4375,31 @@ function attemptAddPhone() {
   const btnGuestPlay = el("btnGuestPlay");
   if (btnGuestPlay) {
     btnGuestPlay.onclick = () => {
-      // Send request to host to start music
-      if (state.ws && state.connected) {
-        send({ t: "GUEST_PLAY_REQUEST" });
-        toast("▶️ Requested DJ to play music");
-        console.log("[Guest] Sent play request to host");
+      // Play local audio if available
+      if (state.guestAudioElement && state.guestAudioElement.src) {
+        state.guestAudioElement.play()
+          .then(() => {
+            console.log("[Guest] Audio playback started");
+            addDebugLog("Guest started playback");
+            toast("▶️ Playing music");
+            updateDebugState();
+          })
+          .catch((err) => {
+            console.error("[Guest] Audio play error:", err);
+            addDebugLog(`Play error: ${err.message}`);
+            toast(`❌ Play failed: ${err.message}`);
+            updateDebugState();
+          });
       } else {
-        toast("Not connected to party", "warning");
+        console.log("[Guest] No audio loaded - requesting host to play");
+        addDebugLog("No audio - sent play request to host");
+        // Fallback: send request to host to start music
+        if (state.ws && state.connected) {
+          send({ t: "GUEST_PLAY_REQUEST" });
+          toast("▶️ Requested DJ to play music");
+        } else {
+          toast("⚠️ No audio loaded yet", "warning");
+        }
       }
     };
   }
@@ -4262,13 +4407,23 @@ function attemptAddPhone() {
   const btnGuestPause = el("btnGuestPause");
   if (btnGuestPause) {
     btnGuestPause.onclick = () => {
-      // Send request to host to pause music
-      if (state.ws && state.connected) {
-        send({ t: "GUEST_PAUSE_REQUEST" });
-        toast("⏸️ Requested DJ to pause music");
-        console.log("[Guest] Sent pause request to host");
+      // Pause local audio if playing
+      if (state.guestAudioElement && !state.guestAudioElement.paused) {
+        state.guestAudioElement.pause();
+        console.log("[Guest] Audio playback paused");
+        addDebugLog("Guest paused playback");
+        toast("⏸️ Music paused");
+        updateDebugState();
       } else {
-        toast("Not connected to party", "warning");
+        console.log("[Guest] No audio playing - sending pause request to host");
+        addDebugLog("No audio - sent pause request to host");
+        // Fallback: send request to host to pause music
+        if (state.ws && state.connected) {
+          send({ t: "GUEST_PAUSE_REQUEST" });
+          toast("⏸️ Requested DJ to pause music");
+        } else {
+          toast("⚠️ No audio playing", "warning");
+        }
       }
     };
   }
@@ -4523,6 +4678,149 @@ function attemptAddPhone() {
   el("btnAddPhone").onclick = attemptAddPhone;
 
   el("btnSpeaker").onclick = () => { if (!state.partyPro && !state.partyPassActive) openPaywall(); else openSpeaker(); };
+  
+  // Music file upload handler
+  const btnChooseMusicFile = el("btnChooseMusicFile");
+  const musicFileInput = el("musicFileInput");
+  
+  if (btnChooseMusicFile && musicFileInput) {
+    btnChooseMusicFile.onclick = () => {
+      musicFileInput.click();
+    };
+    
+    musicFileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      console.log("[Upload] File selected:", file.name, file.size, "bytes");
+      addDebugLog(`File selected: ${file.name}`);
+      
+      // Show file info
+      const uploadStatus = el("uploadStatus");
+      const uploadFilename = el("uploadFilename");
+      const uploadFileSize = el("uploadFileSize");
+      const uploadStateBadge = el("uploadStateBadge");
+      const uploadProgress = el("uploadProgress");
+      const uploadProgressFill = el("uploadProgressFill");
+      const uploadProgressText = el("uploadProgressText");
+      
+      if (uploadStatus) uploadStatus.classList.remove("hidden");
+      if (uploadFilename) uploadFilename.textContent = file.name;
+      if (uploadFileSize) uploadFileSize.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      if (uploadStateBadge) {
+        uploadStateBadge.textContent = "Uploading";
+        uploadStateBadge.className = "status-badge uploading";
+      }
+      if (uploadProgress) uploadProgress.classList.remove("hidden");
+      
+      try {
+        // Upload the file
+        const formData = new FormData();
+        formData.append('audio', file);
+        
+        const xhr = new XMLHttpRequest();
+        
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = (e.loaded / e.total) * 100;
+            if (uploadProgressFill) uploadProgressFill.style.width = `${percentComplete}%`;
+            if (uploadProgressText) uploadProgressText.textContent = `Uploading... ${Math.round(percentComplete)}%`;
+          }
+        });
+        
+        // Handle upload completion
+        xhr.addEventListener('load', async () => {
+          if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            console.log("[Upload] Track uploaded successfully:", response);
+            addDebugLog(`Upload success: ${response.trackId}`);
+            
+            // Hide progress, show ready status
+            if (uploadProgress) uploadProgress.classList.add("hidden");
+            if (uploadStateBadge) {
+              uploadStateBadge.textContent = "Ready";
+              uploadStateBadge.className = "status-badge ready";
+            }
+            
+            // Update music state
+            musicState.currentTrack = {
+              trackId: response.trackId,
+              trackUrl: response.trackUrl,
+              title: response.title || file.name,
+              uploadStatus: 'ready'
+            };
+            
+            updateDebugState();
+            
+            // Broadcast track to party members
+            if (state.code) {
+              try {
+                const broadcastResponse = await fetch("/api/set-party-track", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    partyCode: state.code,
+                    trackId: response.trackId,
+                    trackUrl: response.trackUrl,
+                    filename: response.title || file.name,
+                    sizeBytes: response.sizeBytes,
+                    contentType: response.contentType
+                  })
+                });
+                
+                if (broadcastResponse.ok) {
+                  const broadcastData = await broadcastResponse.json();
+                  console.log("[Upload] Track broadcast to party:", broadcastData);
+                  addDebugLog(`Track broadcast to ${broadcastData.broadcastCount} guests`);
+                  toast(`✅ Track ready for guests: ${file.name}`);
+                } else {
+                  console.error("[Upload] Failed to broadcast track");
+                  toast("⚠️ Track uploaded but failed to notify guests");
+                }
+              } catch (err) {
+                console.error("[Upload] Error broadcasting track:", err);
+                toast("⚠️ Track uploaded but failed to notify guests");
+              }
+            }
+          } else {
+            console.error("[Upload] Upload failed:", xhr.status, xhr.responseText);
+            addDebugLog(`Upload failed: ${xhr.status}`);
+            if (uploadProgress) uploadProgress.classList.add("hidden");
+            if (uploadStateBadge) {
+              uploadStateBadge.textContent = "Error";
+              uploadStateBadge.className = "status-badge error";
+            }
+            toast("❌ Upload failed");
+          }
+        });
+        
+        xhr.addEventListener('error', () => {
+          console.error("[Upload] Network error during upload");
+          addDebugLog("Upload network error");
+          if (uploadProgress) uploadProgress.classList.add("hidden");
+          if (uploadStateBadge) {
+            uploadStateBadge.textContent = "Error";
+            uploadStateBadge.className = "status-badge error";
+          }
+          toast("❌ Upload failed - network error");
+        });
+        
+        xhr.open('POST', '/api/upload-track');
+        xhr.send(formData);
+        
+      } catch (error) {
+        console.error("[Upload] Error:", error);
+        addDebugLog(`Upload error: ${error.message}`);
+        if (uploadProgress) uploadProgress.classList.add("hidden");
+        if (uploadStateBadge) {
+          uploadStateBadge.textContent = "Error";
+          uploadStateBadge.className = "status-badge error";
+        }
+        toast("❌ Upload failed");
+      }
+    });
+  }
 
   el("btnProYes").onclick = () => {
     el("togglePro").checked = true;
