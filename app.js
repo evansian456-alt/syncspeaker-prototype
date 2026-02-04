@@ -5048,6 +5048,41 @@ function attemptAddPhone() {
     };
   }
 
+  // Guest chat send button handler (Party Pass feature)
+  const btnSendGuestChat = el("btnSendGuestChat");
+  const guestChatInput = el("guestChatInput");
+  if (btnSendGuestChat && guestChatInput) {
+    const sendGuestChatMessage = () => {
+      const message = guestChatInput.value.trim();
+      if (!message) {
+        toast("Please enter a message", "warning");
+        return;
+      }
+      
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        toast("Not connected to server", "error");
+        return;
+      }
+      
+      // Send as GUEST_MESSAGE (server will enforce Party Pass)
+      send({ t: "GUEST_MESSAGE", message: message, isEmoji: false });
+      
+      // Clear input
+      guestChatInput.value = '';
+      
+      toast("Message sent!");
+    };
+    
+    btnSendGuestChat.onclick = sendGuestChatMessage;
+    
+    // Also allow Enter key to send
+    guestChatInput.onkeypress = (e) => {
+      if (e.key === 'Enter') {
+        sendGuestChatMessage();
+      }
+    };
+  }
+
   // Guest resync button handler
   const btnGuestResync = el("btnGuestResync");
   if (btnGuestResync) {

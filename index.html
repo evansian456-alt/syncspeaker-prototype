@@ -625,6 +625,51 @@
         <div class="tiny muted">Broadcast messages to all guests</div>
       </div>
 
+      <!-- DJ Quick Buttons (Party Pass Only) -->
+      <div class="dj-quick-buttons-section hidden" id="djQuickButtonsContainer">
+        <div class="dj-messages-header">
+          <span class="dj-messages-icon">⚡</span>
+          <span>QUICK MESSAGES</span>
+        </div>
+        <div class="dj-quick-buttons-grid">
+          <button class="btn-dj-quick" onclick="sendDjQuickButton('WELCOME')">
+            🎉 Welcome
+          </button>
+          <button class="btn-dj-quick" onclick="sendDjQuickButton('MAKE_NOISE')">
+            🔥 Make Noise
+          </button>
+          <button class="btn-dj-quick" onclick="sendDjQuickButton('HANDS_UP')">
+            🙌 Hands Up
+          </button>
+          <button class="btn-dj-quick" onclick="sendDjQuickButton('NEXT_UP')">
+            ⏭️ Next Up
+          </button>
+          <button class="btn-dj-quick" onclick="sendDjQuickButton('THANKS')">
+            ❤️ Thanks
+          </button>
+        </div>
+        <div class="tiny muted">Party Pass: Quick messages to crowd</div>
+      </div>
+
+      <!-- DJ Messaging Locked (When Party Pass inactive) -->
+      <div class="messaging-locked-notice hidden" id="djMessagingLocked">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-message">
+          <strong>Party Pass unlocks DJ quick buttons + auto prompts</strong>
+        </div>
+      </div>
+
+      <!-- DJ Messaging Feed (Party Pass) -->
+      <div class="messaging-feed-section hidden" id="djMessagingFeedSection">
+        <div class="messaging-feed-header">
+          <span>💬</span>
+          <span>PARTY CHAT</span>
+        </div>
+        <div class="messaging-feed" id="djMessagingFeed">
+          <div class="messaging-feed-empty">No messages yet...</div>
+        </div>
+      </div>
+
       <!-- DJ Emoji Reactions -->
       <div class="dj-emoji-reactions-section" id="djEmojiReactionsSection">
         <div class="dj-emoji-reactions-header">
@@ -1093,6 +1138,75 @@
           </button>
         </div>
         <div class="tiny muted">Send reactions to the host's DJ screen</div>
+      </div>
+
+      <!-- Guest Quick Replies (Party Pass Only) -->
+      <div class="guest-quick-replies-section hidden" id="guestQuickRepliesContainer">
+        <div class="messaging-header">
+          <span>💬</span>
+          <span>QUICK REPLIES</span>
+        </div>
+        <div class="guest-quick-replies-grid">
+          <button class="btn-guest-quick" onclick="sendGuestQuickReply('LOVE_THIS')">
+            🔥 Love this
+          </button>
+          <button class="btn-guest-quick" onclick="sendGuestQuickReply('TURN_IT_UP')">
+            🙌 Turn it up
+          </button>
+          <button class="btn-guest-quick" onclick="sendGuestQuickReply('WOW')">
+            😮 Wow
+          </button>
+          <button class="btn-guest-quick" onclick="sendGuestQuickReply('DANCE')">
+            💃 Dance break
+          </button>
+          <button class="btn-guest-quick" onclick="sendGuestQuickReply('BIG_VIBE')">
+            🫶 Big vibe
+          </button>
+        </div>
+        <div class="tiny muted">Party Pass: Quick replies</div>
+      </div>
+
+      <!-- Guest Chat Input (Party Pass Only) -->
+      <div class="guest-chat-input-section hidden" id="guestChatInputContainer">
+        <div class="messaging-header">
+          <span>✍️</span>
+          <span>TYPE MESSAGE</span>
+        </div>
+        <div class="chat-input-wrapper">
+          <input 
+            type="text" 
+            id="guestChatInput" 
+            class="chat-input" 
+            placeholder="Type a short message (max 60 chars)..."
+            maxlength="60"
+          />
+          <button class="btn-send-chat" id="btnSendGuestChat">Send</button>
+        </div>
+        <div class="tiny muted">Party Pass: Type short messages (max 60 chars)</div>
+      </div>
+
+      <!-- Guest Messaging Locked (When Party Pass inactive) -->
+      <div class="messaging-locked-notice hidden" id="guestMessagingLocked">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-message">
+          <strong>Party Pass required to chat</strong>
+          <ul class="lock-features">
+            <li>• Chat & emoji reactions</li>
+            <li>• Quick replies</li>
+            <li>• DJ quick messages</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Guest Messaging Feed (Party Pass) -->
+      <div class="messaging-feed-section hidden" id="guestMessagingFeedSection">
+        <div class="messaging-feed-header">
+          <span>💬</span>
+          <span>PARTY CHAT</span>
+        </div>
+        <div class="messaging-feed" id="guestMessagingFeed">
+          <div class="messaging-feed-empty">No messages yet...</div>
+        </div>
       </div>
 
       <div class="tiny muted" style="margin-top:20px; text-align: center;">
