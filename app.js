@@ -679,10 +679,27 @@ function handleServer(msg) {
       updateGuestPlaybackState("PAUSED");
       updateGuestVisualMode("paused");
       
-      // Pause guest audio if playing
-      if (state.guestAudioElement && !state.guestAudioElement.paused) {
-        state.guestAudioElement.pause();
+      // Pause guest audio if playing and sync to paused position if provided
+      if (state.guestAudioElement) {
+        if (!state.guestAudioElement.paused) {
+          state.guestAudioElement.pause();
+        }
+        
+        // If server provides pausedPositionSec, seek to that position
+        if (msg.pausedPositionSec !== undefined && state.guestAudioElement.duration) {
+          clampAndSeekAudio(state.guestAudioElement, msg.pausedPositionSec);
+          console.log("[Guest] Paused at position:", msg.pausedPositionSec.toFixed(2), "s");
+        }
+        
+        // Update dataset for future sync operations
+        if (msg.pausedAtServerMs && msg.pausedPositionSec !== undefined) {
+          state.guestAudioElement.dataset.startAtServerMs = msg.pausedAtServerMs.toString();
+          state.guestAudioElement.dataset.startPositionSec = msg.pausedPositionSec.toString();
+        }
       }
+      
+      // Stop drift correction when paused
+      stopDriftCorrection();
     }
     updateDebugState();
     return;
@@ -1401,18 +1418,47 @@ function startGuestPartyStatusPolling() {
         if (data.currentTrack) {
           const track = data.currentTrack;
           
-          // Check if this is a new track or track start
-          if (track.filename !== state.nowPlayingFilename) {
-            console.log("[Polling] New track detected:", track.filename);
-            state.nowPlayingFilename = track.filename;
-            updateGuestNowPlaying(track.filename);
-            
-            // If track has URL, prepare guest audio
-            if (track.url) {
-              handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
-            } else {
-              // No URL - host playing local file
-              toast("🎵 Host is playing: " + track.filename);
+          // Handle different playback statuses
+          if (track.status === 'playing') {
+            // Check if this is a new track or track start
+            if (track.filename !== state.nowPlayingFilename) {
+              console.log("[Polling] New track detected:", track.filename);
+              state.nowPlayingFilename = track.filename;
+              updateGuestNowPlaying(track.filename);
+              
+              // If track has URL, prepare guest audio
+              if (track.url) {
+                handleGuestAudioPlayback(track.url, track.filename, track.startAtServerMs, track.startPosition);
+              } else {
+                // No URL - host playing local file
+                toast("🎵 Host is playing: " + track.filename);
+              }
+            } else if (state.guestAudioElement && state.guestAudioElement.paused && state.audioUnlocked) {
+              // Track is same but guest audio is paused while host is playing - resume with sync
+              console.log("[Polling] Resuming paused audio to match host playing state");
+              const elapsedSec = (Date.now() - track.startAtServerMs) / 1000;
+              const targetSec = (track.startPosition || 0) + elapsedSec;
+              clampAndSeekAudio(state.guestAudioElement, targetSec);
+              state.guestAudioElement.play().catch(err => {
+                console.warn("[Polling] Could not auto-resume:", err);
+              });
+            }
+          } else if (track.status === 'paused') {
+            // Host paused - ensure guest is also paused at correct position
+            if (state.guestAudioElement && !state.guestAudioElement.paused) {
+              console.log("[Polling] Pausing guest audio to match host");
+              state.guestAudioElement.pause();
+              if (track.pausedPositionSec !== undefined) {
+                clampAndSeekAudio(state.guestAudioElement, track.pausedPositionSec);
+              }
+            }
+          } else if (track.status === 'stopped') {
+            // Host stopped - ensure guest is also stopped
+            if (state.guestAudioElement) {
+              console.log("[Polling] Stopping guest audio to match host");
+              state.guestAudioElement.pause();
+              state.guestAudioElement.currentTime = 0;
+              stopDriftCorrection();
             }
           }
         }
@@ -1585,6 +1631,10 @@ function showGuest() {
   
   // Setup volume control
   setupGuestVolumeControl();
+  
+  // Initialize resync button to hidden (will show only when needed)
+  state.showResyncButton = false;
+  updateResyncButtonVisibility();
   
   setPlanPill();
   updateDebugState();
@@ -2133,17 +2183,21 @@ function updateGuestSyncQuality(drift) {
     // Remove all quality classes
     qualityBadgeEl.classList.remove("medium", "bad");
     
-    // Classify sync quality based on drift
-    if (drift < 0.15) {
-      // Good sync (< 150ms)
+    // Classify sync quality based on new drift thresholds
+    if (drift < DRIFT_CORRECTION_THRESHOLD_SEC) {
+      // Excellent sync (< 200ms) - within ignore threshold
+      qualityBadgeEl.textContent = "Excellent";
+    } else if (drift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
+      // Good sync (200-800ms) - soft correction range
       qualityBadgeEl.textContent = "Good";
-    } else if (drift < 0.5) {
-      // Medium sync (150-500ms)
+      qualityBadgeEl.classList.add("medium");
+    } else if (drift < DRIFT_SHOW_RESYNC_THRESHOLD_SEC) {
+      // Medium sync (800ms-1.5s) - hard correction range
       qualityBadgeEl.textContent = "Medium";
       qualityBadgeEl.classList.add("medium");
     } else {
-      // Bad sync (> 500ms)
-      qualityBadgeEl.textContent = "Bad";
+      // Bad sync (> 1.5s) - show resync button
+      qualityBadgeEl.textContent = "Poor";
       qualityBadgeEl.classList.add("bad");
     }
   }
