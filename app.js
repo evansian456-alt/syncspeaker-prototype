@@ -1652,6 +1652,12 @@ function showHome() {
   // Stop party status polling
   stopPartyStatusPolling();
   
+  // Cleanup sync features (Phase 1, 4)
+  stopTimeSync();
+  stopDriftCorrection();
+  hideResyncButton();
+  hideTapToPlayButton();
+  
   setPlanPill();
   updateDebugState();
 }
