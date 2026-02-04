@@ -3032,6 +3032,20 @@ async function handleJoin(ws, msg) {
   const code = msg.code?.toUpperCase().trim();
   const timestamp = new Date().toISOString();
   
+  // Validate code format first (fail fast before any database queries)
+  if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
+    console.log(JSON.stringify({
+      event: "join_attempt",
+      success: false,
+      reason: "invalid_code_format",
+      code,
+      clientId: client.id,
+      timestamp
+    }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid party code format" }));
+    return;
+  }
+  
   console.log(`[WS] Attempting to join party: ${code}, clientId: ${client.id}, timestamp: ${timestamp}`);
   
   // First check Redis for party existence
@@ -3074,20 +3088,6 @@ async function handleJoin(ws, msg) {
       timestamp
     }));
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party not found" }));
-    return;
-  }
-  
-  // Validate code format (should be 6 uppercase alphanumeric characters)
-  if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
-    console.log(JSON.stringify({
-      event: "join_attempt",
-      success: false,
-      reason: "invalid_code_format",
-      code,
-      clientId: client.id,
-      timestamp
-    }));
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid party code format" }));
     return;
   }
   

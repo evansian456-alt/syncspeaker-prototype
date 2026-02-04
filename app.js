@@ -1,6 +1,7 @@
 const FREE_LIMIT = 2;
 const PARTY_PASS_LIMIT = 4;
 const PRO_LIMIT = 12;
+const PARTY_CODE_LENGTH = 6; // Length of party code
 const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
@@ -6005,7 +6006,7 @@ function handleURLParameters() {
   }
 }
 
-// Setup join flow enhancements (autofocus, enable button after 6 chars)
+// Setup join flow enhancements (autofocus, enable button after correct length)
 function setupJoinFlowEnhancements() {
   const joinCodeInput = document.getElementById('joinCode');
   const joinButton = document.getElementById('btnJoin');
@@ -6015,16 +6016,16 @@ function setupJoinFlowEnhancements() {
   if (joinCodeInput) {
     joinCodeInput.focus();
     
-    // Enable join button only after 6 characters are typed
+    // Enable join button only after PARTY_CODE_LENGTH characters are typed
     if (joinButton) {
       joinCodeInput.addEventListener('input', () => {
         const code = joinCodeInput.value.trim();
-        joinButton.disabled = code.length !== 6;
+        joinButton.disabled = code.length !== PARTY_CODE_LENGTH;
       });
       
       // Also check on page load in case URL parameter was used
       const code = joinCodeInput.value.trim();
-      joinButton.disabled = code.length !== 6;
+      joinButton.disabled = code.length !== PARTY_CODE_LENGTH;
     }
   }
   
@@ -6039,24 +6040,35 @@ function setupJoinFlowEnhancements() {
   // Load last joined code and offer rejoin option
   const savedCode = localStorage.getItem('syncSpeaker_lastCode');
   if (savedCode && joinCodeInput && !joinCodeInput.value) {
-    // Show rejoin hint
-    const rejoinHint = document.createElement('div');
-    rejoinHint.className = 'tiny muted';
-    rejoinHint.style.marginTop = '8px';
-    rejoinHint.innerHTML = `Last party: <a href="#" style="color: var(--accent);">${savedCode}</a> (click to rejoin)`;
-    
-    const rejoinLink = rejoinHint.querySelector('a');
-    rejoinLink.onclick = (e) => {
-      e.preventDefault();
-      joinCodeInput.value = savedCode;
-      joinCodeInput.dispatchEvent(new Event('input')); // Trigger validation
-      rejoinHint.remove();
-    };
-    
-    // Insert hint after join input
-    const joinSection = joinCodeInput.parentElement;
-    if (joinSection) {
-      joinSection.appendChild(rejoinHint);
+    // Validate saved code format to prevent XSS
+    if (/^[A-Z0-9]{6}$/.test(savedCode)) {
+      // Show rejoin hint
+      const rejoinHint = document.createElement('div');
+      rejoinHint.className = 'tiny muted';
+      rejoinHint.style.marginTop = '8px';
+      
+      // Create text safely without innerHTML
+      rejoinHint.textContent = 'Last party: ';
+      
+      const rejoinLink = document.createElement('a');
+      rejoinLink.href = '#';
+      rejoinLink.style.color = 'var(--accent)';
+      rejoinLink.textContent = savedCode; // Safe: textContent, not innerHTML
+      rejoinLink.onclick = (e) => {
+        e.preventDefault();
+        joinCodeInput.value = savedCode;
+        joinCodeInput.dispatchEvent(new Event('input')); // Trigger validation
+        rejoinHint.remove();
+      };
+      
+      rejoinHint.appendChild(rejoinLink);
+      rejoinHint.appendChild(document.createTextNode(' (click to rejoin)'));
+      
+      // Insert hint after join input
+      const joinSection = joinCodeInput.parentElement;
+      if (joinSection) {
+        joinSection.appendChild(rejoinHint);
+      }
     }
   }
 }
