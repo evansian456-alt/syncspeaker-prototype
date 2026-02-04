@@ -748,13 +748,18 @@ function handleServer(msg) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
     } else {
       // Guests also receive GUEST_MESSAGE when DJ sends emoji/messages
+      // Check if this is a DJ quick message with TTL
+      const isDjQuickMessage = msg.kind === 'dj_quick' && msg.ttlMs;
+      const messageType = isDjQuickMessage ? 'dj_quick' : (msg.isEmoji ? 'emoji' : 'message');
+      
       // Add to unified feed
       addToUnifiedFeed(
         msg.guestName === 'DJ' ? 'DJ' : 'GUEST',
         msg.guestName,
-        msg.isEmoji ? 'emoji' : 'message',
+        messageType,
         msg.message,
-        msg.isEmoji
+        msg.isEmoji,
+        msg.ttlMs || null
       );
     }
     return;
@@ -2289,6 +2294,16 @@ function updateDjScreen() {
       djPresetMessagesSection.classList.add("hidden");
     }
   }
+  
+  // Show/hide DJ quick message section (Pro Monthly only)
+  const djQuickMessageSection = el("djQuickMessageSection");
+  if (djQuickMessageSection) {
+    if (state.userTier === USER_TIER.PRO) {
+      djQuickMessageSection.classList.remove("hidden");
+    } else {
+      djQuickMessageSection.classList.add("hidden");
+    }
+  }
 }
 
 function updateBackToDjButton() {
@@ -2392,15 +2407,16 @@ function handleGuestPauseRequest(guestName, guestId) {
  * @param {boolean} isEmoji - Whether this is an emoji reaction
  */
 let feedItemCounter = 0; // Counter to ensure unique IDs
-function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false) {
+function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false, ttlMs = null) {
   const feedItem = {
     id: `${Date.now()}-${++feedItemCounter}`, // More robust unique ID
     timestamp: Date.now(),
     sender: sender, // 'DJ' or 'GUEST'
     senderName: senderName,
-    type: type, // 'emoji', 'message', 'preset', 'broadcast'
+    type: type, // 'emoji', 'message', 'preset', 'broadcast', 'dj_quick'
     content: content,
-    isEmoji: isEmoji
+    isEmoji: isEmoji,
+    ttlMs: ttlMs // Time-to-live in milliseconds (for auto-removal)
   };
   
   // Add to beginning (newest first)
@@ -2414,7 +2430,28 @@ function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false) {
   // Update UI
   renderUnifiedFeed();
   
+  // If TTL is set, schedule auto-removal
+  if (ttlMs && ttlMs > 0) {
+    setTimeout(() => {
+      removeFromUnifiedFeed(feedItem.id);
+    }, ttlMs);
+  }
+  
   console.log('[Unified Feed] Added:', feedItem, 'Total items:', state.unifiedFeed.length);
+}
+
+/**
+ * Remove a specific item from the unified feed by ID
+ * Used for TTL-based auto-removal of DJ quick messages
+ */
+function removeFromUnifiedFeed(itemId) {
+  const initialLength = state.unifiedFeed.length;
+  state.unifiedFeed = state.unifiedFeed.filter(item => item.id !== itemId);
+  
+  if (state.unifiedFeed.length !== initialLength) {
+    console.log('[Unified Feed] Removed item:', itemId, 'Remaining:', state.unifiedFeed.length);
+    renderUnifiedFeed();
+  }
 }
 
 /**
@@ -2714,6 +2751,82 @@ function setupDjEmojiReactionButtons() {
         toast(`Sent: ${emoji}`);
       }
     };
+  });
+}
+
+function setupDjQuickMessage() {
+  const quickMessageInput = el("djQuickMessageInput");
+  const quickMessageSendBtn = el("btnDjQuickMessageSend");
+  const quickMessageSection = el("djQuickMessageSection");
+  
+  if (!quickMessageInput || !quickMessageSendBtn || !quickMessageSection) {
+    return;
+  }
+  
+  // Function to send DJ quick message
+  const sendQuickMessage = () => {
+    // Only host can send DJ quick messages
+    if (!state.isHost) {
+      toast("Only the DJ can send quick messages", "warning");
+      return;
+    }
+    
+    // Check if user is Pro Monthly (based on userTier)
+    if (state.userTier !== USER_TIER.PRO) {
+      toast("Pro Monthly subscription required for DJ Quick Messages", "warning");
+      return;
+    }
+    
+    const message = quickMessageInput.value.trim();
+    
+    if (!message) {
+      toast("Message cannot be empty", "warning");
+      return;
+    }
+    
+    if (message.length > 50) {
+      toast("Message too long (max 50 characters)", "warning");
+      return;
+    }
+    
+    // Check spam cooldown (2 seconds for DJ quick messages)
+    const now = Date.now();
+    const quickMessageCooldownMs = 2000;
+    if (now - state.lastMessageTimestamp < quickMessageCooldownMs) {
+      const remainingMs = quickMessageCooldownMs - (now - state.lastMessageTimestamp);
+      toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
+      return;
+    }
+    
+    // Send via WebSocket
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      send({ t: "DJ_QUICK_MESSAGE", message: message });
+      state.lastMessageTimestamp = now;
+      
+      // Clear input
+      quickMessageInput.value = '';
+      
+      // Visual feedback
+      quickMessageSendBtn.disabled = true;
+      setTimeout(() => {
+        quickMessageSendBtn.disabled = false;
+      }, 2000);
+      
+      toast(`Quick message sent: ${message}`);
+    } else {
+      toast("Not connected to party", "error");
+    }
+  };
+  
+  // Send button click handler
+  quickMessageSendBtn.onclick = sendQuickMessage;
+  
+  // Enter key handler
+  quickMessageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendQuickMessage();
+    }
   });
 }
 
@@ -5125,6 +5238,9 @@ function attemptAddPhone() {
   
   // Setup DJ emoji reaction buttons
   setupDjEmojiReactionButtons();
+  
+  // Setup DJ quick message (Pro Monthly feature)
+  setupDjQuickMessage();
   
   // Setup chat mode selector (for host)
   setupChatModeSelector();

@@ -3079,11 +3079,35 @@ async function startServer() {
   // WebSocket server setup
   wss = new WebSocket.Server({ server });
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
     const clientId = nextWsClientId++;
-    clients.set(ws, { id: clientId, party: null });
     
-    console.log(`[WS] Client ${clientId} connected`);
+    // Extract userId from session cookie if available
+    let userId = null;
+    const authMiddleware = require('./auth-middleware');
+    const cookieParser = require('cookie-parser');
+    
+    // Parse cookies from the upgrade request
+    if (req.headers.cookie) {
+      const cookies = {};
+      req.headers.cookie.split(';').forEach(cookie => {
+        const parts = cookie.split('=');
+        cookies[parts[0].trim()] = parts[1];
+      });
+      
+      const authToken = cookies.auth_token;
+      if (authToken) {
+        const decoded = authMiddleware.verifyToken(authToken);
+        if (decoded && decoded.userId) {
+          userId = decoded.userId;
+        }
+      }
+    }
+    
+    clients.set(ws, { id: clientId, party: null, userId });
+    
+    console.log(`[WS] Client ${clientId} connected${userId ? ` (userId: ${userId})` : ' (anonymous)'}`);
+    
     
     // Set up heartbeat for this connection
     ws.isAlive = true;
@@ -3216,6 +3240,9 @@ function handleMessage(ws, msg) {
       break;
     case "DJ_EMOJI":
       handleDjEmoji(ws, msg);
+      break;
+    case "DJ_QUICK_MESSAGE":
+      handleDjQuickMessage(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -4298,6 +4325,181 @@ function handleDjEmoji(ws, msg) {
     guestName: "DJ",
     guestId: "dj",
     isEmoji: true
+  });
+  
+  party.members.forEach(m => {
+    // Send to guests only (not to host)
+    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(broadcastMsg);
+    }
+  });
+}
+
+/**
+ * Helper function to check if a user has an active Pro Monthly subscription
+ * @param {string} userId - User ID to check
+ * @returns {Promise<boolean>} - True if user has active Pro subscription
+ */
+async function isProMonthlyUser(userId) {
+  // Anonymous users cannot have Pro subscriptions
+  if (!userId || userId.startsWith('anonymous-')) {
+    return false;
+  }
+  
+  try {
+    const result = await db.query(
+      `SELECT status, current_period_end
+       FROM subscriptions
+       WHERE user_id = $1 AND status = 'active'
+       ORDER BY current_period_end DESC
+       LIMIT 1`,
+      [userId]
+    );
+    
+    // Check if subscription exists and is not expired
+    if (result.rows.length > 0) {
+      const subscription = result.rows[0];
+      const isActive = new Date(subscription.current_period_end) > new Date();
+      return isActive;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('[isProMonthlyUser] Error checking subscription:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Rate limiting for DJ quick messages
+ * Track last message timestamp per party host
+ */
+const djQuickMessageRateLimits = new Map(); // Map<userId, { lastMessageTime, messageCount, windowStart }>
+
+/**
+ * Check if DJ can send a quick message (rate limiting)
+ * @param {string} userId - User ID
+ * @returns {Object} - { allowed: boolean, reason?: string }
+ */
+function checkDjQuickMessageRateLimit(userId) {
+  const now = Date.now();
+  const limits = djQuickMessageRateLimits.get(userId) || {
+    lastMessageTime: 0,
+    messageCount: 0,
+    windowStart: now
+  };
+  
+  // Check if 2 seconds have passed since last message
+  if (now - limits.lastMessageTime < 2000) {
+    return { allowed: false, reason: 'Please wait 2 seconds between messages' };
+  }
+  
+  // Reset window if 60 seconds have passed
+  if (now - limits.windowStart >= 60000) {
+    limits.messageCount = 0;
+    limits.windowStart = now;
+  }
+  
+  // Check if under 10 messages per minute
+  if (limits.messageCount >= 10) {
+    return { allowed: false, reason: 'Maximum 10 messages per minute. Please slow down.' };
+  }
+  
+  // Update limits
+  limits.lastMessageTime = now;
+  limits.messageCount += 1;
+  djQuickMessageRateLimits.set(userId, limits);
+  
+  return { allowed: true };
+}
+
+/**
+ * Handle DJ quick message (Pro Monthly feature)
+ */
+async function handleDjQuickMessage(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send DJ quick messages
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only the DJ/host can send quick messages" }));
+    return;
+  }
+  
+  // Check if host has a userId (must be authenticated)
+  const userId = client.userId;
+  if (!userId || userId.startsWith('anonymous-')) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Pro Monthly subscription required for DJ Quick Messages" }));
+    return;
+  }
+  
+  // Check if user has Pro Monthly subscription
+  const isPro = await isProMonthlyUser(userId);
+  if (!isPro) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Pro Monthly subscription required for DJ Quick Messages" }));
+    return;
+  }
+  
+  // Check rate limiting
+  const rateLimitCheck = checkDjQuickMessageRateLimit(userId);
+  if (!rateLimitCheck.allowed) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: rateLimitCheck.reason }));
+    return;
+  }
+  
+  // Validate message
+  const messageText = (msg.message || "").trim();
+  
+  if (!messageText) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Message cannot be empty" }));
+    return;
+  }
+  
+  if (messageText.length > 50) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Message too long (max 50 characters)" }));
+    return;
+  }
+  
+  console.log(`[Party] DJ sending quick message "${messageText}" in party ${client.party}`);
+  
+  // Create reaction feed item with TTL
+  const item = {
+    id: `djmsg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    ts: Date.now(),
+    type: "dj_quick",
+    message: messageText,
+    guestName: "DJ",
+    guestId: "dj",
+    isEmoji: false,
+    ttlMs: 12000 // 12 seconds TTL
+  };
+  
+  // Add to reaction history (for refresh/late join support) with TTL flag
+  if (!party.reactionHistory) {
+    party.reactionHistory = [];
+  }
+  party.reactionHistory.push(item);
+  
+  // Keep only last 30 items
+  if (party.reactionHistory.length > 30) {
+    party.reactionHistory = party.reactionHistory.slice(-30);
+  }
+  
+  // Persist reaction history to Redis (best-effort, async)
+  persistReactionHistoryToRedis(client.party, party.reactionHistory);
+  
+  // Broadcast to all guests (not back to DJ)
+  const broadcastMsg = JSON.stringify({ 
+    t: "GUEST_MESSAGE",
+    message: messageText,
+    guestName: "DJ",
+    guestId: "dj",
+    isEmoji: false,
+    ttlMs: 12000, // Include TTL so client can auto-remove
+    kind: "dj_quick" // Mark as DJ quick message
   });
   
   party.members.forEach(m => {
