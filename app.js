@@ -10,6 +10,10 @@ const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync c
 const DRIFT_CORRECTION_INTERVAL_MS = 5000; // Check drift every 5 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
+// DJ Quick Message constants (must match server-side values)
+const DJ_QUICK_MESSAGE_COOLDOWN_MS = 2000; // Minimum 2 seconds between DJ quick messages
+const DJ_QUICK_MESSAGE_MAX_LENGTH = 50; // Maximum message length
+
 // User tier constants
 const USER_TIER = {
   FREE: 'FREE',
@@ -2413,10 +2417,16 @@ function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false, tt
     timestamp: Date.now(),
     sender: sender, // 'DJ' or 'GUEST'
     senderName: senderName,
-    type: type, // 'emoji', 'message', 'preset', 'broadcast', 'dj_quick'
+    // Message types:
+    // - 'emoji': Guest emoji reaction
+    // - 'message': Guest text message
+    // - 'preset': DJ preset message (Party Pass/Pro feature)
+    // - 'broadcast': DJ broadcast message
+    // - 'dj_quick': DJ quick message (Pro Monthly only, auto-disappears with TTL)
+    type: type,
     content: content,
     isEmoji: isEmoji,
-    ttlMs: ttlMs // Time-to-live in milliseconds (for auto-removal)
+    ttlMs: ttlMs // Time-to-live in milliseconds (for auto-removal of dj_quick messages)
   };
   
   // Add to beginning (newest first)
@@ -2784,16 +2794,15 @@ function setupDjQuickMessage() {
       return;
     }
     
-    if (message.length > 50) {
-      toast("Message too long (max 50 characters)", "warning");
+    if (message.length > DJ_QUICK_MESSAGE_MAX_LENGTH) {
+      toast(`Message too long (max ${DJ_QUICK_MESSAGE_MAX_LENGTH} characters)`, "warning");
       return;
     }
     
-    // Check spam cooldown (2 seconds for DJ quick messages)
+    // Check spam cooldown
     const now = Date.now();
-    const quickMessageCooldownMs = 2000;
-    if (now - state.lastMessageTimestamp < quickMessageCooldownMs) {
-      const remainingMs = quickMessageCooldownMs - (now - state.lastMessageTimestamp);
+    if (now - state.lastMessageTimestamp < DJ_QUICK_MESSAGE_COOLDOWN_MS) {
+      const remainingMs = DJ_QUICK_MESSAGE_COOLDOWN_MS - (now - state.lastMessageTimestamp);
       toast(`Please wait ${Math.ceil(remainingMs / 1000)}s before sending another message`, "warning");
       return;
     }
@@ -2806,11 +2815,11 @@ function setupDjQuickMessage() {
       // Clear input
       quickMessageInput.value = '';
       
-      // Visual feedback
+      // Visual feedback - disable button for cooldown period
       quickMessageSendBtn.disabled = true;
       setTimeout(() => {
         quickMessageSendBtn.disabled = false;
-      }, 2000);
+      }, DJ_QUICK_MESSAGE_COOLDOWN_MS);
       
       toast(`Quick message sent: ${message}`);
     } else {

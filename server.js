@@ -85,6 +85,12 @@ function safeJsonParse(str, fallback = null) {
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
 console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'} mode, instanceId: ${INSTANCE_ID}`);
 
+// DJ Quick Message constants
+const DJ_QUICK_MESSAGE_TTL_MS = 12000; // 12 seconds TTL for auto-disappearing messages
+const DJ_QUICK_MESSAGE_MAX_LENGTH = 50; // Maximum message length
+const DJ_QUICK_MESSAGE_RATE_LIMIT_INTERVAL_MS = 2000; // Minimum 2 seconds between messages
+const DJ_QUICK_MESSAGE_RATE_LIMIT_MAX_PER_MINUTE = 10; // Maximum 10 messages per minute
+
 // Redis configuration check - REDIS_URL is REQUIRED in production
 // This ensures we fail loudly if Redis is not properly configured
 let redisConfig;
@@ -3084,8 +3090,6 @@ async function startServer() {
     
     // Extract userId from session cookie if available
     let userId = null;
-    const authMiddleware = require('./auth-middleware');
-    const cookieParser = require('cookie-parser');
     
     // Parse cookies from the upgrade request
     if (req.headers.cookie) {
@@ -4389,9 +4393,9 @@ function checkDjQuickMessageRateLimit(userId) {
     windowStart: now
   };
   
-  // Check if 2 seconds have passed since last message
-  if (now - limits.lastMessageTime < 2000) {
-    return { allowed: false, reason: 'Please wait 2 seconds between messages' };
+  // Check if minimum time has passed since last message
+  if (now - limits.lastMessageTime < DJ_QUICK_MESSAGE_RATE_LIMIT_INTERVAL_MS) {
+    return { allowed: false, reason: `Please wait ${DJ_QUICK_MESSAGE_RATE_LIMIT_INTERVAL_MS / 1000} seconds between messages` };
   }
   
   // Reset window if 60 seconds have passed
@@ -4400,9 +4404,9 @@ function checkDjQuickMessageRateLimit(userId) {
     limits.windowStart = now;
   }
   
-  // Check if under 10 messages per minute
-  if (limits.messageCount >= 10) {
-    return { allowed: false, reason: 'Maximum 10 messages per minute. Please slow down.' };
+  // Check if under max messages per minute
+  if (limits.messageCount >= DJ_QUICK_MESSAGE_RATE_LIMIT_MAX_PER_MINUTE) {
+    return { allowed: false, reason: `Maximum ${DJ_QUICK_MESSAGE_RATE_LIMIT_MAX_PER_MINUTE} messages per minute. Please slow down.` };
   }
   
   // Update limits
@@ -4458,8 +4462,8 @@ async function handleDjQuickMessage(ws, msg) {
     return;
   }
   
-  if (messageText.length > 50) {
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Message too long (max 50 characters)" }));
+  if (messageText.length > DJ_QUICK_MESSAGE_MAX_LENGTH) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: `Message too long (max ${DJ_QUICK_MESSAGE_MAX_LENGTH} characters)` }));
     return;
   }
   
@@ -4467,14 +4471,14 @@ async function handleDjQuickMessage(ws, msg) {
   
   // Create reaction feed item with TTL
   const item = {
-    id: `djmsg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    id: `djmsg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
     ts: Date.now(),
     type: "dj_quick",
     message: messageText,
     guestName: "DJ",
     guestId: "dj",
     isEmoji: false,
-    ttlMs: 12000 // 12 seconds TTL
+    ttlMs: DJ_QUICK_MESSAGE_TTL_MS
   };
   
   // Add to reaction history (for refresh/late join support) with TTL flag
@@ -4498,7 +4502,7 @@ async function handleDjQuickMessage(ws, msg) {
     guestName: "DJ",
     guestId: "dj",
     isEmoji: false,
-    ttlMs: 12000, // Include TTL so client can auto-remove
+    ttlMs: DJ_QUICK_MESSAGE_TTL_MS, // Include TTL so client can auto-remove
     kind: "dj_quick" // Mark as DJ quick message
   });
   
