@@ -121,10 +121,11 @@ const state = {
   // Unified reactions feed (Phase 2)
   unifiedFeed: [], // Array of { id, timestamp, sender, senderName, type, content, isEmoji }
   maxFeedItems: 30, // Maximum items in unified feed (rolling limit)
-  // Party Pass messaging feed (FEED_ITEM system)
-  feedItems: [], // Array of feed items from FEED_ITEM messages
+  // Party Pass messaging feed (FEED_EVENT system)
+  feedItems: [], // Array of feed items from FEED_EVENT messages
   maxMessagingFeedItems: 50, // Maximum items in messaging feed
   feedItemTimeouts: new Map(), // Map<itemId, timeoutId> for TTL removal
+  feedSeenIds: new Set(), // Set of seen feed event IDs for deduplication
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
@@ -890,23 +891,41 @@ function handleServer(msg) {
   if (msg.t === "GUEST_MESSAGE") {
     if (state.isHost) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
-    } else {
-      // Guests also receive GUEST_MESSAGE when DJ sends emoji/messages
-      // Add to unified feed
-      addToUnifiedFeed(
-        msg.guestName === 'DJ' ? 'DJ' : 'GUEST',
-        msg.guestName,
-        msg.isEmoji ? 'emoji' : 'message',
-        msg.message,
-        msg.isEmoji
-      );
     }
+    // Convert legacy GUEST_MESSAGE to FEED_EVENT format for unified feed
+    const feedEvent = {
+      id: `${Date.now()}-${msg.guestId}-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
+      ts: Date.now(),
+      kind: "guest_message",
+      senderId: msg.guestId,
+      senderName: msg.guestName,
+      text: msg.message,
+      isEmoji: msg.isEmoji || false,
+      ttlMs: 12000
+    };
+    addFeedEvent(feedEvent);
     return;
   }
   
-  // New unified messaging feed (Party Pass feature)
+  // New unified messaging feed (Party Pass feature) - FEED_EVENT
+  if (msg.t === "FEED_EVENT") {
+    addFeedEvent(msg.event);
+    return;
+  }
+  
+  // Legacy FEED_ITEM support (convert to FEED_EVENT)
   if (msg.t === "FEED_ITEM") {
-    handleFeedItem(msg.item);
+    const feedEvent = {
+      id: msg.item.id,
+      ts: msg.item.ts,
+      kind: msg.item.kind,
+      senderId: msg.item.senderId,
+      senderName: msg.item.name,
+      text: msg.item.text,
+      isEmoji: msg.item.isEmoji || false,
+      ttlMs: msg.item.ttlMs
+    };
+    addFeedEvent(feedEvent);
     return;
   }
   
@@ -928,6 +947,18 @@ function handleServer(msg) {
   // DJ auto-generated messages
   if (msg.t === "DJ_MESSAGE") {
     displayDjMessage(msg.message, msg.type);
+    // Convert to FEED_EVENT format for unified feed
+    const feedEvent = {
+      id: `${msg.timestamp}-system-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
+      ts: msg.timestamp,
+      kind: "system",
+      senderId: "system",
+      senderName: "DJ",
+      text: msg.message,
+      isEmoji: false,
+      ttlMs: 12000
+    };
+    addFeedEvent(feedEvent);
     return;
   }
   
@@ -935,6 +966,18 @@ function handleServer(msg) {
   if (msg.t === "HOST_BROADCAST_MESSAGE") {
     // Both host and guests receive this message
     displayHostBroadcastMessage(msg.message);
+    // Convert to FEED_EVENT format for unified feed
+    const feedEvent = {
+      id: `${Date.now()}-dj-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
+      ts: Date.now(),
+      kind: "host_broadcast",
+      senderId: "dj",
+      senderName: "DJ",
+      text: msg.message,
+      isEmoji: false,
+      ttlMs: 12000
+    };
+    addFeedEvent(feedEvent);
     return;
   }
   
@@ -2910,6 +2953,53 @@ function renderGuestUnifiedFeed() {
  * Handle FEED_ITEM messages from Party Pass messaging suite
  * Messages appear inline in the feed, oldest first, and auto-disappear after TTL
  */
+/**
+ * Add a feed event to the unified feed with deduplication
+ * This is the main entry point for all feed events (FEED_EVENT and converted legacy messages)
+ */
+function addFeedEvent(event) {
+  if (!event || !event.id) {
+    console.warn('[addFeedEvent] Invalid event:', event);
+    return;
+  }
+  
+  // Deduplication check
+  if (state.feedSeenIds.has(event.id)) {
+    console.log('[addFeedEvent] Duplicate event ignored:', event.id);
+    return;
+  }
+  
+  // Add to seen set
+  state.feedSeenIds.add(event.id);
+  
+  console.log('[addFeedEvent] New event:', event.id, 'kind:', event.kind);
+  
+  // Add to feedItems array (oldest first - push to end)
+  state.feedItems.push(event);
+  
+  // Enforce cap of 50 items - use while loop to handle multiple excess items
+  while (state.feedItems.length > state.maxMessagingFeedItems) {
+    // Remove oldest items (from beginning)
+    const removed = state.feedItems.shift();
+    // Cancel timeout for removed item if exists
+    if (state.feedItemTimeouts.has(removed.id)) {
+      clearTimeout(state.feedItemTimeouts.get(removed.id));
+      state.feedItemTimeouts.delete(removed.id);
+    }
+  }
+  
+  // Render the feed
+  renderFeedItems();
+  
+  // Set up auto-removal timeout
+  const ttl = event.ttlMs || 12000;
+  const timeoutId = setTimeout(() => {
+    removeFeedItem(event.id);
+  }, ttl);
+  
+  state.feedItemTimeouts.set(event.id, timeoutId);
+}
+
 function handleFeedItem(item) {
   if (!item || !item.id) {
     console.warn('[handleFeedItem] Invalid feed item:', item);

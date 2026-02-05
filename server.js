@@ -3769,7 +3769,7 @@ async function handleMessage(ws, msg) {
       handleChatModeSet(ws, msg);
       break;
     case "HOST_BROADCAST_MESSAGE":
-      handleHostBroadcastMessage(ws, msg);
+      await handleHostBroadcastMessage(ws, msg);
       break;
     case "DJ_EMOJI":
       await handleDjEmoji(ws, msg);
@@ -3805,7 +3805,17 @@ function addDjMessage(code, message, type = "system") {
   
   console.log(`[DJ Message] ${code}: ${message}`);
   
-  // Broadcast to all party members
+  // Broadcast using new FEED_EVENT format
+  broadcastFeedItem(code, {
+    kind: "system",
+    name: "DJ",
+    senderId: "system",
+    text: message,
+    isEmoji: false,
+    ttlMs: MESSAGE_TTL_MS
+  });
+  
+  // Broadcast to all party members - legacy format for backward compatibility
   const broadcastMsg = JSON.stringify({ 
     t: "DJ_MESSAGE", 
     message,
@@ -4377,25 +4387,39 @@ function broadcastScoreboard(code) {
   publishToOtherInstances(code, "SCOREBOARD", { t: "SCOREBOARD_UPDATE", scoreboard: scoreboardData });
 }
 
+// Helper function to generate stable message ID
+function generateStableMessageId(ts, senderId, text) {
+  // Create a simple hash of the text for deduplication
+  const textHash = text.split('').reduce((hash, char) => {
+    return ((hash << 5) - hash) + char.charCodeAt(0);
+  }, 0).toString(36);
+  return `${ts}-${senderId}-${textHash}`;
+}
+
 // Helper function to broadcast feed items (unified messaging system for Party Pass)
 function broadcastFeedItem(code, item) {
   const party = parties.get(code);
   if (!party) return;
   
-  // Ensure item has all required fields
-  const feedItem = {
-    id: item.id || `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-    ts: item.ts || Date.now(),
-    kind: item.kind, // "guest_text" | "guest_emoji" | "guest_quick" | "host_quick" | "system_auto"
-    name: item.name,
+  // Generate stable ID
+  const ts = item.ts || Date.now();
+  const stableId = generateStableMessageId(ts, item.senderId || 'system', item.text || '');
+  
+  // Ensure item has all required fields with new FEED_EVENT envelope format
+  const feedEvent = {
+    id: stableId,
+    ts: ts,
+    kind: item.kind, // "guest_message" | "dj_emoji" | "host_broadcast" | "system"
     senderId: item.senderId,
+    senderName: item.name,
     text: item.text,
+    isEmoji: item.isEmoji || false,
     ttlMs: item.ttlMs || MESSAGE_TTL_MS
   };
   
-  const message = JSON.stringify({ t: "FEED_ITEM", item: feedItem });
+  const message = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
   
-  // Broadcast to local party members
+  // Broadcast to ALL party members (including host)
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(message);
@@ -4403,7 +4427,7 @@ function broadcastFeedItem(code, item) {
   });
   
   // Publish to other instances
-  publishToOtherInstances(code, "FEED_ITEM", { t: "FEED_ITEM", item: feedItem });
+  publishToOtherInstances(code, "FEED_EVENT", { t: "FEED_EVENT", event: feedEvent });
 }
 
 function handleHostPlay(ws, msg) {
@@ -4775,12 +4799,13 @@ async function handleGuestMessage(ws, msg) {
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
-  // Broadcast using new FEED_ITEM format (Party Pass messaging suite)
+  // Broadcast using new FEED_EVENT format (Party Pass messaging suite)
   broadcastFeedItem(client.party, {
-    kind: isEmoji ? "guest_emoji" : "guest_text",
+    kind: "guest_message",
     name: guestName,
     senderId: member.id,
     text: messageText,
+    isEmoji: isEmoji,
     ttlMs: MESSAGE_TTL_MS
   });
   
@@ -4847,12 +4872,13 @@ async function handleDjQuickButton(ws, msg) {
   
   console.log(`[Party] DJ sent quick button "${key}": "${text}" in party ${client.party}`);
   
-  // Broadcast using FEED_ITEM format
+  // Broadcast using FEED_EVENT format
   broadcastFeedItem(client.party, {
-    kind: "host_quick",
+    kind: "host_broadcast",
     name: "DJ",
     senderId: "dj",
     text: text,
+    isEmoji: false,
     ttlMs: MESSAGE_TTL_MS
   });
 }
@@ -4916,12 +4942,13 @@ async function handleGuestQuickReply(ws, msg) {
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast using FEED_ITEM format
+  // Broadcast using FEED_EVENT format
   broadcastFeedItem(client.party, {
-    kind: "guest_quick",
+    kind: "guest_message",
     name: guestName,
     senderId: member.id,
     text: text,
+    isEmoji: true,
     ttlMs: MESSAGE_TTL_MS
   });
 }
@@ -5025,7 +5052,7 @@ function handleChatModeSet(ws, msg) {
   });
 }
 
-function handleHostBroadcastMessage(ws, msg) {
+async function handleHostBroadcastMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -5038,11 +5065,37 @@ function handleHostBroadcastMessage(ws, msg) {
     return;
   }
   
+  // Get party data to check Party Pass status
+  let partyData;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleHostBroadcastMessage] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required to broadcast messages" }));
+    return;
+  }
+  
   const messageText = (msg.message || "").trim().substring(0, 100);
   
   console.log(`[Party] Host broadcasting message "${messageText}" in party ${client.party}`);
   
-  // Broadcast to all members (including echo to host)
+  // Broadcast using new FEED_EVENT format (Party Pass messaging suite)
+  broadcastFeedItem(client.party, {
+    kind: "host_broadcast",
+    name: "DJ",
+    senderId: "dj",
+    text: messageText,
+    isEmoji: false,
+    ttlMs: MESSAGE_TTL_MS
+  });
+  
+  // Broadcast to all members (including echo to host) - legacy format for backward compatibility
   const broadcastMsg = JSON.stringify({ 
     t: "HOST_BROADCAST_MESSAGE", 
     message: messageText
@@ -5116,7 +5169,17 @@ async function handleDjEmoji(ws, msg) {
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast to ALL members (including host)
+  // Broadcast using new FEED_EVENT format (Party Pass messaging suite)
+  broadcastFeedItem(client.party, {
+    kind: "dj_emoji",
+    name: "DJ",
+    senderId: "dj",
+    text: emoji,
+    isEmoji: true,
+    ttlMs: MESSAGE_TTL_MS
+  });
+  
+  // Broadcast to ALL members (including host) - legacy format for backward compatibility
   const broadcastMsg = JSON.stringify({ 
     t: "GUEST_MESSAGE",
     message: emoji,
