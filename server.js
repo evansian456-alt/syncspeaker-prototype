@@ -116,14 +116,37 @@ function safeJsonParse(str, fallback = null) {
 
 // Detect production mode - Railway sets NODE_ENV or we can detect by presence of RAILWAY_ENVIRONMENT
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT || !!process.env.REDIS_URL;
-console.log(`[Startup] Running in ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'} mode, instanceId: ${INSTANCE_ID}`);
+
+// Track server startup time for uptime calculation
+const SERVER_START_TIME = Date.now();
+
+// Optional fallback mode flag (for emergency use in production)
+const ALLOW_FALLBACK_IN_PRODUCTION = process.env.ALLOW_FALLBACK_IN_PRODUCTION === 'true';
+
+// ============================================================================
+// STARTUP DIAGNOSTIC LOG BLOCK
+// ============================================================================
+console.log('');
+console.log('═══════════════════════════════════════════════════════════');
+console.log('  📊 STARTUP DIAGNOSTICS');
+console.log('═══════════════════════════════════════════════════════════');
+console.log(`  APP_VERSION:          ${APP_VERSION}`);
+console.log(`  INSTANCE_ID:          ${INSTANCE_ID}`);
+console.log(`  NODE_ENV:             ${process.env.NODE_ENV || 'not set'}`);
+console.log(`  IS_PRODUCTION:        ${IS_PRODUCTION}`);
+console.log(`  RAILWAY_ENVIRONMENT:  ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
+console.log(`  ALLOW_FALLBACK:       ${ALLOW_FALLBACK_IN_PRODUCTION}`);
+console.log('═══════════════════════════════════════════════════════════');
+console.log('');
 
 // Redis configuration check - REDIS_URL is REQUIRED in production
 // This ensures we fail loudly if Redis is not properly configured
 let redisConfig;
 let redisConnectionError = null;
+let redisLastErrorAt = null; // Track when last error occurred
 let redisConfigSource = null;
 let usesTls = false; // Track if using TLS for later reference
+let rejectUnauthorized = false; // Track TLS verification setting
 
 if (process.env.REDIS_URL) {
   // Railway/production: Use REDIS_URL
@@ -141,7 +164,7 @@ if (process.env.REDIS_URL) {
     // For production deployments, you can enable strict TLS verification by setting:
     // REDIS_TLS_REJECT_UNAUTHORIZED=true
     // Default is 'false' to work with Railway and similar services out-of-the-box.
-    const rejectUnauthorized = process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'true';
+    rejectUnauthorized = process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'true';
     
     redisConfig = {
       // ioredis will parse the URL automatically
@@ -161,14 +184,24 @@ if (process.env.REDIS_URL) {
     console.log(`[Startup] Redis config: Using REDIS_URL with TLS (rediss://)`);
     console.log(`[Startup] TLS certificate verification: ${rejectUnauthorized ? 'ENABLED (strict)' : 'DISABLED (Railway-compatible)'}`);
   } else {
-    // Standard redis:// URL
-    redisConfig = redisUrl;
+    // Standard redis:// URL - create config with retry options
+    redisConfig = {
+      retryStrategy(times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      lazyConnect: false,
+      connectTimeout: 10000,
+    };
     console.log(`[Startup] Redis config: Using REDIS_URL without TLS (redis://)`);
   }
   
   // Log sanitized connection info (hide password)
   const sanitizedUrl = sanitizeRedisUrl(redisUrl);
   console.log(`[Startup] Redis URL (sanitized): ${sanitizedUrl}`);
+  console.log(`[Startup] redisConfigSource: ${redisConfigSource}, usesTls: ${usesTls}, rejectUnauthorized: ${rejectUnauthorized}`);
 } else if (process.env.REDIS_HOST || process.env.NODE_ENV === 'test') {
   // Development/test: Use individual Redis settings or test environment
   redisConfigSource = process.env.NODE_ENV === 'test' ? 'test_mode' : 'REDIS_HOST';
@@ -182,7 +215,8 @@ if (process.env.REDIS_URL) {
     },
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
-    lazyConnect: false
+    lazyConnect: false,
+    connectTimeout: 10000,
   };
   console.log(`[Startup] Redis config: Using REDIS_HOST=${redisConfig.host}:${redisConfig.port}`);
 } else {
@@ -191,11 +225,26 @@ if (process.env.REDIS_URL) {
   console.error("❌ CRITICAL: Redis configuration missing!");
   console.error("   Set REDIS_URL environment variable for production.");
   console.error("   For development, set REDIS_HOST (defaults to localhost).");
-  redisConnectionError = "missing";
+  redisConnectionError = "Redis configuration missing - no REDIS_URL or REDIS_HOST provided";
+  redisLastErrorAt = Date.now();
   
   if (IS_PRODUCTION) {
-    console.error("❌ FATAL: Cannot run in production mode without Redis!");
-    console.error("   Server will start but mark as NOT READY");
+    console.error("");
+    console.error("╔═══════════════════════════════════════════════════════════════╗");
+    console.error("║  ❌ FATAL: Cannot run in production mode without Redis!       ║");
+    console.error("╟───────────────────────────────────────────────────────────────╢");
+    console.error("║  Server will start but will NOT be ready (503 responses)     ║");
+    console.error("║                                                               ║");
+    console.error("║  TO FIX:                                                      ║");
+    console.error("║  1. Set REDIS_URL environment variable                       ║");
+    console.error("║  2. Ensure URL format: rediss://user:pass@host:port           ║");
+    console.error("║  3. Verify Redis service is running                          ║");
+    console.error("║  4. Check /api/health and /api/debug/redis for diagnostics   ║");
+    console.error("║                                                               ║");
+    console.error("║  EMERGENCY FALLBACK (not recommended):                       ║");
+    console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
+    console.error("╚═══════════════════════════════════════════════════════════════╝");
+    console.error("");
   }
 }
 
@@ -207,13 +256,24 @@ if (redisConfig) {
     if (typeof redisConfig === 'object' && usesTls) {
       redis = new Redis(process.env.REDIS_URL, redisConfig);
       console.log(`[Startup] Redis client created with TLS from URL + options`);
+    } else if (typeof redisConfig === 'object') {
+      // Non-TLS with object config (redis:// or REDIS_HOST)
+      if (process.env.REDIS_URL) {
+        redis = new Redis(process.env.REDIS_URL, redisConfig);
+        console.log(`[Startup] Redis client created from URL + options (source: ${redisConfigSource})`);
+      } else {
+        redis = new Redis(redisConfig);
+        console.log(`[Startup] Redis client created from config (source: ${redisConfigSource})`);
+      }
     } else {
+      // String config (legacy path)
       redis = new Redis(redisConfig);
-      console.log(`[Startup] Redis client created from config (source: ${redisConfigSource})`);
+      console.log(`[Startup] Redis client created from config string (source: ${redisConfigSource})`);
     }
   } catch (err) {
     console.error(`[Startup] Failed to create Redis client:`, err.message);
     redisConnectionError = err.message;
+    redisLastErrorAt = Date.now();
   }
 }
 
@@ -245,7 +305,8 @@ if (redis) {
     }
     
     redisConnectionError = err.message || err.code || 'Unknown error';
-    redisReady = false;
+    redisLastErrorAt = Date.now();
+    redisReady = false; // IMPORTANT: Mark as not ready on any error
     if (!useFallbackMode) {
       console.warn(`⚠️  Redis unavailable — using fallback mode (instance: ${INSTANCE_ID})`);
       useFallbackMode = true;
@@ -257,6 +318,7 @@ if (redis) {
     console.log(`   → Multi-device party sync enabled`);
     redisReady = true;
     redisConnectionError = null;
+    redisLastErrorAt = null;
     useFallbackMode = false;
   });
   
@@ -466,18 +528,24 @@ app.get("/health", async (req, res) => {
     redisStatus = "error";
   }
   
+  const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+  
   const health = { 
     status: "ok", 
     instanceId: INSTANCE_ID,
     redis: redisStatus,
     version: APP_VERSION,
-    configSource: redisConfigSource // Show where Redis config came from
+    configSource: redisConfigSource,
+    uptimeSeconds: uptimeSeconds
   };
   
   // Include error details if Redis has issues
   if (redisConnectionError) {
     health.redisError = redisConnectionError;
     health.redisErrorType = getRedisErrorType(redisConnectionError);
+    if (redisLastErrorAt) {
+      health.redisLastErrorAt = new Date(redisLastErrorAt).toISOString();
+    }
   }
   
   res.json(health);
@@ -487,11 +555,36 @@ app.get("/health", async (req, res) => {
 // In production mode, server is NOT ready if Redis is unavailable
 // In development mode, server is always ready (uses fallback storage)
 app.get("/api/health", async (req, res) => {
-  const redisConnected = !!(redis && redisReady && !redisConnectionError);
+  let redisConnected = !!(redis && redisReady && !redisConnectionError);
+  let redisPingResult = null;
+  let redisPingError = null;
+  
+  // If Redis appears ready, perform an actual ping test with timeout
+  if (redisConnected && redis) {
+    try {
+      const pingPromise = redis.ping();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Ping timeout')), 1000)
+      );
+      
+      redisPingResult = await Promise.race([pingPromise, timeoutPromise]);
+      
+      if (redisPingResult !== 'PONG') {
+        redisConnected = false;
+        redisPingError = `Unexpected ping response: ${redisPingResult}`;
+      }
+    } catch (err) {
+      redisConnected = false;
+      redisPingError = err.message;
+      console.error(`[Health] Redis ping failed: ${err.message}`);
+    }
+  }
   
   // In production, we require Redis to be ready
   // In development, we allow fallback mode
   const isReady = IS_PRODUCTION ? redisConnected : true;
+  
+  const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
   
   const health = {
     ok: isReady,
@@ -502,14 +595,24 @@ app.get("/api/health", async (req, res) => {
       mode: IS_PRODUCTION ? 'required' : 'optional',
       configSource: redisConfigSource
     },
+    uptimeSeconds: uptimeSeconds,
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
     environment: IS_PRODUCTION ? 'production' : 'development'
   };
   
-  // Add detailed error type if Redis has issues
+  // Add detailed error type and last error info if Redis has issues
   if (redisConnectionError) {
     health.redis.errorType = getRedisErrorType(redisConnectionError);
+    health.redis.lastError = redisConnectionError;
+    if (redisLastErrorAt) {
+      health.redis.lastErrorAt = new Date(redisLastErrorAt).toISOString();
+    }
+  }
+  
+  // Add ping error if applicable
+  if (redisPingError) {
+    health.redis.pingError = redisPingError;
   }
   
   // Return 503 if not ready (production mode without Redis)
@@ -520,6 +623,60 @@ app.get("/api/health", async (req, res) => {
 // Simple ping endpoint for testing client->server
 app.get("/api/ping", (req, res) => {
   res.json({ message: "pong", timestamp: Date.now() });
+});
+
+// Debug endpoint for Redis diagnostics
+// Provides detailed Redis connection status and configuration info (no secrets)
+app.get("/api/debug/redis", async (req, res) => {
+  const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+  
+  // Perform a ping test if Redis is available
+  let pingResult = null;
+  let pingError = null;
+  let pingLatencyMs = null;
+  
+  if (redis) {
+    try {
+      const startTime = Date.now();
+      const pingPromise = redis.ping();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Ping timeout (1000ms)')), 1000)
+      );
+      
+      pingResult = await Promise.race([pingPromise, timeoutPromise]);
+      pingLatencyMs = Date.now() - startTime;
+    } catch (err) {
+      pingError = err.message;
+    }
+  }
+  
+  const debug = {
+    instanceId: INSTANCE_ID,
+    version: APP_VERSION,
+    environment: IS_PRODUCTION ? 'production' : 'development',
+    uptimeSeconds: uptimeSeconds,
+    timestamp: new Date().toISOString(),
+    redis: {
+      clientCreated: !!redis,
+      ready: redisReady,
+      status: redis ? redis.status : 'not_created',
+      configSource: redisConfigSource,
+      usesTls: usesTls,
+      rejectUnauthorized: rejectUnauthorized,
+      connectionError: redisConnectionError,
+      lastErrorAt: redisLastErrorAt ? new Date(redisLastErrorAt).toISOString() : null,
+      errorType: redisConnectionError ? getRedisErrorType(redisConnectionError) : null,
+      ping: {
+        result: pingResult,
+        error: pingError,
+        latencyMs: pingLatencyMs
+      }
+    },
+    fallbackMode: useFallbackMode,
+    allowFallbackInProduction: ALLOW_FALLBACK_IN_PRODUCTION
+  };
+  
+  res.json(debug);
 });
 
 // Debug endpoint to list all registered routes
@@ -1920,13 +2077,16 @@ app.post("/api/create-party", async (req, res) => {
   const useRedis = redis && redisReady;
   const storageBackend = useRedis ? 'redis' : 'fallback';
   
-  // In production mode, Redis is required - return 503 if not available
-  if (IS_PRODUCTION && !useRedis) {
+  // In production mode, Redis is required UNLESS fallback mode is explicitly allowed
+  if (IS_PRODUCTION && !useRedis && !ALLOW_FALLBACK_IN_PRODUCTION) {
     console.error(`[HTTP] Redis required in production but not available, instanceId: ${INSTANCE_ID}`);
     return res.status(503).json({ 
       error: "Server not ready - Redis unavailable",
-      details: "Multi-device party sync requires Redis. Please try again in a moment.",
-      instanceId: INSTANCE_ID
+      details: "Multi-device party sync requires Redis. Please retry in 20 seconds.",
+      instanceId: INSTANCE_ID,
+      redisErrorType: redisConnectionError ? getRedisErrorType(redisConnectionError) : 'not_configured',
+      redisConfigSource: redisConfigSource,
+      timestamp: new Date().toISOString()
     });
   }
   
@@ -1944,7 +2104,7 @@ app.post("/api/create-party", async (req, res) => {
       hostConnected: false
     });
     
-    console.log(`[HTTP] Party persisted to Redis: ${code}, storageBackend: redis`);
+    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -1980,10 +2140,17 @@ app.post("/api/create-party", async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${partyData.createdAt}, totalParties: ${totalParties}, storageBackend: ${storageBackend}`);
     
-    res.json({
+    const response = {
       partyCode: code,
       hostId: hostId
-    });
+    };
+    
+    // Add warning if using fallback mode in production
+    if (IS_PRODUCTION && !useRedis && ALLOW_FALLBACK_IN_PRODUCTION) {
+      response.warning = "fallback_mode_single_instance";
+    }
+    
+    res.json(response);
   } catch (error) {
     console.error(`[HTTP] Error creating party, instanceId: ${INSTANCE_ID}:`, error);
     res.status(500).json({ 
@@ -2030,13 +2197,16 @@ app.post("/api/join-party", async (req, res) => {
     const useRedis = redis && redisReady;
     const storageBackend = useRedis ? 'redis' : 'fallback';
     
-    // In production mode, Redis is required - return 503 if not available
-    if (IS_PRODUCTION && !useRedis) {
+    // In production mode, Redis is required UNLESS fallback mode is explicitly allowed
+    if (IS_PRODUCTION && !useRedis && !ALLOW_FALLBACK_IN_PRODUCTION) {
       console.error(`[join-party] Redis required in production but not available, instanceId: ${INSTANCE_ID}`);
       return res.status(503).json({ 
         error: "Server not ready - Redis unavailable",
-        details: "Multi-device party sync requires Redis. Please try again in a moment.",
-        instanceId: INSTANCE_ID
+        details: "Multi-device party sync requires Redis. Please retry in 20 seconds.",
+        instanceId: INSTANCE_ID,
+        redisErrorType: redisConnectionError ? getRedisErrorType(redisConnectionError) : 'not_configured',
+        redisConfigSource: redisConfigSource,
+        timestamp: new Date().toISOString()
       });
     }
     
@@ -2145,14 +2315,21 @@ app.post("/api/join-party", async (req, res) => {
     console.log(`[HTTP] Party joined: ${code}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, partyCode: ${code}, guestId: ${guestId}, exists: true, storeReadResult: ${storeReadResult}, partyAge: ${partyAge}ms, guestCount: ${guestCount}, totalParties: ${totalParties}, duration: ${duration}ms, storageBackend: ${storageBackend}`);
     
     // Respond with success and guest info
-    res.json({ 
+    const response = { 
       ok: true,
       guestId,
       nickname: guestNickname,
       partyCode: code,
       djName: partyData.djName || "DJ", // Fallback for backward compatibility with old parties
       chatMode: partyData.chatMode || "OPEN" // Include chat mode for initial setup
-    });
+    };
+    
+    // Add warning if using fallback mode in production
+    if (IS_PRODUCTION && !useRedis && ALLOW_FALLBACK_IN_PRODUCTION) {
+      response.warning = "fallback_mode_single_instance";
+    }
+    
+    res.json(response);
     console.log("[join-party] end (success)");
     
     // Fire-and-forget: Update local state asynchronously (non-blocking)
@@ -3668,10 +3845,51 @@ async function startServer() {
       console.log("✅ Redis connected and ready");
     } catch (err) {
       console.warn(`⚠️  Redis connection timeout: ${err.message}`);
-      console.warn("   Server will continue in fallback mode - parties will be stored locally");
+      
+      if (IS_PRODUCTION && !ALLOW_FALLBACK_IN_PRODUCTION) {
+        console.error("");
+        console.error("╔═══════════════════════════════════════════════════════════════╗");
+        console.error("║  ⚠️  PRODUCTION REDIS NOT READY AFTER 10s                     ║");
+        console.error("╟───────────────────────────────────────────────────────────────╢");
+        console.error("║  Server will start but return 503 for party endpoints        ║");
+        console.error("║                                                               ║");
+        console.error("║  LIKELY CAUSES:                                               ║");
+        console.error("║  1. REDIS_URL not set or incorrect                           ║");
+        console.error("║  2. Redis service not running on Railway                     ║");
+        console.error("║  3. Network/firewall blocking connection                     ║");
+        console.error("║  4. TLS configuration mismatch (rediss:// required?)         ║");
+        console.error("║  5. Authentication failed (wrong password)                   ║");
+        console.error("║                                                               ║");
+        console.error("║  DIAGNOSTICS:                                                 ║");
+        console.error(`║  • Check /api/debug/redis for details                         ║`);
+        console.error(`║  • Check /api/health for readiness status                     ║`);
+        console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError).padEnd(30) : 'none'.padEnd(30)}           ║`);
+        console.error("║                                                               ║");
+        console.error("║  RAILWAY STEPS:                                               ║");
+        console.error("║  1. Verify Redis plugin is active                            ║");
+        console.error("║  2. Restart Redis service                                    ║");
+        console.error("║  3. Restart this service                                     ║");
+        console.error("╚═══════════════════════════════════════════════════════════════╝");
+        console.error("");
+      } else {
+        console.warn("   Server will continue in fallback mode - parties will be stored locally");
+      }
     }
   } else {
     console.warn("⚠️  Redis not configured - using fallback mode");
+    
+    if (IS_PRODUCTION && !ALLOW_FALLBACK_IN_PRODUCTION) {
+      console.error("");
+      console.error("╔═══════════════════════════════════════════════════════════════╗");
+      console.error("║  ❌ REDIS NOT CONFIGURED IN PRODUCTION                        ║");
+      console.error("╟───────────────────────────────────────────────────────────────╢");
+      console.error("║  Server will start but return 503 for party endpoints        ║");
+      console.error("║                                                               ║");
+      console.error("║  Set REDIS_URL environment variable and restart              ║");
+      console.error("║  Check /api/debug/redis for diagnostics                      ║");
+      console.error("╚═══════════════════════════════════════════════════════════════╝");
+      console.error("");
+    }
   }
   
   server = app.listen(PORT, "0.0.0.0", () => {
