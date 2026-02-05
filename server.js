@@ -3774,9 +3774,24 @@ async function handleMessage(ws, msg) {
     case "DJ_EMOJI":
       await handleDjEmoji(ws, msg);
       break;
+    case "TIME_PING":
+      handleTimePing(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
+}
+
+// TIME_PING handler - respond immediately with server time
+function handleTimePing(ws, msg) {
+  const serverNowMs = Date.now();
+  const response = {
+    t: "TIME_PONG",
+    clientNowMs: msg.clientNowMs,
+    serverNowMs: serverNowMs,
+    pingId: msg.pingId
+  };
+  safeSend(ws, JSON.stringify(response));
 }
 
 // Helper function to add and broadcast DJ auto-generated messages
@@ -4425,38 +4440,75 @@ function handleHostPlay(ws, msg) {
   const trackId = msg.trackId || party.currentTrack?.trackId || null;
   const trackUrl = msg.trackUrl || party.currentTrack?.trackUrl || null;
   const filename = msg.filename || party.currentTrack?.filename || "Unknown Track";
-  const startPosition = msg.positionSec || 0;
-  const serverTimestamp = Date.now();
+  const title = msg.title || filename;
+  const startPositionSec = msg.positionSec || 0;
   
+  // Scheduled start protocol with lead time
+  const leadTimeMs = 1200; // Configurable 800-1500ms
+  const startAtServerMs = Date.now() + leadTimeMs;
+  
+  // Set party state to "preparing"
   party.currentTrack = {
     trackId,
     trackUrl,
     filename,
-    startAtServerMs: serverTimestamp,
-    startPositionSec: startPosition,
-    status: 'playing' // HOST_PLAY event always indicates playing state
+    title,
+    startAtServerMs,
+    startPositionSec,
+    status: 'preparing',
+    durationMs: msg.durationMs || party.currentTrack?.durationMs
   };
   
-  console.log(`[Party] Track info: ${filename}, trackId: ${trackId}, position: ${startPosition}s`);
+  console.log(`[Party] Track scheduled to start in ${leadTimeMs}ms: ${title}, position: ${startPositionSec}s`);
   
   // Persist playback state to Redis (best-effort, async)
   persistPlaybackToRedis(client.party, party.currentTrack, party.queue || []);
   
-  // Broadcast to all guests (not host) with track info
-  const message = JSON.stringify({ 
-    t: "PLAY",
-    trackId,
+  // Broadcast PREPARE_PLAY to all members (host + guests)
+  const prepareMsg = JSON.stringify({ 
+    t: "PREPARE_PLAY",
     trackUrl,
+    title,
     filename,
-    serverTimestamp,
-    positionSec: startPosition
+    startAtServerMs,
+    startPositionSec
   });
   
   party.members.forEach(m => {
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
-      m.ws.send(message);
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(prepareMsg);
     }
   });
+  
+  // After leadTimeMs, set status to "playing" and broadcast PLAY_AT
+  setTimeout(() => {
+    const currentParty = parties.get(client.party);
+    if (!currentParty || !currentParty.currentTrack) return;
+    
+    // Update status to playing
+    currentParty.currentTrack.status = 'playing';
+    
+    // Persist updated state
+    persistPlaybackToRedis(client.party, currentParty.currentTrack, currentParty.queue || []);
+    
+    console.log(`[Party] Broadcasting PLAY_AT for ${title}`);
+    
+    // Broadcast PLAY_AT to all members (host + guests)
+    const playAtMsg = JSON.stringify({ 
+      t: "PLAY_AT",
+      trackUrl,
+      title,
+      filename,
+      startAtServerMs,
+      startPositionSec
+    });
+    
+    currentParty.members.forEach(m => {
+      if (m.ws.readyState === WebSocket.OPEN) {
+        m.ws.send(playAtMsg);
+      }
+    });
+  }, leadTimeMs);
 }
 
 function handleHostPause(ws, msg) {
