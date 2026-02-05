@@ -4149,7 +4149,8 @@ async function handleJoin(ws, msg) {
         syncStateMsg.startAtServerMs = currentTrack.startAtServerMs;
         syncStateMsg.startPositionSec = currentTrack.startPositionSec || 0;
       } else if (currentTrack && currentTrack.status === "paused") {
-        syncStateMsg.pausedAtPositionSec = currentTrack.pausedAtPositionSec || 0;
+        // Support both field names for backward compatibility
+        syncStateMsg.pausedAtPositionSec = currentTrack.pausedAtPositionSec || currentTrack.pausedPositionSec || 0;
       }
       
       safeSend(ws, JSON.stringify(syncStateMsg));

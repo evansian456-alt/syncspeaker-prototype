@@ -2663,6 +2663,7 @@ function playGuestAudio() {
 // Drift correction - runs every 2 seconds with multi-threshold correction
 let driftCorrectionInterval = null;
 let lastDriftValue = 0; // Track last drift for UI updates
+let playbackRateResetTimeout = null; // Track playbackRate adjustment timeout globally
 
 function startDriftCorrection(startAtServerMs, startPositionSec) {
   // Clear any existing interval
@@ -2670,9 +2671,13 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     clearInterval(driftCorrectionInterval);
   }
   
-  console.log("[Drift Correction] Started with server-synced multi-threshold approach");
+  // Clear any existing playbackRate reset timeout
+  if (playbackRateResetTimeout) {
+    clearTimeout(playbackRateResetTimeout);
+    playbackRateResetTimeout = null;
+  }
   
-  let playbackRateResetTimeout = null; // Track playbackRate adjustment timeout
+  console.log("[Drift Correction] Started with server-synced multi-threshold approach");
   
   driftCorrectionInterval = setInterval(() => {
     if (!state.guestAudioElement || state.guestAudioElement.paused) {

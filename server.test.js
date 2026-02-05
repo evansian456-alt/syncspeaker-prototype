@@ -1193,7 +1193,7 @@ describe('Party Management Endpoints', () => {
           trackUrl: 'https://example.com/test2.mp3',
           title: 'Test Track 2',
           status: 'paused',
-          pausedPositionSec: 42.5,  // Changed from pausedAtPositionSec
+          pausedPositionSec: 42.5,  // Field name used in storage (server supports both pausedAtPositionSec and pausedPositionSec)
           pausedAtServerMs: now
         },
         queue: []
