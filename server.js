@@ -5070,7 +5070,7 @@ async function handleDjEmoji(ws, msg) {
   }
   
   // Get party data to check Party Pass status
-  let partyData = null;
+  let partyData;
   try {
     partyData = await getPartyFromRedis(client.party);
   } catch (err) {
@@ -5081,7 +5081,7 @@ async function handleDjEmoji(ws, msg) {
   
   // CHECK PARTY PASS GATING (source of truth)
   if (!partyData || !isPartyPassActive(partyData)) {
-    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for emoji reactions" }));
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Emoji reactions require an active Party Pass" }));
     return;
   }
   
