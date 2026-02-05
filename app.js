@@ -2390,28 +2390,32 @@ function cleanupGuestAudio() {
 function updateHostQueueUI() {
   console.log("[Host] Updating queue UI:", musicState.queue);
   
-  const queueEl = el("hostQueueList");
-  if (!queueEl) {
-    console.warn("[Host] Queue element not found");
-    return;
-  }
+  // Update both queue lists (main party view and DJ overlay)
+  const queueElements = ['hostQueueList', 'djHostQueueList'];
   
-  if (!musicState.queue || musicState.queue.length === 0) {
-    queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
-    return;
-  }
-  
-  queueEl.innerHTML = musicState.queue.map((track, index) => `
-    <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
-      <span class="queue-number">${index + 1}.</span>
-      <span class="queue-title">${track.title || 'Unknown Track'}</span>
-      <div class="queue-controls">
-        ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
-        ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
-        <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+  queueElements.forEach(elementId => {
+    const queueEl = el(elementId);
+    if (!queueEl) {
+      return; // Element not present in current view
+    }
+    
+    if (!musicState.queue || musicState.queue.length === 0) {
+      queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
+      return;
+    }
+    
+    queueEl.innerHTML = musicState.queue.map((track, index) => `
+      <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
+        <span class="queue-number">${index + 1}.</span>
+        <span class="queue-title">${track.title || 'Unknown Track'}</span>
+        <div class="queue-controls">
+          ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
+          ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
+          <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  });
 }
 
 function updateGuestQueue(queue) {
@@ -5194,7 +5198,8 @@ function attemptAddPhone() {
             musicState.currentTrack = partyState.currentTrack || null;
             console.log("[Party] Initialized queue from server:", musicState.queue.length, "tracks");
             
-            // Update host queue UI
+            // Update host queue UI (defensive check ensures function is available)
+            // Note: This runs in async callback, so we verify function exists before calling
             if (state.isHost && typeof updateHostQueueUI === 'function') {
               updateHostQueueUI();
             }
