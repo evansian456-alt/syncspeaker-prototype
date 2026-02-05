@@ -131,6 +131,16 @@ const state = {
   temporaryUserId: null // Temporary ID for prototype mode users
 };
 
+// Server clock synchronization state
+let serverOffsetMs = 0; // Estimated offset: server time = local time + offset
+let timePingCounter = 0; // Counter for generating unique ping IDs
+let timePingInterval = null; // Interval for periodic TIME_PING
+
+// Helper function to compute current server time using offset
+function nowServerMs() {
+  return Date.now() + serverOffsetMs;
+}
+
 /**
  * Monetization state - manages user purchases and subscriptions
  * 
@@ -463,6 +473,7 @@ function connectWS() {
       addDebugLog("WebSocket disconnected");
       updateHeaderConnectionStatus("disconnected");
       toast("Disconnected");
+      stopTimePing(); // Stop periodic time sync
       state.ws = null;
       state.clientId = null;
       showLanding();
@@ -505,6 +516,65 @@ function send(obj) {
   }
   console.log("[WS] Sending message:", obj);
   state.ws.send(JSON.stringify(obj));
+}
+
+/**
+ * Send TIME_PING to server for clock synchronization
+ * Uses exponentially weighted moving average (EWMA) to smooth offset estimates
+ */
+function sendTimePing() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.warn("[TIME_PING] Cannot send - WebSocket not connected");
+    return;
+  }
+  
+  timePingCounter++;
+  const pingId = timePingCounter;
+  const clientSendMs = Date.now();
+  
+  // Store ping metadata for RTT calculation
+  if (!window.timePingPending) {
+    window.timePingPending = new Map();
+  }
+  window.timePingPending.set(pingId, { clientSendMs });
+  
+  console.log(`[TIME_PING] Sending ping ${pingId}`);
+  send({ 
+    t: "TIME_PING", 
+    clientNowMs: clientSendMs,
+    pingId 
+  });
+}
+
+/**
+ * Start periodic TIME_PING (every 30 seconds)
+ */
+function startTimePing() {
+  // Stop any existing interval
+  if (timePingInterval) {
+    clearInterval(timePingInterval);
+  }
+  
+  // Send initial ping immediately
+  sendTimePing();
+  
+  // Then send every 30 seconds
+  timePingInterval = setInterval(() => {
+    sendTimePing();
+  }, 30000);
+  
+  console.log("[TIME_PING] Started periodic time sync (every 30s)");
+}
+
+/**
+ * Stop periodic TIME_PING
+ */
+function stopTimePing() {
+  if (timePingInterval) {
+    clearInterval(timePingInterval);
+    timePingInterval = null;
+    console.log("[TIME_PING] Stopped periodic time sync");
+  }
 }
 
 /**
@@ -556,7 +626,51 @@ function handleServer(msg) {
     state.clientId = msg.clientId; 
     state.connected = true;
     updateDebugState();
+    // Start periodic time sync
+    startTimePing();
     return; 
+  }
+  if (msg.t === "TIME_PONG") {
+    // Calculate server clock offset using EWMA smoothing
+    const clientReceiveMs = Date.now();
+    
+    if (!window.timePingPending) {
+      console.warn("[TIME_PONG] No pending pings map");
+      return;
+    }
+    
+    const pingData = window.timePingPending.get(msg.pingId);
+    if (!pingData) {
+      console.warn(`[TIME_PONG] Unknown ping ID: ${msg.pingId}`);
+      return;
+    }
+    
+    window.timePingPending.delete(msg.pingId);
+    
+    const clientSendMs = pingData.clientSendMs;
+    const rttMs = clientReceiveMs - clientSendMs;
+    
+    // Ignore samples with RTT > 800ms (unreliable)
+    if (rttMs > 800) {
+      console.log(`[TIME_PONG] Ignoring ping ${msg.pingId} - RTT too high: ${rttMs}ms`);
+      return;
+    }
+    
+    // Estimate server time at the midpoint of the round trip
+    const estimatedServerNowMs = msg.serverNowMs + (rttMs / 2);
+    const newOffset = estimatedServerNowMs - clientReceiveMs;
+    
+    // Apply EWMA smoothing: offset = 0.8 * oldOffset + 0.2 * newOffset
+    // On first sample, just use newOffset directly
+    if (serverOffsetMs === 0 && timePingCounter === 1) {
+      serverOffsetMs = newOffset;
+      console.log(`[TIME_PONG] Initial offset: ${serverOffsetMs.toFixed(2)}ms (RTT: ${rttMs}ms)`);
+    } else {
+      serverOffsetMs = 0.8 * serverOffsetMs + 0.2 * newOffset;
+      console.log(`[TIME_PONG] Updated offset: ${serverOffsetMs.toFixed(2)}ms (RTT: ${rttMs}ms, raw: ${newOffset.toFixed(2)}ms)`);
+    }
+    
+    return;
   }
   if (msg.t === "CREATED") {
     state.code = msg.code; 
