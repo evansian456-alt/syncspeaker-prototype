@@ -12,6 +12,7 @@ const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
 const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
+const MESSAGE_TTL_MS = 12000; // Messages auto-disappear after 12 seconds (unified feed)
 
 // Sync quality indicator labels
 const SYNC_QUALITY_EXCELLENT = "Excellent";
