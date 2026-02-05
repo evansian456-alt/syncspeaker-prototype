@@ -5169,6 +5169,30 @@ function attemptAddPhone() {
       // Hide status
       if (partyStatusEl) partyStatusEl.classList.add("hidden");
       
+      // PHASE 7: Fetch initial party state to get queue/currentTrack
+      try {
+        const stateResponse = await fetch(`/api/party-state?code=${partyCode}`);
+        if (stateResponse.ok) {
+          const partyState = await stateResponse.json();
+          if (partyState.exists) {
+            // Initialize queue and currentTrack from server
+            musicState.queue = partyState.queue || [];
+            musicState.currentTrack = partyState.currentTrack || null;
+            console.log("[Party] Initialized queue from server:", musicState.queue.length, "tracks");
+            
+            // Update host queue UI
+            if (state.isHost) {
+              updateHostQueueUI();
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("[Party] Could not fetch initial party state:", error);
+        // Non-fatal - continue with empty queue
+        musicState.queue = [];
+        musicState.currentTrack = null;
+      }
+      
     } catch (error) {
       console.error("[Party] Error creating party:", error);
       
