@@ -4133,13 +4133,26 @@ async function handleJoin(ws, msg) {
     }
     
     // Send playback state to newly joined client (Phase 7)
+    // Enhanced with SYNC_STATE for better sync on join
     if (party.currentTrack || (party.queue && party.queue.length > 0)) {
-      safeSend(ws, JSON.stringify({ 
-        t: "PLAYBACK_STATE",
-        currentTrack: party.currentTrack,
+      const currentTrack = party.currentTrack;
+      const syncStateMsg = {
+        t: "SYNC_STATE",
+        currentTrack: currentTrack,
         queue: party.queue || [],
-        serverTime: Date.now()
-      }));
+        serverTime: Date.now(),
+        status: currentTrack?.status || "stopped"
+      };
+      
+      // Include sync fields for active playback
+      if (currentTrack && currentTrack.status === "playing") {
+        syncStateMsg.startAtServerMs = currentTrack.startAtServerMs;
+        syncStateMsg.startPositionSec = currentTrack.startPositionSec || 0;
+      } else if (currentTrack && currentTrack.status === "paused") {
+        syncStateMsg.pausedAtPositionSec = currentTrack.pausedAtPositionSec || 0;
+      }
+      
+      safeSend(ws, JSON.stringify(syncStateMsg));
     }
     
     broadcastRoomState(code);
@@ -4511,7 +4524,15 @@ function handleHostPlay(ws, msg) {
   const filename = msg.filename || party.currentTrack?.filename || "Unknown Track";
   const title = msg.title || filename;
   const durationMs = msg.durationMs || party.currentTrack?.durationMs || null;
-  const startPosition = msg.positionSec || 0;
+  
+  // If resuming from pause, use pausedAtPositionSec; otherwise use msg position or 0
+  let startPosition = 0;
+  if (party.currentTrack?.status === 'paused' && party.currentTrack?.pausedAtPositionSec !== undefined) {
+    startPosition = party.currentTrack.pausedAtPositionSec;
+    console.log(`[Party] Resuming from pause at position ${startPosition.toFixed(2)}s`);
+  } else {
+    startPosition = msg.positionSec || 0;
+  }
   
   // Compute lead time for scheduled start (configurable 800-1500ms, default 1200ms)
   const leadTimeMs = 1200;

@@ -1267,6 +1267,134 @@ function handleServer(msg) {
     
     return;
   }
+  
+  // SYNC_STATE: Late joiner sync - receive current playback state
+  if (msg.t === "SYNC_STATE") {
+    console.log("[SYNC_STATE] Received state:", msg);
+    
+    if (state.isHost) {
+      // Host doesn't need to sync
+      return;
+    }
+    
+    const currentTrack = msg.currentTrack;
+    const status = msg.status || currentTrack?.status || "stopped";
+    
+    console.log(`[SYNC_STATE] Status: ${status}, track: ${currentTrack?.title || currentTrack?.filename || 'none'}`);
+    
+    // If status is playing, sync to current position
+    if (status === "playing" && currentTrack && msg.startAtServerMs && msg.startPositionSec !== undefined) {
+      // Calculate expected position now
+      const elapsedSec = (nowServerMs() - msg.startAtServerMs) / 1000;
+      const expectedSec = Math.max(0, msg.startPositionSec + elapsedSec);
+      
+      console.log(`[SYNC_STATE] Syncing to playing track at ${expectedSec.toFixed(2)}s`);
+      
+      // Set up audio if needed
+      if (!state.guestAudioElement) {
+        state.guestAudioElement = new Audio();
+        state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+      }
+      
+      // Load track if different
+      if (currentTrack.trackUrl && state.guestAudioElement.src !== currentTrack.trackUrl) {
+        state.guestAudioElement.src = currentTrack.trackUrl;
+        state.guestAudioReady = false;
+        
+        console.log("[SYNC_STATE] Loading audio:", currentTrack.trackUrl);
+        
+        // Wait for metadata then sync
+        const metadataHandler = () => {
+          console.log("[SYNC_STATE] Metadata loaded, syncing playback");
+          
+          // Store state for scheduled playback
+          state.pendingStartAtServerMs = msg.startAtServerMs;
+          state.pendingStartPositionSec = msg.startPositionSec;
+          state.pendingTrackUrl = currentTrack.trackUrl;
+          state.pendingTrackTitle = currentTrack.title || currentTrack.filename;
+          state.pendingExpectedSec = expectedSec;
+          
+          // If audio unlocked, start immediately
+          if (state.audioUnlocked) {
+            clampAndSeekAudio(state.guestAudioElement, expectedSec);
+            state.guestAudioElement.play()
+              .then(() => {
+                console.log("[SYNC_STATE] Playback started");
+                state.playbackState = "PLAYING";
+                updateGuestPlaybackStatus("PLAYING");
+                startDriftCorrection(msg.startAtServerMs, msg.startPositionSec);
+              })
+              .catch(err => {
+                console.warn("[SYNC_STATE] Autoplay blocked:", err);
+                state.guestNeedsTap = true;
+                updateGuestPlaybackStatus("NEEDS_TAP");
+                toast("Tap Play to sync audio");
+              });
+          } else {
+            // Need user tap first
+            state.guestNeedsTap = true;
+            updateGuestPlaybackStatus("NEEDS_TAP");
+            toast("Tap Play to sync audio");
+          }
+        };
+        
+        state.guestAudioElement.addEventListener('loadedmetadata', metadataHandler, { once: true });
+      } else {
+        // Same track, just seek
+        console.log("[SYNC_STATE] Same track, seeking to position");
+        
+        if (state.audioUnlocked && state.guestAudioElement.paused) {
+          clampAndSeekAudio(state.guestAudioElement, expectedSec);
+          state.guestAudioElement.play()
+            .then(() => {
+              console.log("[SYNC_STATE] Resumed playback");
+              state.playbackState = "PLAYING";
+              updateGuestPlaybackStatus("PLAYING");
+              startDriftCorrection(msg.startAtServerMs, msg.startPositionSec);
+            })
+            .catch(err => {
+              console.warn("[SYNC_STATE] Autoplay blocked:", err);
+              state.guestNeedsTap = true;
+              updateGuestPlaybackStatus("NEEDS_TAP");
+            });
+        } else if (state.audioUnlocked && !state.guestAudioElement.paused) {
+          // Already playing, just resync
+          clampAndSeekAudio(state.guestAudioElement, expectedSec);
+          startDriftCorrection(msg.startAtServerMs, msg.startPositionSec);
+        }
+      }
+    } else if (status === "paused" && currentTrack && msg.pausedAtPositionSec !== undefined) {
+      console.log(`[SYNC_STATE] Track paused at ${msg.pausedAtPositionSec.toFixed(2)}s`);
+      
+      if (state.guestAudioElement && !state.guestAudioElement.paused) {
+        state.guestAudioElement.pause();
+        clampAndSeekAudio(state.guestAudioElement, msg.pausedAtPositionSec);
+      }
+      
+      state.playbackState = "PAUSED";
+      updateGuestPlaybackStatus("PAUSED");
+      stopDriftCorrection();
+    } else if (status === "stopped") {
+      console.log("[SYNC_STATE] Track stopped");
+      
+      if (state.guestAudioElement) {
+        state.guestAudioElement.pause();
+        state.guestAudioElement.currentTime = 0;
+      }
+      
+      state.playbackState = "STOPPED";
+      updateGuestPlaybackStatus("STOPPED");
+      stopDriftCorrection();
+    }
+    
+    // Update queue if provided
+    if (msg.queue) {
+      state.upNextFilename = msg.queue[0]?.filename || msg.queue[0]?.title || null;
+      updateGuestUpNext(state.upNextFilename);
+    }
+    
+    return;
+  }
 }
 
 function showHome() {
@@ -2544,6 +2672,8 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
   
   console.log("[Drift Correction] Started with server-synced multi-threshold approach");
   
+  let playbackRateResetTimeout = null; // Track playbackRate adjustment timeout
+  
   driftCorrectionInterval = setInterval(() => {
     if (!state.guestAudioElement || state.guestAudioElement.paused) {
       return;
@@ -2568,16 +2698,48 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
       // Drift < 0.20s - ignore, within acceptable range
       state.driftCheckFailures = 0;
+      
+      // Reset playback rate if it was adjusted
+      if (state.guestAudioElement.playbackRate !== 1.0) {
+        state.guestAudioElement.playbackRate = 1.0;
+        console.log("[Drift Correction] Reset playbackRate to 1.0");
+      }
+      
       // Hide resync button if drift is good
       if (state.showResyncButton) {
         state.showResyncButton = false;
         updateResyncButtonVisibility();
       }
     } else if (absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
-      // Drift 0.20s - 0.80s - soft correction (small seek)
-      console.log("[Drift Correction] Soft correction - adjusting by", signedDrift.toFixed(3), "s");
-      clampAndSeekAudio(state.guestAudioElement, idealSec);
+      // Drift 0.20s - 0.80s - gentle correction using playbackRate
+      console.log("[Drift Correction] Gentle correction using playbackRate - drift:", signedDrift.toFixed(3), "s");
+      
+      // Clear any existing playbackRate reset timeout
+      if (playbackRateResetTimeout) {
+        clearTimeout(playbackRateResetTimeout);
+      }
+      
+      // Adjust playback rate temporarily
+      if (signedDrift > 0) {
+        // Audio is ahead - slow down slightly
+        state.guestAudioElement.playbackRate = 0.97;
+        console.log("[Drift Correction] Slowing down to 0.97x");
+      } else {
+        // Audio is behind - speed up slightly
+        state.guestAudioElement.playbackRate = 1.03;
+        console.log("[Drift Correction] Speeding up to 1.03x");
+      }
+      
+      // Reset playback rate after 3 seconds
+      playbackRateResetTimeout = setTimeout(() => {
+        if (state.guestAudioElement) {
+          state.guestAudioElement.playbackRate = 1.0;
+          console.log("[Drift Correction] Reset playbackRate to 1.0 after adjustment");
+        }
+      }, 3000);
+      
       state.driftCheckFailures = 0;
+      
       // Hide resync button if drift improved below soft correction threshold
       if (state.showResyncButton && absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
         state.showResyncButton = false;
@@ -2587,11 +2749,23 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     } else if (absDrift < DRIFT_HARD_RESYNC_THRESHOLD_SEC) {
       // Drift 0.80s - 1.00s - moderate correction with failure tracking
       console.log("[Drift Correction] Moderate drift - hard seeking to", idealSec.toFixed(2), "s");
+      
+      // Reset playback rate before seeking
+      if (state.guestAudioElement.playbackRate !== 1.0) {
+        state.guestAudioElement.playbackRate = 1.0;
+      }
+      
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures++;
     } else {
       // Drift > 1.00s - hard resync
       console.log("[Drift Correction] Large drift detected - hard resync to", idealSec.toFixed(2), "s");
+      
+      // Reset playback rate before seeking
+      if (state.guestAudioElement.playbackRate !== 1.0) {
+        state.guestAudioElement.playbackRate = 1.0;
+      }
+      
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures++;
       

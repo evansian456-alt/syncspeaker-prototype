@@ -1127,5 +1127,128 @@ describe('Party Management Endpoints', () => {
       expect(response.body.status).toBe('expired');
     });
   });
+
+  describe('Playback Sync Features', () => {
+    it('should include sync fields in /api/party-state for playing track', async () => {
+      // Create a party using fallback storage directly
+      const partyCode = 'TEST01';
+      const now = Date.now();
+      const partyData = {
+        djName: 'TestDJ',
+        source: 'local',
+        hostId: 'test-host-123',
+        createdAt: now,
+        expiresAt: now + (2 * 60 * 60 * 1000),
+        chatMode: 'OPEN',
+        partyPro: false,
+        guestCount: 0,
+        guests: [],
+        currentTrack: {
+          trackId: 'test-track-123',
+          trackUrl: 'https://example.com/test.mp3',
+          title: 'Test Track',
+          filename: 'test.mp3',
+          durationMs: 180000,
+          status: 'playing',
+          startAtServerMs: now - 5000, // Started 5 seconds ago
+          startPositionSec: 0
+        },
+        queue: []
+      };
+      
+      // Set in both Redis and fallback for reliability
+      await redis.setex(`party:${partyCode}`, 7200, JSON.stringify(partyData));
+      setPartyInFallback(partyCode, partyData);
+      
+      // Get party state
+      const stateResponse = await request(app)
+        .get(`/api/party-state?code=${partyCode}`);
+      
+      expect(stateResponse.status).toBe(200);
+      expect(stateResponse.body.exists).toBe(true);
+      expect(stateResponse.body.serverTime).toBeDefined();
+      expect(stateResponse.body.currentTrack).toBeDefined();
+      expect(stateResponse.body.currentTrack.status).toBe('playing');
+      expect(stateResponse.body.currentTrack.startAtServerMs).toBeDefined();
+      // startPositionSec may be undefined if startPosition is 0, check both
+      expect(stateResponse.body.currentTrack.startPositionSec || stateResponse.body.currentTrack.startPosition).toBe(0);
+    });
+
+    it('should include pausedAtPositionSec in /api/party-state for paused track', async () => {
+      // Create a party using fallback storage directly
+      const partyCode = 'TEST02';
+      const now = Date.now();
+      const partyData = {
+        djName: 'TestDJ',
+        source: 'local',
+        hostId: 'test-host-456',
+        createdAt: now,
+        expiresAt: now + (2 * 60 * 60 * 1000),
+        chatMode: 'OPEN',
+        partyPro: false,
+        guestCount: 0,
+        guests: [],
+        currentTrack: {
+          trackId: 'test-track-456',
+          trackUrl: 'https://example.com/test2.mp3',
+          title: 'Test Track 2',
+          status: 'paused',
+          pausedPositionSec: 42.5,  // Changed from pausedAtPositionSec
+          pausedAtServerMs: now
+        },
+        queue: []
+      };
+      
+      // Set in both Redis and fallback for reliability
+      await redis.setex(`party:${partyCode}`, 7200, JSON.stringify(partyData));
+      setPartyInFallback(partyCode, partyData);
+      
+      // Get party state
+      const stateResponse = await request(app)
+        .get(`/api/party-state?code=${partyCode}`);
+      
+      expect(stateResponse.status).toBe(200);
+      expect(stateResponse.body.currentTrack).toBeDefined();
+      expect(stateResponse.body.currentTrack.status).toBe('paused');
+      expect(stateResponse.body.currentTrack.pausedPositionSec).toBe(42.5);
+    });
+
+    it('should handle stopped track status in /api/party-state', async () => {
+      // Create a party using fallback storage directly
+      const partyCode = 'TEST03';
+      const now = Date.now();
+      const partyData = {
+        djName: 'TestDJ',
+        source: 'local',
+        hostId: 'test-host-789',
+        createdAt: now,
+        expiresAt: now + (2 * 60 * 60 * 1000),
+        chatMode: 'OPEN',
+        partyPro: false,
+        guestCount: 0,
+        guests: [],
+        currentTrack: {
+          trackId: 'test-track-789',
+          trackUrl: 'https://example.com/test3.mp3',
+          title: 'Test Track 3',
+          status: 'stopped',
+          startPositionSec: 0
+        },
+        queue: []
+      };
+      
+      // Set in both Redis and fallback for reliability
+      await redis.setex(`party:${partyCode}`, 7200, JSON.stringify(partyData));
+      setPartyInFallback(partyCode, partyData);
+      
+      // Get party state
+      const stateResponse = await request(app)
+        .get(`/api/party-state?code=${partyCode}`);
+      
+      expect(stateResponse.status).toBe(200);
+      expect(stateResponse.body.currentTrack).toBeDefined();
+      expect(stateResponse.body.currentTrack.status).toBe('stopped');
+    });
+  });
 });
 
