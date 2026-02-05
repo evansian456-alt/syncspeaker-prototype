@@ -10,7 +10,13 @@ const DRIFT_CORRECTION_THRESHOLD_SEC = 0.20; // Ignore drift below this threshol
 const DRIFT_SOFT_CORRECTION_THRESHOLD_SEC = 0.80; // Soft correction threshold
 const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
 const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
+const DRIFT_RESYNC_BUTTON_HIDE_THRESHOLD_SEC = 0.80; // Hide resync button when drift improves below this
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
+const TIME_PING_INTERVAL_MS = 30000; // Send TIME_PING every 30 seconds
+const TIME_PING_MAX_RTT_MS = 800; // Ignore TIME_PONG samples with RTT above this
+const TIME_SYNC_EWMA_OLD_WEIGHT = 0.8; // EWMA smoothing weight for old offset value
+const TIME_SYNC_EWMA_NEW_WEIGHT = 0.2; // EWMA smoothing weight for new offset value
+const TIME_SYNC_RESPONSE_DELAY_MS = 100; // Delay to allow TIME_PONG to arrive before fetching party state
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
 // Sync quality indicator labels
@@ -550,12 +556,12 @@ function startTimePing() {
   // Send initial ping immediately
   sendTimePing();
   
-  // Send TIME_PING every 30 seconds
+  // Send TIME_PING every TIME_PING_INTERVAL_MS
   state.timePingInterval = setInterval(() => {
     sendTimePing();
-  }, 30000);
+  }, TIME_PING_INTERVAL_MS);
   
-  console.log("[Time Sync] Started TIME_PING with 30s interval");
+  console.log("[Time Sync] Started TIME_PING with", TIME_PING_INTERVAL_MS / 1000, "s interval");
 }
 
 function stopTimePing() {
@@ -616,8 +622,8 @@ function handleServer(msg) {
     const nowMs = Date.now();
     const rttMs = nowMs - msg.clientNowMs;
     
-    // Filter out samples with high RTT (> 800ms)
-    if (rttMs > 800) {
+    // Filter out samples with high RTT
+    if (rttMs > TIME_PING_MAX_RTT_MS) {
       console.log("[Time Sync] Ignoring TIME_PONG with high RTT:", rttMs, "ms");
       return;
     }
@@ -628,8 +634,8 @@ function handleServer(msg) {
     const estimatedServerNow = msg.serverNowMs + (rttMs / 2);
     const newOffset = estimatedServerNow - nowMs;
     
-    // Apply EWMA smoothing: 0.8 * old + 0.2 * new
-    state.serverOffsetMs = state.serverOffsetMs * 0.8 + newOffset * 0.2;
+    // Apply EWMA smoothing
+    state.serverOffsetMs = state.serverOffsetMs * TIME_SYNC_EWMA_OLD_WEIGHT + newOffset * TIME_SYNC_EWMA_NEW_WEIGHT;
     
     console.log("[Time Sync] RTT:", rttMs.toFixed(1), "ms, New offset:", newOffset.toFixed(1), "ms, Smoothed:", state.serverOffsetMs.toFixed(1), "ms");
     return;
@@ -2493,8 +2499,8 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
       // Drift < 0.20s - ignore, within acceptable range
       state.driftCheckFailures = 0;
-      // Hide resync button when drift is good again (FIX: was early returning)
-      if (state.showResyncButton && absDrift < 0.80) {
+      // Hide resync button when drift improves
+      if (state.showResyncButton && absDrift < DRIFT_RESYNC_BUTTON_HIDE_THRESHOLD_SEC) {
         state.showResyncButton = false;
         updateResyncButtonVisibility();
         console.log("[Drift Correction] Re-sync button hidden - drift recovered");
@@ -2505,7 +2511,7 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures = 0;
       // Hide resync button when drift improves
-      if (state.showResyncButton && absDrift < 0.80) {
+      if (state.showResyncButton && absDrift < DRIFT_RESYNC_BUTTON_HIDE_THRESHOLD_SEC) {
         state.showResyncButton = false;
         updateResyncButtonVisibility();
         console.log("[Drift Correction] Re-sync button hidden - drift improved");
@@ -8101,7 +8107,7 @@ document.addEventListener('visibilitychange', async () => {
       sendTimePing();
       
       // Small delay to allow TIME_PONG to arrive
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, TIME_SYNC_RESPONSE_DELAY_MS));
       
       // Re-fetch party state and sync if playing
       try {

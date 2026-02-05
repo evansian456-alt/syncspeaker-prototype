@@ -1076,6 +1076,9 @@ app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (re
 const uploadedTracks = new Map();
 const TRACK_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+// Scheduled playback constants
+const SCHEDULED_PLAY_LEAD_TIME_MS = 1200; // Lead time before scheduled playback start (configurable 800-1500ms)
+
 // POST /api/upload-track - Upload audio file from host
 app.post("/api/upload-track", upload.single('audio'), async (req, res) => {
   const timestamp = new Date().toISOString();
@@ -4444,7 +4447,7 @@ function handleHostPlay(ws, msg) {
   const startPositionSec = msg.positionSec || 0;
   
   // Scheduled start protocol with lead time
-  const leadTimeMs = 1200; // Configurable 800-1500ms
+  const leadTimeMs = SCHEDULED_PLAY_LEAD_TIME_MS;
   const startAtServerMs = Date.now() + leadTimeMs;
   
   // Set party state to "preparing"
