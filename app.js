@@ -3009,7 +3009,7 @@ function handleFeedEvent(event) {
   addToUnifiedFeed(sender, event.senderName, type, event.text, event.isEmoji, event.id);
   
   // Set up auto-removal timeout based on TTL
-  const ttl = event.ttlMs || MESSAGE_TTL_MS || 12000;
+  const ttl = event.ttlMs || MESSAGE_TTL_MS;
   setTimeout(() => {
     removeFeedEventById(event.id);
   }, ttl);
