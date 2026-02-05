@@ -3862,6 +3862,9 @@ async function handleMessage(ws, msg) {
     case "TIME_PING":
       handleTimePing(ws, msg);
       break;
+    case "REQUEST_SYNC_STATE":
+      handleRequestSyncState(ws, msg);
+      break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
   }
@@ -3876,6 +3879,64 @@ function handleTimePing(ws, msg) {
     serverNowMs: serverNowMs,
     pingId: msg.pingId
   };
+  safeSend(ws, JSON.stringify(response));
+}
+
+// Handle REQUEST_SYNC_STATE for late joiners
+function handleRequestSyncState(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Not in a party" 
+    }));
+    return;
+  }
+  
+  const party = parties.get(client.party);
+  if (!party) {
+    safeSend(ws, JSON.stringify({ 
+      t: "ERROR", 
+      message: "Party not found" 
+    }));
+    return;
+  }
+  
+  // Build sync state response
+  const response = {
+    t: "SYNC_STATE",
+    serverNowMs: Date.now()
+  };
+  
+  if (party.currentTrack) {
+    const track = party.currentTrack;
+    response.track = {
+      trackId: track.trackId,
+      trackUrl: track.trackUrl,
+      title: track.title,
+      filename: track.filename,
+      durationMs: track.durationMs
+    };
+    
+    response.status = track.status || 'stopped'; // 'playing', 'paused', 'stopped', 'preparing'
+    
+    if (track.status === 'playing' || track.status === 'preparing') {
+      response.startAtServerMs = track.startAtServerMs;
+      response.startPositionSec = track.startPositionSec || 0;
+    } else if (track.status === 'paused') {
+      response.pausedPositionSec = track.pausedPositionSec || 0;
+      response.pausedAtServerMs = track.pausedAtServerMs;
+    }
+  } else {
+    response.status = 'stopped';
+  }
+  
+  // Include queue if available
+  if (party.queue && party.queue.length > 0) {
+    response.queue = party.queue;
+  }
+  
+  console.log(`[SYNC_STATE] Sending state to client ${client.id}, status: ${response.status}`);
   safeSend(ws, JSON.stringify(response));
 }
 
@@ -4549,7 +4610,13 @@ function handleHostPlay(ws, msg) {
   const filename = msg.filename || party.currentTrack?.filename || "Unknown Track";
   const title = msg.title || filename;
   const durationMs = msg.durationMs || party.currentTrack?.durationMs || null;
-  const startPosition = msg.positionSec || 0;
+  
+  // Check if resuming from pause - use pausedPositionSec if available
+  let startPosition = msg.positionSec || 0;
+  if (party.currentTrack && party.currentTrack.status === 'paused' && party.currentTrack.pausedPositionSec !== undefined) {
+    startPosition = party.currentTrack.pausedPositionSec;
+    console.log(`[Party] Resuming from pause at position ${startPosition.toFixed(2)}s`);
+  }
   
   // Compute lead time for scheduled start (configurable 800-1500ms, default 1200ms)
   const leadTimeMs = 1200;

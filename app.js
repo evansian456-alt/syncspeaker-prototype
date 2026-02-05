@@ -626,6 +626,19 @@ function sendGuestQuickReply(key) {
   send({ t: "GUEST_QUICK_REPLY", key: key });
 }
 
+/**
+ * Request sync state from server (for late joiners or manual sync)
+ */
+function requestSyncState() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.error("[WS] Cannot request sync state - WebSocket not connected");
+    return;
+  }
+  
+  console.log("[WS] Requesting sync state from server");
+  send({ t: "REQUEST_SYNC_STATE" });
+}
+
 function handleServer(msg) {
   // Track last WebSocket message for diagnostics
   if (msg.t) {
@@ -711,8 +724,8 @@ function handleServer(msg) {
       localStorage.setItem('lastGuestName', guestNameInput.value.trim());
     }
     
-    // Check if host is already playing (mid-track join)
-    checkForMidTrackJoin(msg.code);
+    // Request sync state from server for late joiner sync
+    requestSyncState();
     
     return;
   }
@@ -1188,6 +1201,10 @@ function handleServer(msg) {
     state.playing = true;
     state.lastHostEvent = "PLAY_AT";
     
+    // Store sync info for drift correction
+    state.pendingStartAtServerMs = msg.startAtServerMs;
+    state.pendingStartPositionSec = msg.startPositionSec || 0;
+    
     // Compute expected position based on server clock
     const serverNow = nowServerMs();
     const elapsedSec = (serverNow - msg.startAtServerMs) / 1000;
@@ -1231,8 +1248,7 @@ function handleServer(msg) {
         if (playPromise !== undefined) {
           playPromise.then(() => {
             console.log("[PLAY_AT] Playback started successfully");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
+            unlockAudioPlayback();
             
             // Start drift correction
             startDriftCorrection(msg.startAtServerMs, msg.startPositionSec || 0);
@@ -1263,6 +1279,171 @@ function handleServer(msg) {
       }
     } else if (!msg.trackUrl) {
       toast("Host is playing locally - no audio sync available");
+    }
+    
+    return;
+  }
+  
+  // SYNC_STATE: Response to late joiner or manual sync request
+  if (msg.t === "SYNC_STATE") {
+    console.log("[SYNC_STATE] Received sync state:", msg.status);
+    
+    // Update track info if available
+    if (msg.track) {
+      state.nowPlayingFilename = msg.track.title || msg.track.filename;
+      if (!state.isHost) {
+        updateGuestNowPlaying(state.nowPlayingFilename);
+      }
+    }
+    
+    // Update queue if available
+    if (msg.queue) {
+      musicState.queue = msg.queue;
+      if (!state.isHost) {
+        updateGuestQueue(msg.queue);
+      }
+    }
+    
+    // Handle based on status
+    if (msg.status === 'playing' && msg.track && msg.startAtServerMs) {
+      console.log("[SYNC_STATE] Host is playing - syncing to current position");
+      
+      state.playing = true;
+      state.pendingStartAtServerMs = msg.startAtServerMs;
+      state.pendingStartPositionSec = msg.startPositionSec || 0;
+      
+      // Compute expected position using server clock
+      const serverNow = nowServerMs();
+      const elapsedSec = (serverNow - msg.startAtServerMs) / 1000;
+      const expectedSec = Math.max(0, (msg.startPositionSec || 0) + elapsedSec);
+      
+      console.log(`[SYNC_STATE] Expected position: ${expectedSec.toFixed(2)}s (elapsed: ${elapsedSec.toFixed(2)}s)`);
+      
+      if (!state.isHost) {
+        updateGuestPlaybackState("PLAYING");
+        updateGuestVisualMode("playing");
+      }
+      
+      // Trigger audio playback with sync
+      if (msg.track.trackUrl) {
+        const trackUrl = msg.track.trackUrl;
+        
+        // Create or reuse audio element
+        if (!state.guestAudioElement) {
+          state.guestAudioElement = new Audio();
+          state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+        }
+        
+        // Set source and prepare if different
+        if (state.guestAudioElement.src !== trackUrl) {
+          state.guestAudioElement.src = trackUrl;
+          state.guestAudioElement.load();
+        }
+        
+        // Wait for metadata then sync and play
+        const startPlayback = () => {
+          // Re-compute position in case time passed
+          const nowServer = nowServerMs();
+          const elapsed = (nowServer - msg.startAtServerMs) / 1000;
+          const targetSec = Math.max(0, (msg.startPositionSec || 0) + elapsed);
+          
+          clampAndSeekAudio(state.guestAudioElement, targetSec);
+          
+          state.guestAudioElement.play()
+            .then(() => {
+              console.log("[SYNC_STATE] Playing from position:", targetSec.toFixed(2), "s");
+              unlockAudioPlayback();
+              
+              // Start drift correction
+              startDriftCorrection(msg.startAtServerMs, msg.startPositionSec || 0);
+            })
+            .catch(err => {
+              console.warn("[SYNC_STATE] Autoplay blocked:", err);
+              state.pendingExpectedSec = targetSec;
+              state.guestNeedsTap = true;
+              showAutoplayNotice();
+            });
+        };
+        
+        if (state.guestAudioElement.duration && !isNaN(state.guestAudioElement.duration)) {
+          startPlayback();
+        } else {
+          state.guestAudioElement.addEventListener('loadedmetadata', startPlayback, { once: true });
+        }
+      }
+    } else if (msg.status === 'preparing' && msg.track && msg.startAtServerMs) {
+      console.log("[SYNC_STATE] Track is preparing - will start at", msg.startAtServerMs);
+      
+      // Store pending info (PREPARE_PLAY logic)
+      state.pendingStartAtServerMs = msg.startAtServerMs;
+      state.pendingStartPositionSec = msg.startPositionSec || 0;
+      state.pendingTrackUrl = msg.track.trackUrl;
+      state.pendingTrackTitle = msg.track.title || msg.track.filename;
+      
+      if (!state.isHost) {
+        updateGuestPlaybackState("PREPARING");
+      }
+      
+      // Pre-load audio if we have a track URL
+      if (msg.track.trackUrl) {
+        if (!state.guestAudioElement) {
+          state.guestAudioElement = new Audio();
+          state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+        }
+        
+        if (state.guestAudioElement.src !== msg.track.trackUrl) {
+          state.guestAudioElement.src = msg.track.trackUrl;
+          state.guestAudioElement.load();
+        }
+      }
+    } else if (msg.status === 'paused' && msg.track) {
+      console.log("[SYNC_STATE] Track is paused at position:", msg.pausedPositionSec);
+      
+      state.playing = false;
+      
+      if (!state.isHost) {
+        updateGuestPlaybackState("PAUSED");
+        updateGuestVisualMode("paused");
+      }
+      
+      // Sync to paused position
+      if (msg.track.trackUrl && msg.pausedPositionSec !== undefined) {
+        if (!state.guestAudioElement) {
+          state.guestAudioElement = new Audio();
+          state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+        }
+        
+        if (state.guestAudioElement.src !== msg.track.trackUrl) {
+          state.guestAudioElement.src = msg.track.trackUrl;
+          state.guestAudioElement.load();
+        }
+        
+        const syncPaused = () => {
+          if (state.guestAudioElement.duration) {
+            clampAndSeekAudio(state.guestAudioElement, msg.pausedPositionSec);
+            state.guestAudioElement.pause();
+          }
+        };
+        
+        if (state.guestAudioElement.duration && !isNaN(state.guestAudioElement.duration)) {
+          syncPaused();
+        } else {
+          state.guestAudioElement.addEventListener('loadedmetadata', syncPaused, { once: true });
+        }
+      }
+      
+      // Stop drift correction when paused
+      stopDriftCorrection();
+    } else {
+      console.log("[SYNC_STATE] Track is stopped or no track");
+      state.playing = false;
+      
+      if (!state.isHost) {
+        updateGuestPlaybackState("STOPPED");
+        updateGuestVisualMode("stopped");
+      }
+      
+      stopDriftCorrection();
     }
     
     return;
@@ -2315,6 +2496,15 @@ function hideAutoplayNotice() {
     noticeEl.style.display = "none";
     console.log("[Autoplay] Notice hidden");
   }
+}
+
+/**
+ * Helper to unlock audio playback and clean up autoplay state
+ */
+function unlockAudioPlayback() {
+  state.audioUnlocked = true;
+  state.guestNeedsTap = false;
+  hideAutoplayNotice();
 }
 
 function updateGuestVisualMode(mode) {
@@ -6055,10 +6245,7 @@ function attemptAddPhone() {
         state.guestAudioElement.play()
           .then(() => {
             console.log("[Guest] Audio unlocked and playing");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
-            state.pendingExpectedSec = null;
-            hideAutoplayNotice();
+            unlockAudioPlayback();
             
             // Start drift correction if we have pending start info
             if (state.pendingStartAtServerMs !== null) {
@@ -6074,12 +6261,41 @@ function attemptAddPhone() {
         return;
       }
       
+      // Handle case where audio is blocked but we have pending PLAY_AT info
+      if (state.guestNeedsTap && state.pendingStartAtServerMs && state.guestAudioElement) {
+        console.log("[Guest] Recovering from autoplay block using pending sync info");
+        
+        // Re-compute expected position from server time
+        const nowServer = nowServerMs();
+        const elapsed = (nowServer - state.pendingStartAtServerMs) / 1000;
+        const targetSec = Math.max(0, (state.pendingStartPositionSec || 0) + elapsed);
+        
+        console.log(`[Guest] Computed position: ${targetSec.toFixed(2)}s`);
+        
+        clampAndSeekAudio(state.guestAudioElement, targetSec);
+        state.guestAudioElement.play()
+          .then(() => {
+            console.log("[Guest] Audio unlocked and playing from sync");
+            unlockAudioPlayback();
+            
+            // Start drift correction
+            startDriftCorrection(state.pendingStartAtServerMs, state.pendingStartPositionSec || 0);
+            
+            toast("▶️ Synced and playing");
+          })
+          .catch((err) => {
+            console.error("[Guest] Still blocked:", err);
+            toast(`❌ Play failed: ${err.message}`);
+          });
+        return;
+      }
+      
       // Play local audio if available
       if (state.guestAudioElement && state.guestAudioElement.src) {
         state.guestAudioElement.play()
           .then(() => {
             console.log("[Guest] Audio playback started");
-            state.audioUnlocked = true;
+            unlockAudioPlayback();
             addDebugLog("Guest started playback");
             toast("▶️ Playing music");
             updateDebugState();
@@ -6091,15 +6307,10 @@ function attemptAddPhone() {
             updateDebugState();
           });
       } else {
-        console.log("[Guest] No audio loaded - requesting host to play");
-        // Fallback: send request to host to start music
-        if (state.ws && state.connected) {
-          send({ t: "GUEST_PLAY_REQUEST" });
-          addDebugLog("No audio - sent play request to host");
-          toast("▶️ Requested DJ to play music");
-        } else {
-          toast("⚠️ No audio loaded yet", "warning");
-        }
+        console.log("[Guest] No audio loaded - requesting sync state");
+        // Request sync state to get current playback info
+        requestSyncState();
+        toast("🔄 Requesting sync from DJ...");
       }
     };
   }
