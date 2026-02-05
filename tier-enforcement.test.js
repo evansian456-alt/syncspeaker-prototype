@@ -48,86 +48,65 @@ describe('Tier Enforcement', () => {
       // Note: This test verifies WebSocket behavior, which requires WebSocket client
       // For now, we verify the party state
       if (!testPartyCode) {
-        console.log('Skipping test - party not created');
+        // Skip if party creation failed in beforeEach
         return;
       }
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        expect(partyData.partyPassExpiresAt).toBeUndefined();
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      expect(partyData.partyPassExpiresAt).toBeUndefined();
     });
 
     it('should not have Party Pass expiration time in free party', async () => {
-      if (!testPartyCode) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCode) return;
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        expect(partyData.partyPassExpiresAt).toBeUndefined();
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      expect(partyData.partyPassExpiresAt).toBeUndefined();
     });
 
     it('should have Party Pass expiration time in paid party', async () => {
-      if (!testPartyCodeWithPass) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCodeWithPass) return;
       const partyDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        expect(partyData.partyPassExpiresAt).toBeGreaterThan(Date.now());
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      expect(partyData.partyPassExpiresAt).toBeGreaterThan(Date.now());
     });
   });
 
   describe('Party Pass Active Features', () => {
     it('should have active Party Pass when expiration is in future', async () => {
-      if (!testPartyCodeWithPass) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCodeWithPass) return;
       const partyDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
-        expect(isActive).toBe(true);
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
+      expect(isActive).toBe(true);
     });
 
     it('should not have active Party Pass when no expiration is set', async () => {
-      if (!testPartyCode) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCode) return;
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
-        expect(isActive).toBe(false);
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
+      expect(isActive).toBe(false);
     });
 
     it('should expire Party Pass when expiration time is in past', async () => {
-      if (!testPartyCodeWithPass) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCodeWithPass) return;
       // Set expiration to past
       const partyDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        partyData.partyPassExpiresAt = Date.now() - 1000; // 1 second ago
-        await redis.set(`party:${testPartyCodeWithPass}`, JSON.stringify(partyData));
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      partyData.partyPassExpiresAt = Date.now() - 1000; // 1 second ago
+      await redis.set(`party:${testPartyCodeWithPass}`, JSON.stringify(partyData));
 
-        // Verify it's expired
-        const updatedDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
-        const updatedData = JSON.parse(updatedDataRaw);
-        const isActive = updatedData.partyPassExpiresAt && updatedData.partyPassExpiresAt > Date.now();
-        expect(isActive).toBe(false);
-      }
+      // Verify it's expired
+      const updatedDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
+      const updatedData = JSON.parse(updatedDataRaw);
+      const isActive = updatedData.partyPassExpiresAt && updatedData.partyPassExpiresAt > Date.now();
+      expect(isActive).toBe(false);
     });
   });
 
@@ -228,28 +207,26 @@ describe('Tier Enforcement', () => {
         .post('/api/create-party')
         .send({ djName: 'Test DJ New', isHost: true });
       
-      if (res.status === 200 && res.body.code) {
+      expect(res.status).toBe(200);
+      
+      if (res.body.code) {
         const partyDataRaw = await redis.get(`party:${res.body.code}`);
-        if (partyDataRaw) {
-          const partyData = JSON.parse(partyDataRaw);
-          expect(partyData.partyPassExpiresAt).toBeUndefined();
-        }
+        expect(partyDataRaw).toBeTruthy();
+        const partyData = JSON.parse(partyDataRaw);
+        expect(partyData.partyPassExpiresAt).toBeUndefined();
+        
         // Cleanup
         await redis.del(`party:${res.body.code}`);
       }
     });
 
     it('should persist Party Pass expiration time in Redis', async () => {
-      if (!testPartyCodeWithPass) {
-        console.log('Skipping test - party not created');
-        return;
-      }
+      if (!testPartyCodeWithPass) return;
       const partyDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
-      if (partyDataRaw) {
-        const partyData = JSON.parse(partyDataRaw);
-        expect(partyData.partyPassExpiresAt).toBeDefined();
-        expect(typeof partyData.partyPassExpiresAt).toBe('number');
-      }
+      expect(partyDataRaw).toBeTruthy();
+      const partyData = JSON.parse(partyDataRaw);
+      expect(partyData.partyPassExpiresAt).toBeDefined();
+      expect(typeof partyData.partyPassExpiresAt).toBe('number');
     });
   });
 });
