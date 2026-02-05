@@ -2319,7 +2319,7 @@ function handleGuestAudioPlayback(trackUrl, filename, startAtServerMs, startPosi
 // Show "Tap to Play" button for guest with sync info
 function showGuestTapToPlay(filename, startAtServerMs, startPositionSec) {
   // Determine if this is a mid-track join or fresh start
-  const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+  const elapsedSec = (nowServerMs() - startAtServerMs) / 1000;
   const isMidTrackJoin = elapsedSec > 2; // If more than 2 seconds elapsed, it's mid-track
   
   // Create overlay if it doesn't exist
@@ -2397,7 +2397,7 @@ function playGuestAudio() {
   
   // Function to compute and seek to correct position
   const computeAndSeek = () => {
-    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    const elapsedSec = (nowServerMs() - startAtServerMs) / 1000;
     let targetSec = startPositionSec + elapsedSec;
     
     // Clamp target to valid range
@@ -2468,15 +2468,15 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     clearInterval(driftCorrectionInterval);
   }
   
-  console.log("[Drift Correction] Started with multi-threshold approach");
+  console.log("[Drift Correction] Started with server-synced multi-threshold approach");
   
   driftCorrectionInterval = setInterval(() => {
     if (!state.guestAudioElement || state.guestAudioElement.paused) {
       return;
     }
     
-    // Calculate ideal position based on server timestamp
-    const elapsedSec = (Date.now() - startAtServerMs) / 1000;
+    // Calculate ideal position based on SERVER timestamp (using synced clock)
+    const elapsedSec = (nowServerMs() - startAtServerMs) / 1000;
     const idealSec = startPositionSec + elapsedSec;
     
     // Calculate drift (positive = ahead, negative = behind)
@@ -2494,15 +2494,24 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
       // Drift < 0.20s - ignore, within acceptable range
       state.driftCheckFailures = 0;
-      state.showResyncButton = false;
-      updateResyncButtonVisibility();
+      // Hide resync button if drift is good
+      if (state.showResyncButton) {
+        state.showResyncButton = false;
+        updateResyncButtonVisibility();
+      }
     } else if (absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
       // Drift 0.20s - 0.80s - soft correction (small seek)
       console.log("[Drift Correction] Soft correction - adjusting by", signedDrift.toFixed(3), "s");
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures = 0;
+      // Hide resync button if drift improved below 0.80s
+      if (state.showResyncButton && absDrift < 0.80) {
+        state.showResyncButton = false;
+        updateResyncButtonVisibility();
+        console.log("[Drift Correction] Re-sync button hidden - drift improved");
+      }
     } else if (absDrift < DRIFT_HARD_RESYNC_THRESHOLD_SEC) {
-      // Drift 0.80s - 1.00s - still soft correction but more aggressive
+      // Drift 0.80s - 1.00s - moderate correction with failure tracking
       console.log("[Drift Correction] Moderate drift - hard seeking to", idealSec.toFixed(2), "s");
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures++;
