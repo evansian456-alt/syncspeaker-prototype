@@ -4364,7 +4364,7 @@ async function uploadQueuedTrackToServer(file) {
     });
     
     // Handle completion
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener('load', async () => {
       if (xhr.status === 200) {
         try {
           const response = JSON.parse(xhr.responseText);
@@ -4381,6 +4381,20 @@ async function uploadQueuedTrackToServer(file) {
           };
           
           console.log(`[Upload Queue] Queued track ready for streaming`);
+          
+          // PHASE 7: Add track to queue via API endpoint
+          if (state.isHost && state.hostId && state.code) {
+            console.log(`[Upload Queue] Adding track to queue via API`);
+            await queueTrackToServer({
+              trackId: response.trackId,
+              trackUrl: response.trackUrl,
+              title: response.title || response.filename,
+              filename: response.filename,
+              durationMs: response.durationMs,
+              contentType: response.contentType,
+              sizeBytes: response.sizeBytes
+            });
+          }
         } catch (e) {
           console.error(`[Upload Queue] Error parsing response:`, e);
           // Set error state
@@ -5181,7 +5195,7 @@ function attemptAddPhone() {
             console.log("[Party] Initialized queue from server:", musicState.queue.length, "tracks");
             
             // Update host queue UI
-            if (state.isHost) {
+            if (state.isHost && typeof updateHostQueueUI === 'function') {
               updateHostQueueUI();
             }
           }
