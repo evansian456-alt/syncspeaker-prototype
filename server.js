@@ -3712,7 +3712,7 @@ function safeSend(ws, data) {
   }
 }
 
-function handleMessage(ws, msg) {
+async function handleMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client) return;
   
@@ -3772,7 +3772,7 @@ function handleMessage(ws, msg) {
       handleHostBroadcastMessage(ws, msg);
       break;
     case "DJ_EMOJI":
-      handleDjEmoji(ws, msg);
+      await handleDjEmoji(ws, msg);
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.t}`);
@@ -5042,21 +5042,21 @@ function handleHostBroadcastMessage(ws, msg) {
   
   console.log(`[Party] Host broadcasting message "${messageText}" in party ${client.party}`);
   
-  // Broadcast to all members (including guests only, not back to host)
+  // Broadcast to all members (including echo to host)
   const broadcastMsg = JSON.stringify({ 
     t: "HOST_BROADCAST_MESSAGE", 
     message: messageText
   });
   
   party.members.forEach(m => {
-    // Send to guests only (not to host)
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+    // Send to all members including host for echo
+    if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(broadcastMsg);
     }
   });
 }
 
-function handleDjEmoji(ws, msg) {
+async function handleDjEmoji(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -5066,6 +5066,22 @@ function handleDjEmoji(ws, msg) {
   // Only host can send DJ emojis
   if (party.host !== ws) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send emojis" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleDjEmoji] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for emoji reactions" }));
     return;
   }
   
@@ -5100,7 +5116,7 @@ function handleDjEmoji(ws, msg) {
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast to all members (guests only, not back to host)
+  // Broadcast to ALL members (including host)
   const broadcastMsg = JSON.stringify({ 
     t: "GUEST_MESSAGE",
     message: emoji,
@@ -5110,8 +5126,8 @@ function handleDjEmoji(ws, msg) {
   });
   
   party.members.forEach(m => {
-    // Send to guests only (not to host)
-    if (!m.isHost && m.ws.readyState === WebSocket.OPEN) {
+    // Send to all members including host
+    if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(broadcastMsg);
     }
   });

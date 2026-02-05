@@ -933,9 +933,8 @@ function handleServer(msg) {
   
   // DJ broadcast messages to guests
   if (msg.t === "HOST_BROADCAST_MESSAGE") {
-    if (!state.isHost) {
-      displayHostBroadcastMessage(msg.message);
-    }
+    // Both host and guests receive this message
+    displayHostBroadcastMessage(msg.message);
     return;
   }
   
@@ -3283,8 +3282,7 @@ function setupDjPresetMessageButtons() {
           btn.classList.remove("btn-sending");
         }, 300);
         
-        // Add to unified feed
-        addToUnifiedFeed('DJ', 'DJ', 'preset', message, false);
+        // Do not add to unified feed here - wait for server echo to avoid duplicates
         
         toast(`Sent to all guests: ${message}`);
       }
@@ -3330,8 +3328,7 @@ function setupDjEmojiReactionButtons() {
         // Trigger flash effect
         triggerDjFlash();
         
-        // Add to unified feed
-        addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
+        // Do not add to unified feed here - wait for server echo to avoid duplicates
       
         // Track the emoji
         trackReaction(emoji);
