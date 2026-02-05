@@ -6,7 +6,10 @@ const API_TIMEOUT_MS = 5000; // 5 second timeout for API calls
 const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const PARTY_STATUS_POLL_INTERVAL_MS = 3000; // Poll party status every 3 seconds
-const DRIFT_CORRECTION_THRESHOLD_SEC = 0.25; // Drift threshold for audio sync correction
+const DRIFT_CORRECTION_THRESHOLD_SEC = 0.20; // Ignore drift below this threshold
+const DRIFT_SOFT_CORRECTION_THRESHOLD_SEC = 0.80; // Soft correction threshold
+const DRIFT_HARD_CORRECTION_THRESHOLD_SEC = 1.00; // Hard correction threshold
+const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds (per requirements)
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 
@@ -2098,16 +2101,21 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     // - hard correct |drift| > 1.0s (seek to expected)
     // - show "Re-sync" if |drift| > 1.5s
     
-    if (absDrift < 0.20) {
+    if (absDrift < DRIFT_CORRECTION_THRESHOLD_SEC) {
       // Ignore - within acceptable range
+      // Hide re-sync button if it was showing
+      const resyncBtn = el("btnGuestResync");
+      if (resyncBtn) {
+        resyncBtn.style.display = "none";
+      }
       return;
     }
     
-    if (absDrift >= 0.20 && absDrift <= 0.80) {
+    if (absDrift >= DRIFT_CORRECTION_THRESHOLD_SEC && absDrift <= DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
       // Soft correction: seek to expected
       console.log("[Drift Correction] Soft correcting drift of", drift.toFixed(3), "seconds");
       state.guestAudioElement.currentTime = idealSec;
-    } else if (absDrift > 1.0) {
+    } else if (absDrift > DRIFT_HARD_CORRECTION_THRESHOLD_SEC) {
       // Hard correction: seek to expected
       console.log("[Drift Correction] Hard correcting drift of", drift.toFixed(3), "seconds");
       state.guestAudioElement.currentTime = idealSec;
@@ -2116,7 +2124,7 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
     // Show re-sync button if drift is too large
     const resyncBtn = el("btnGuestResync");
     if (resyncBtn) {
-      if (absDrift > 1.5) {
+      if (absDrift > DRIFT_SHOW_RESYNC_THRESHOLD_SEC) {
         resyncBtn.style.display = "inline-block";
       } else {
         resyncBtn.style.display = "none";
@@ -3073,8 +3081,7 @@ function setupDjPresetMessageButtons() {
           btn.classList.remove("btn-sending");
         }, 300);
         
-        // Add to unified feed
-        addToUnifiedFeed('DJ', 'DJ', 'preset', message, false);
+        // Do not add to unified feed here - wait for server echo to avoid duplicates
         
         toast(`Sent to all guests: ${message}`);
       }
@@ -3120,8 +3127,7 @@ function setupDjEmojiReactionButtons() {
         // Trigger flash effect
         triggerDjFlash();
         
-        // Add to unified feed
-        addToUnifiedFeed('DJ', 'DJ', 'emoji', message, true);
+        // Do not add to unified feed here - wait for server echo to avoid duplicates
       
         // Track the emoji
         trackReaction(emoji);
