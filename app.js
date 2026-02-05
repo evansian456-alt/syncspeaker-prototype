@@ -12,6 +12,7 @@ const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
 const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
 const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
+const MESSAGE_TTL_MS = 12000; // Messages auto-disappear after 12 seconds (unified feed)
 
 // Sync quality indicator labels
 const SYNC_QUALITY_EXCELLENT = "Excellent";
@@ -131,6 +132,8 @@ const state = {
   feedItems: [], // Array of feed items from FEED_ITEM messages
   maxMessagingFeedItems: 50, // Maximum items in messaging feed
   feedItemTimeouts: new Map(), // Map<itemId, timeoutId> for TTL removal
+  // Unified feed event deduplication (Phase COPILOT PROMPT 2/4)
+  feedSeenIds: new Set(), // Set of seen event IDs to prevent duplicates
   // New UX flow state
   selectedTier: null, // Track tier selection before account creation
   prototypeMode: false, // Track if user is in prototype mode (skipped account)
@@ -1024,6 +1027,12 @@ function handleServer(msg) {
         msg.isEmoji
       );
     }
+    return;
+  }
+  
+  // New unified feed event handler (COPILOT PROMPT 2/4)
+  if (msg.t === "FEED_EVENT") {
+    handleFeedEvent(msg.event);
     return;
   }
   
@@ -3144,20 +3153,21 @@ function handleGuestPauseRequest(guestName, guestId) {
 
 /**
  * Add an item to the unified feed
- * @param {string} sender - 'DJ' or 'GUEST'
+ * @param {string} sender - 'DJ' or 'GUEST' or 'SYSTEM'
  * @param {string} senderName - Display name of sender
- * @param {string} type - 'emoji', 'message', 'preset', 'broadcast'
+ * @param {string} type - 'emoji', 'message', 'preset', 'broadcast', 'system'
  * @param {string} content - The emoji or message text
  * @param {boolean} isEmoji - Whether this is an emoji reaction
+ * @param {string} id - Optional stable event ID (for FEED_EVENT dedupe)
  */
 let feedItemCounter = 0; // Counter to ensure unique IDs
-function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false) {
+function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false, id = null) {
   const feedItem = {
-    id: `${Date.now()}-${++feedItemCounter}`, // More robust unique ID
+    id: id || `${Date.now()}-${++feedItemCounter}`, // Use provided ID or generate one
     timestamp: Date.now(),
-    sender: sender, // 'DJ' or 'GUEST'
+    sender: sender, // 'DJ', 'GUEST', or 'SYSTEM'
     senderName: senderName,
-    type: type, // 'emoji', 'message', 'preset', 'broadcast'
+    type: type, // 'emoji', 'message', 'preset', 'broadcast', 'system'
     content: content,
     isEmoji: isEmoji
   };
@@ -3310,6 +3320,63 @@ function removeFeedItem(itemId) {
   
   // Re-render
   renderFeedItems();
+}
+
+/**
+ * Handle FEED_EVENT messages (COPILOT PROMPT 2/4: Unified Feed)
+ * This is the canonical handler for the new unified feed system.
+ * Deduplicates events and adds them to the unified feed with TTL-based auto-removal.
+ */
+function handleFeedEvent(event) {
+  if (!event || !event.id) {
+    console.warn('[handleFeedEvent] Invalid event:', event);
+    return;
+  }
+  
+  // Check for duplicate using feedSeenIds
+  if (state.feedSeenIds.has(event.id)) {
+    console.log('[handleFeedEvent] Duplicate event ignored:', event.id);
+    return;
+  }
+  
+  // Mark as seen
+  state.feedSeenIds.add(event.id);
+  
+  console.log('[handleFeedEvent] Processing event:', event.id, 'kind:', event.kind);
+  
+  // Convert FEED_EVENT to unified feed format
+  const sender = event.kind === 'dj_emoji' || event.kind === 'host_broadcast' ? 'DJ' : 
+                 event.kind === 'system' ? 'SYSTEM' : 'GUEST';
+  
+  const type = event.isEmoji ? 'emoji' : 
+               event.kind === 'host_broadcast' ? 'broadcast' : 
+               event.kind === 'system' ? 'system' : 'message';
+  
+  // Add to unified feed using existing function, passing the stable event ID
+  addToUnifiedFeed(sender, event.senderName, type, event.text, event.isEmoji, event.id);
+  
+  // Set up auto-removal timeout based on TTL
+  const ttl = event.ttlMs || MESSAGE_TTL_MS;
+  setTimeout(() => {
+    removeFeedEventById(event.id);
+  }, ttl);
+}
+
+/**
+ * Remove a feed event by ID from unified feed
+ */
+function removeFeedEventById(eventId) {
+  // Find and remove from unifiedFeed
+  const index = state.unifiedFeed.findIndex(item => item.id === eventId);
+  if (index !== -1) {
+    state.unifiedFeed.splice(index, 1);
+    console.log('[removeFeedEventById] Removed event:', eventId);
+    renderUnifiedFeed();
+  }
+  
+  // Clean up from feedSeenIds (optional - can keep for session to prevent late duplicates)
+  // Commenting out to keep IDs for the session
+  // state.feedSeenIds.delete(eventId);
 }
 
 /**

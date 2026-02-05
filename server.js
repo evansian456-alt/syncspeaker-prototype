@@ -3809,7 +3809,7 @@ async function handleMessage(ws, msg) {
       handleChatModeSet(ws, msg);
       break;
     case "HOST_BROADCAST_MESSAGE":
-      handleHostBroadcastMessage(ws, msg);
+      await handleHostBroadcastMessage(ws, msg);
       break;
     case "DJ_EMOJI":
       await handleDjEmoji(ws, msg);
@@ -3839,11 +3839,14 @@ function addDjMessage(code, message, type = "system") {
   const party = parties.get(code);
   if (!party) return;
   
+  const ts = Date.now();
+  const eventId = `${ts}-system-${nanoid(6)}`;
+  
   const djMessage = {
-    id: Date.now(),
+    id: eventId,
     message,
     type, // "system", "prompt", "warning"
-    timestamp: Date.now()
+    timestamp: ts
   };
   
   // Initialize djMessages array if not exists
@@ -3860,17 +3863,36 @@ function addDjMessage(code, message, type = "system") {
   
   console.log(`[DJ Message] ${code}: ${message}`);
   
-  // Broadcast to all party members
-  const broadcastMsg = JSON.stringify({ 
+  // Broadcast using new FEED_EVENT format (unified feed)
+  const feedEvent = {
+    id: eventId,
+    ts: ts,
+    kind: "system",
+    senderId: "system",
+    senderName: "System",
+    text: message,
+    isEmoji: false,
+    ttlMs: MESSAGE_TTL_MS
+  };
+  
+  const feedEventMsg = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(feedEventMsg);
+    }
+  });
+  
+  // Also broadcast legacy DJ_MESSAGE for backward compatibility
+  const legacyMsg = JSON.stringify({ 
     t: "DJ_MESSAGE", 
     message,
     type,
-    timestamp: djMessage.timestamp
+    timestamp: ts
   });
   
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
-      m.ws.send(broadcastMsg);
+      m.ws.send(legacyMsg);
     }
   });
 }
@@ -4855,13 +4877,15 @@ async function handleGuestMessage(ws, msg) {
   if (!party.reactionHistory) {
     party.reactionHistory = [];
   }
+  const ts = Date.now();
+  const eventId = `${ts}-${member.id}-${nanoid(6)}`;
   party.reactionHistory.push({
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+    id: eventId,
     type: isEmoji ? "emoji" : "text",
     message: messageText,
     guestName: guestName,
     guestId: member.id,
-    ts: Date.now()
+    ts: ts
   });
   // Keep only last 30 items
   if (party.reactionHistory.length > 30) {
@@ -4874,17 +4898,27 @@ async function handleGuestMessage(ws, msg) {
   // Broadcast updated scoreboard to all party members
   broadcastScoreboard(client.party);
   
-  // Broadcast using new FEED_ITEM format (Party Pass messaging suite)
-  broadcastFeedItem(client.party, {
-    kind: isEmoji ? "guest_emoji" : "guest_text",
-    name: guestName,
+  // Broadcast using new FEED_EVENT format (unified feed)
+  const feedEvent = {
+    id: eventId,
+    ts: ts,
+    kind: "guest_message",
     senderId: member.id,
+    senderName: guestName,
     text: messageText,
+    isEmoji: isEmoji,
     ttlMs: MESSAGE_TTL_MS
+  };
+  
+  const feedEventMsg = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(feedEventMsg);
+    }
   });
   
   // Also broadcast legacy GUEST_MESSAGE for backward compatibility
-  const message = JSON.stringify({ 
+  const legacyMessage = JSON.stringify({ 
     t: "GUEST_MESSAGE", 
     message: messageText,
     guestName: guestName,
@@ -4894,8 +4928,17 @@ async function handleGuestMessage(ws, msg) {
   
   party.members.forEach(m => {
     if (m.ws.readyState === WebSocket.OPEN) {
-      m.ws.send(message);
+      m.ws.send(legacyMessage);
     }
+  });
+  
+  // Also use FEED_ITEM for compatibility with existing messaging feed
+  broadcastFeedItem(client.party, {
+    kind: isEmoji ? "guest_emoji" : "guest_text",
+    name: guestName,
+    senderId: member.id,
+    text: messageText,
+    ttlMs: MESSAGE_TTL_MS
   });
 }
 
@@ -5124,7 +5167,7 @@ function handleChatModeSet(ws, msg) {
   });
 }
 
-function handleHostBroadcastMessage(ws, msg) {
+async function handleHostBroadcastMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -5137,12 +5180,51 @@ function handleHostBroadcastMessage(ws, msg) {
     return;
   }
   
+  // Get party data to check Party Pass status
+  let partyData;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleHostBroadcastMessage] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required to send broadcast messages" }));
+    return;
+  }
+  
   const messageText = (msg.message || "").trim().substring(0, 100);
   
   console.log(`[Party] Host broadcasting message "${messageText}" in party ${client.party}`);
   
-  // Broadcast to all members (including echo to host)
-  const broadcastMsg = JSON.stringify({ 
+  // Generate stable event ID
+  const ts = Date.now();
+  const eventId = `${ts}-host-${nanoid(6)}`;
+  
+  // Broadcast using new FEED_EVENT format (unified feed)
+  const feedEvent = {
+    id: eventId,
+    ts: ts,
+    kind: "host_broadcast",
+    senderId: "host",
+    senderName: "DJ",
+    text: messageText,
+    isEmoji: false,
+    ttlMs: MESSAGE_TTL_MS
+  };
+  
+  const feedEventMsg = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(feedEventMsg);
+    }
+  });
+  
+  // Also broadcast legacy HOST_BROADCAST_MESSAGE for backward compatibility
+  const legacyMsg = JSON.stringify({ 
     t: "HOST_BROADCAST_MESSAGE", 
     message: messageText
   });
@@ -5150,7 +5232,7 @@ function handleHostBroadcastMessage(ws, msg) {
   party.members.forEach(m => {
     // Send to all members including host for echo
     if (m.ws.readyState === WebSocket.OPEN) {
-      m.ws.send(broadcastMsg);
+      m.ws.send(legacyMsg);
     }
   });
 }
@@ -5196,13 +5278,15 @@ async function handleDjEmoji(ws, msg) {
   if (!party.reactionHistory) {
     party.reactionHistory = [];
   }
+  const ts = Date.now();
+  const eventId = `${ts}-dj-${nanoid(6)}`;
   party.reactionHistory.push({
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+    id: eventId,
     type: "dj",
     message: emoji,
     guestName: "DJ",
     guestId: "dj",
-    ts: Date.now()
+    ts: ts
   });
   // Keep only last 30 items
   if (party.reactionHistory.length > 30) {
@@ -5215,8 +5299,27 @@ async function handleDjEmoji(ws, msg) {
   // Broadcast updated scoreboard
   broadcastScoreboard(client.party);
   
-  // Broadcast to ALL members (including host)
-  const broadcastMsg = JSON.stringify({ 
+  // Broadcast using new FEED_EVENT format (unified feed)
+  const feedEvent = {
+    id: eventId,
+    ts: ts,
+    kind: "dj_emoji",
+    senderId: "dj",
+    senderName: "DJ",
+    text: emoji,
+    isEmoji: true,
+    ttlMs: MESSAGE_TTL_MS
+  };
+  
+  const feedEventMsg = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(feedEventMsg);
+    }
+  });
+  
+  // Also broadcast legacy GUEST_MESSAGE for backward compatibility
+  const legacyMsg = JSON.stringify({ 
     t: "GUEST_MESSAGE",
     message: emoji,
     guestName: "DJ",
@@ -5227,7 +5330,7 @@ async function handleDjEmoji(ws, msg) {
   party.members.forEach(m => {
     // Send to all members including host
     if (m.ws.readyState === WebSocket.OPEN) {
-      m.ws.send(broadcastMsg);
+      m.ws.send(legacyMsg);
     }
   });
 }
