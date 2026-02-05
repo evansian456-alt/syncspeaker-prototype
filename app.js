@@ -2017,11 +2017,12 @@ async function checkForMidTrackJoin(code) {
     const response = await fetch(`/api/party-state?code=${code}`);
     const data = await response.json();
     
-    if (data.exists && data.currentTrack && data.currentTrack.status === 'playing') {
-      console.log("[Mid-Track Join] Host is playing:", data.currentTrack);
+    if (data.exists && data.currentTrack) {
+      const currentTrack = data.currentTrack;
+      console.log("[Mid-Track Join] Party state:", currentTrack);
       
       // Update state
-      state.nowPlayingFilename = data.currentTrack.title || data.currentTrack.filename;
+      state.nowPlayingFilename = currentTrack.title || currentTrack.filename;
       updateGuestNowPlaying(state.nowPlayingFilename);
       
       // Update queue if available
@@ -2029,18 +2030,79 @@ async function checkForMidTrackJoin(code) {
         updateGuestQueue(data.queue);
       }
       
-      // Trigger audio playback with sync
-      if (data.currentTrack.url || data.currentTrack.trackUrl) {
-        handleGuestAudioPlayback(
-          data.currentTrack.url || data.currentTrack.trackUrl,
-          data.currentTrack.title || data.currentTrack.filename,
-          data.currentTrack.startAtServerMs,
-          data.currentTrack.startPositionSec || data.currentTrack.startPosition || 0
-        );
+      // Handle playback based on track status
+      if (currentTrack.status === 'playing' && currentTrack.startAtServerMs) {
+        console.log("[Mid-Track Join] Host is playing - syncing to current position");
         
-        state.playing = true;
-        updateGuestPlaybackState("PLAYING");
-        updateGuestVisualMode("playing");
+        // Compute expected position using server clock
+        const serverNow = nowServerMs();
+        const elapsedSec = (serverNow - currentTrack.startAtServerMs) / 1000;
+        const expectedSec = Math.max(0, (currentTrack.startPositionSec || currentTrack.startPosition || 0) + elapsedSec);
+        
+        console.log(`[Mid-Track Join] Expected position: ${expectedSec.toFixed(2)}s (elapsed: ${elapsedSec.toFixed(2)}s)`);
+        
+        // Trigger audio playback with sync
+        if (currentTrack.url || currentTrack.trackUrl) {
+          const trackUrl = currentTrack.url || currentTrack.trackUrl;
+          
+          // Create or reuse audio element
+          if (!state.guestAudioElement) {
+            state.guestAudioElement = new Audio();
+            state.guestAudioElement.volume = (state.guestVolume || 80) / 100;
+          }
+          
+          // Set source and prepare
+          state.guestAudioElement.src = trackUrl;
+          state.guestAudioElement.load();
+          
+          // Wait for metadata then sync and play
+          const startPlayback = () => {
+            // Re-compute position in case time passed
+            const nowServer = nowServerMs();
+            const elapsed = (nowServer - currentTrack.startAtServerMs) / 1000;
+            const targetSec = Math.max(0, (currentTrack.startPositionSec || currentTrack.startPosition || 0) + elapsed);
+            
+            clampAndSeekAudio(state.guestAudioElement, targetSec);
+            
+            state.guestAudioElement.play()
+              .then(() => {
+                console.log("[Mid-Track Join] Playing from position:", targetSec.toFixed(2), "s");
+                state.audioUnlocked = true;
+                state.guestNeedsTap = false;
+                state.playing = true;
+                updateGuestPlaybackState("PLAYING");
+                updateGuestVisualMode("playing");
+                
+                // Start drift correction
+                startDriftCorrection(currentTrack.startAtServerMs, currentTrack.startPositionSec || currentTrack.startPosition || 0);
+              })
+              .catch(err => {
+                console.warn("[Mid-Track Join] Autoplay blocked:", err);
+                state.pendingExpectedSec = targetSec;
+                state.guestNeedsTap = true;
+                showAutoplayNotice();
+                state.playing = true;
+                updateGuestPlaybackState("PLAYING");
+                updateGuestVisualMode("playing");
+              });
+          };
+          
+          if (state.guestAudioElement.duration && !isNaN(state.guestAudioElement.duration)) {
+            startPlayback();
+          } else {
+            state.guestAudioElement.addEventListener('loadedmetadata', startPlayback, { once: true });
+          }
+        }
+      } else if (currentTrack.status === 'preparing' && currentTrack.startAtServerMs) {
+        console.log("[Mid-Track Join] Track is preparing - will start at", currentTrack.startAtServerMs);
+        
+        // Store pending info (PREPARE_PLAY logic)
+        state.pendingStartAtServerMs = currentTrack.startAtServerMs;
+        state.pendingStartPositionSec = currentTrack.startPositionSec || currentTrack.startPosition || 0;
+        state.pendingTrackUrl = currentTrack.url || currentTrack.trackUrl;
+        state.pendingTrackTitle = currentTrack.title || currentTrack.filename;
+        
+        updateGuestPlaybackState("PREPARING");
       }
     } else if (data.queue && data.queue.length > 0) {
       // No current track but queue exists
@@ -8985,3 +9047,62 @@ if (document.readyState === 'loading') {
   initMonetizationUI();
   initLeaderboardProfileUI();
 }
+
+// Handle tab visibility changes for sync recovery
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    console.log("[Visibility] Tab became visible - recovering sync");
+    
+    // Send TIME_PING to resync clock
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      sendTimePing();
+    }
+    
+    // Refetch party state and resync if guest is in a party
+    if (!state.isHost && state.code) {
+      try {
+        const response = await fetch(`/api/party-state?code=${state.code}`);
+        const data = await response.json();
+        
+        if (data.exists && data.currentTrack) {
+          const currentTrack = data.currentTrack;
+          
+          // If track is playing or preparing, sync to it
+          if (currentTrack.status === 'playing' && currentTrack.startAtServerMs) {
+            console.log("[Visibility] Resyncing to playing track:", currentTrack.title || currentTrack.filename);
+            
+            // Compute expected position
+            const serverNow = nowServerMs();
+            const elapsedSec = (serverNow - currentTrack.startAtServerMs) / 1000;
+            const expectedSec = Math.max(0, (currentTrack.startPositionSec || 0) + elapsedSec);
+            
+            // If we have audio element, sync it
+            if (state.guestAudioElement && state.guestAudioElement.src) {
+              if (!state.guestAudioElement.paused) {
+                // Already playing, just seek to correct position
+                console.log(`[Visibility] Seeking to ${expectedSec.toFixed(2)}s`);
+                clampAndSeekAudio(state.guestAudioElement, expectedSec);
+              } else {
+                // Not playing, start it
+                clampAndSeekAudio(state.guestAudioElement, expectedSec);
+                state.guestAudioElement.play().catch(err => {
+                  console.warn("[Visibility] Autoplay blocked:", err);
+                  state.pendingExpectedSec = expectedSec;
+                  state.guestNeedsTap = true;
+                  showAutoplayNotice();
+                });
+              }
+              
+              // Restart drift correction
+              startDriftCorrection(currentTrack.startAtServerMs, currentTrack.startPositionSec || 0);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[Visibility] Error fetching party state:", error);
+      }
+    }
+  } else {
+    console.log("[Visibility] Tab hidden");
+  }
+});
