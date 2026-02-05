@@ -77,6 +77,7 @@ const state = {
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   userTier: USER_TIER.FREE, // User's subscription tier
+  tierInfo: null, // Tier info from API (single source of truth)
   // Guest-specific state
   nowPlayingFilename: null,
   upNextFilename: null,
@@ -4801,7 +4802,87 @@ function attemptAddPhone() {
   toast("Open this link on another phone and tap Join");
 }
 
+/**
+ * Fetch tier info from server (single source of truth)
+ */
+async function fetchTierInfo() {
+  try {
+    const response = await fetch('/api/tier-info');
+    if (!response.ok) {
+      console.error('[TierInfo] Failed to fetch tier info:', response.status);
+      return;
+    }
+    const data = await response.json();
+    state.tierInfo = data;
+    console.log('[TierInfo] Loaded tier info:', data.appName);
+    updateTierCardsFromAPI();
+  } catch (err) {
+    console.error('[TierInfo] Error fetching tier info:', err.message);
+  }
+}
+
+/**
+ * Update tier cards in the UI from API data
+ */
+function updateTierCardsFromAPI() {
+  if (!state.tierInfo) return;
+  
+  const { tiers } = state.tierInfo;
+  
+  // Update FREE tier card
+  const freeTierCard = el('tierFree');
+  if (freeTierCard && tiers.FREE) {
+    const featuresList = freeTierCard.querySelector('.tier-features');
+    if (featuresList) {
+      featuresList.innerHTML = tiers.FREE.notes.map(note => `<li>${note}</li>`).join('');
+    }
+    const subtitle = freeTierCard.querySelector('.tier-subtitle');
+    if (subtitle) {
+      subtitle.textContent = `${tiers.FREE.phoneLimit} PHONES`;
+    }
+  }
+  
+  // Update PARTY_PASS tier card
+  const partyPassCard = el('tierPartyPass');
+  if (partyPassCard && tiers.PARTY_PASS) {
+    const featuresList = partyPassCard.querySelector('.tier-features');
+    if (featuresList) {
+      featuresList.innerHTML = tiers.PARTY_PASS.notes.map(note => `<li>${note}</li>`).join('');
+    }
+    const price = partyPassCard.querySelector('.tier-price');
+    if (price) {
+      price.textContent = tiers.PARTY_PASS.price;
+    }
+    const subtitle = partyPassCard.querySelector('.tier-subtitle');
+    if (subtitle) {
+      subtitle.textContent = `UP TO ${tiers.PARTY_PASS.phoneLimit} PHONES`;
+    }
+  }
+  
+  // Update PRO_MONTHLY tier card
+  const proCard = el('tierPro');
+  if (proCard && tiers.PRO_MONTHLY) {
+    const featuresList = proCard.querySelector('.tier-features');
+    if (featuresList) {
+      featuresList.innerHTML = tiers.PRO_MONTHLY.notes.map(note => `<li>${note}</li>`).join('');
+    }
+    const price = proCard.querySelector('.tier-price');
+    if (price) {
+      price.textContent = tiers.PRO_MONTHLY.price;
+    }
+    const subtitle = proCard.querySelector('.tier-subtitle');
+    if (subtitle) {
+      subtitle.textContent = `UP TO ${tiers.PRO_MONTHLY.phoneLimit} PHONES`;
+    }
+  }
+  
+  console.log('[TierInfo] Updated tier cards from API');
+}
+
 (async function init(){
+  // Fetch tier info from server (single source of truth)
+  await fetchTierInfo();
+  
   // TODO: Enable real-time sync later in native app
   // For browser prototype, we skip WebSocket connection for Start Party to work instantly
   // await connectWS();
