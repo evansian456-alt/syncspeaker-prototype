@@ -2746,28 +2746,32 @@ function cleanupGuestAudio() {
 function updateHostQueueUI() {
   console.log("[Host] Updating queue UI:", musicState.queue);
   
-  const queueEl = el("hostQueueList");
-  if (!queueEl) {
-    console.warn("[Host] Queue element not found");
-    return;
-  }
+  // Update both queue lists (main party view and DJ overlay)
+  const queueElements = ['hostQueueList', 'djHostQueueList'];
   
-  if (!musicState.queue || musicState.queue.length === 0) {
-    queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
-    return;
-  }
-  
-  queueEl.innerHTML = musicState.queue.map((track, index) => `
-    <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
-      <span class="queue-number">${index + 1}.</span>
-      <span class="queue-title">${track.title || 'Unknown Track'}</span>
-      <div class="queue-controls">
-        ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
-        ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
-        <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+  queueElements.forEach(elementId => {
+    const queueEl = el(elementId);
+    if (!queueEl) {
+      return; // Element not present in current view
+    }
+    
+    if (!musicState.queue || musicState.queue.length === 0) {
+      queueEl.innerHTML = '<div class="queue-empty">No tracks in queue</div>';
+      return;
+    }
+    
+    queueEl.innerHTML = musicState.queue.map((track, index) => `
+      <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
+        <span class="queue-number">${index + 1}.</span>
+        <span class="queue-title">${track.title || 'Unknown Track'}</span>
+        <div class="queue-controls">
+          ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
+          ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
+          <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  });
 }
 
 function updateGuestQueue(queue) {
@@ -4778,7 +4782,7 @@ async function uploadQueuedTrackToServer(file) {
     });
     
     // Handle completion
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener('load', async () => {
       if (xhr.status === 200) {
         try {
           const response = JSON.parse(xhr.responseText);
@@ -4795,6 +4799,20 @@ async function uploadQueuedTrackToServer(file) {
           };
           
           console.log(`[Upload Queue] Queued track ready for streaming`);
+          
+          // PHASE 7: Add track to queue via API endpoint
+          if (state.isHost && state.hostId && state.code) {
+            console.log(`[Upload Queue] Adding track to queue via API`);
+            await queueTrackToServer({
+              trackId: response.trackId,
+              trackUrl: response.trackUrl,
+              title: response.title || response.filename,
+              filename: response.filename,
+              durationMs: response.durationMs,
+              contentType: response.contentType,
+              sizeBytes: response.sizeBytes
+            });
+          }
         } catch (e) {
           console.error(`[Upload Queue] Error parsing response:`, e);
           // Set error state
@@ -5582,6 +5600,31 @@ function attemptAddPhone() {
       
       // Hide status
       if (partyStatusEl) partyStatusEl.classList.add("hidden");
+      
+      // PHASE 7: Fetch initial party state to get queue/currentTrack
+      try {
+        const stateResponse = await fetch(`/api/party-state?code=${partyCode}`);
+        if (stateResponse.ok) {
+          const partyState = await stateResponse.json();
+          if (partyState.exists) {
+            // Initialize queue and currentTrack from server
+            musicState.queue = partyState.queue || [];
+            musicState.currentTrack = partyState.currentTrack || null;
+            console.log("[Party] Initialized queue from server:", musicState.queue.length, "tracks");
+            
+            // Update host queue UI (defensive check ensures function is available)
+            // Note: This runs in async callback, so we verify function exists before calling
+            if (state.isHost && typeof updateHostQueueUI === 'function') {
+              updateHostQueueUI();
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("[Party] Could not fetch initial party state:", error);
+        // Non-fatal - continue with empty queue
+        musicState.queue = [];
+        musicState.currentTrack = null;
+      }
       
     } catch (error) {
       console.error("[Party] Error creating party:", error);

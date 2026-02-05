@@ -1800,20 +1800,23 @@ async function savePartyState(code, partyData) {
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
 async function createPartyCommon({ djName, source, hostId, hostConnected }) {
-  // Runtime guard: Check if Redis is available
-  if (!redis || !redisReady) {
-    throw new Error("Redis not ready");
-  }
+  // Check if we should use Redis or fallback
+  const useRedis = redis && redisReady;
   
   // Generate unique party code
   let code;
   let attempts = 0;
   do {
     code = generateCode();
-    // Check both local and Redis for uniqueness
+    // Check both local and storage for uniqueness
     const existsLocally = parties.has(code);
-    const existsInRedis = await getPartyFromRedis(code);
-    if (!existsLocally && !existsInRedis) break;
+    let existsInStorage;
+    if (useRedis) {
+      existsInStorage = await getPartyFromRedis(code);
+    } else {
+      existsInStorage = getPartyFromFallback(code);
+    }
+    if (!existsLocally && !existsInStorage) break;
     attempts++;
   } while (attempts < 10);
   
@@ -1847,8 +1850,12 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     queue: []
   };
   
-  // Write to Redis first (CRITICAL for multi-instance consistency)
-  await setPartyInRedis(code, partyData);
+  // Write to storage (Redis or fallback)
+  if (useRedis) {
+    await setPartyInRedis(code, partyData);
+  } else {
+    setPartyInFallback(code, partyData);
+  }
   
   return { code, partyData };
 }
