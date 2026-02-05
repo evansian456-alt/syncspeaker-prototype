@@ -2104,7 +2104,7 @@ app.post("/api/create-party", async (req, res) => {
       hostConnected: false
     });
     
-    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}, storageBackend: ${storageBackend}`);
+    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -3863,7 +3863,7 @@ async function startServer() {
         console.error("║  DIAGNOSTICS:                                                 ║");
         console.error(`║  • Check /api/debug/redis for details                         ║`);
         console.error(`║  • Check /api/health for readiness status                     ║`);
-        console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError) : 'none'}                                      ║`);
+        console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError).padEnd(30) : 'none'.padEnd(30)}           ║`);
         console.error("║                                                               ║");
         console.error("║  RAILWAY STEPS:                                               ║");
         console.error("║  1. Verify Redis plugin is active                            ║");
