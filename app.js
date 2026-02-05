@@ -141,6 +141,7 @@ const state = {
 let serverOffsetMs = 0; // Estimated offset: server time = local time + offset
 let timePingCounter = 0; // Counter for generating unique ping IDs
 let timePingInterval = null; // Interval for periodic TIME_PING
+let isFirstSync = false; // Track if initial sync has occurred
 
 // Helper function to compute current server time using offset
 function nowServerMs() {
@@ -480,6 +481,7 @@ function connectWS() {
       updateHeaderConnectionStatus("disconnected");
       toast("Disconnected");
       stopTimePing(); // Stop periodic time sync
+      isFirstSync = false; // Reset sync flag for next connection
       state.ws = null;
       state.clientId = null;
       showLanding();
@@ -668,8 +670,9 @@ function handleServer(msg) {
     
     // Apply EWMA smoothing: offset = 0.8 * oldOffset + 0.2 * newOffset
     // On first sample, just use newOffset directly
-    if (serverOffsetMs === 0 && timePingCounter === 1) {
+    if (!isFirstSync) {
       serverOffsetMs = newOffset;
+      isFirstSync = true;
       console.log(`[TIME_PONG] Initial offset: ${serverOffsetMs.toFixed(2)}ms (RTT: ${rttMs}ms)`);
     } else {
       serverOffsetMs = 0.8 * serverOffsetMs + 0.2 * newOffset;
@@ -2566,8 +2569,8 @@ function startDriftCorrection(startAtServerMs, startPositionSec) {
       console.log("[Drift Correction] Soft correction - adjusting by", signedDrift.toFixed(3), "s");
       clampAndSeekAudio(state.guestAudioElement, idealSec);
       state.driftCheckFailures = 0;
-      // Hide resync button if drift improved below 0.80s
-      if (state.showResyncButton && absDrift < 0.80) {
+      // Hide resync button if drift improved below soft correction threshold
+      if (state.showResyncButton && absDrift < DRIFT_SOFT_CORRECTION_THRESHOLD_SEC) {
         state.showResyncButton = false;
         updateResyncButtonVisibility();
         console.log("[Drift Correction] Re-sync button hidden - drift improved");
