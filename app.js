@@ -1248,9 +1248,7 @@ function handleServer(msg) {
         if (playPromise !== undefined) {
           playPromise.then(() => {
             console.log("[PLAY_AT] Playback started successfully");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
-            hideAutoplayNotice();
+            unlockAudioPlayback();
             
             // Start drift correction
             startDriftCorrection(msg.startAtServerMs, msg.startPositionSec || 0);
@@ -1354,9 +1352,7 @@ function handleServer(msg) {
           state.guestAudioElement.play()
             .then(() => {
               console.log("[SYNC_STATE] Playing from position:", targetSec.toFixed(2), "s");
-              state.audioUnlocked = true;
-              state.guestNeedsTap = false;
-              hideAutoplayNotice();
+              unlockAudioPlayback();
               
               // Start drift correction
               startDriftCorrection(msg.startAtServerMs, msg.startPositionSec || 0);
@@ -2500,6 +2496,15 @@ function hideAutoplayNotice() {
     noticeEl.style.display = "none";
     console.log("[Autoplay] Notice hidden");
   }
+}
+
+/**
+ * Helper to unlock audio playback and clean up autoplay state
+ */
+function unlockAudioPlayback() {
+  state.audioUnlocked = true;
+  state.guestNeedsTap = false;
+  hideAutoplayNotice();
 }
 
 function updateGuestVisualMode(mode) {
@@ -6240,10 +6245,7 @@ function attemptAddPhone() {
         state.guestAudioElement.play()
           .then(() => {
             console.log("[Guest] Audio unlocked and playing");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
-            state.pendingExpectedSec = null;
-            hideAutoplayNotice();
+            unlockAudioPlayback();
             
             // Start drift correction if we have pending start info
             if (state.pendingStartAtServerMs !== null) {
@@ -6274,9 +6276,7 @@ function attemptAddPhone() {
         state.guestAudioElement.play()
           .then(() => {
             console.log("[Guest] Audio unlocked and playing from sync");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
-            hideAutoplayNotice();
+            unlockAudioPlayback();
             
             // Start drift correction
             startDriftCorrection(state.pendingStartAtServerMs, state.pendingStartPositionSec || 0);
@@ -6295,9 +6295,7 @@ function attemptAddPhone() {
         state.guestAudioElement.play()
           .then(() => {
             console.log("[Guest] Audio playback started");
-            state.audioUnlocked = true;
-            state.guestNeedsTap = false;
-            hideAutoplayNotice();
+            unlockAudioPlayback();
             addDebugLog("Guest started playback");
             toast("▶️ Playing music");
             updateDebugState();
