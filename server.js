@@ -869,28 +869,66 @@ app.get("/api/tier-info", (req, res) => {
       FREE: {
         label: "Free",
         chatEnabled: false,
+        autoMessages: false,
         guestQuickReplies: false,
         hostQuickMessages: false,
         systemAutoMessages: false,
         messageTtlMs: 0,
-        maxTextLength: 0
+        maxTextLength: 0,
+        queueLimit: 5,
+        phoneLimit: 2,
+        notes: [
+          "2 phones maximum",
+          "No chat or messaging features",
+          "Basic DJ controls only",
+          "Unlimited party time"
+        ]
       },
       PARTY_PASS: {
-        label: "Party Pass (£2.99)",
+        label: "Party Pass",
+        price: "£2.99",
         chatEnabled: true,
+        autoMessages: true,
+        quickMessages: true,
         guestQuickReplies: true,
         hostQuickMessages: true,
         systemAutoMessages: true,
         messageTtlMs: 12000,
         maxTextLength: 60,
         maxEmojiLength: 10,
+        queueLimit: 5,
+        phoneLimit: 4,
         hostRateLimit: { minIntervalMs: 2000, maxPerMinute: 10 },
-        guestRateLimit: { minIntervalMs: 2000, maxPerMinute: 15 }
+        guestRateLimit: { minIntervalMs: 2000, maxPerMinute: 15 },
+        notes: [
+          "Up to 4 phones",
+          "2 hours duration",
+          "Full messaging suite enabled",
+          "Guest chat + emoji reactions",
+          "DJ quick messages + emojis",
+          "Auto party prompts",
+          "Messages auto-disappear (12s)"
+        ]
       },
-      PRO: {
+      PRO_MONTHLY: {
         label: "Pro Monthly",
-        // Reflects only what /api/me + entitlements currently supports
-        tierAvailable: true
+        price: "£9.99/mo",
+        chatEnabled: true,
+        autoMessages: true,
+        quickMessages: true,
+        cosmetics: true,
+        profilePerks: true,
+        phoneLimit: 10,
+        queueLimit: 5,
+        tierAvailable: true,
+        notes: [
+          "Up to 10 phones",
+          "Unlimited party time",
+          "Visual packs + DJ titles",
+          "Profile upgrades",
+          "All messaging features",
+          "Priority support"
+        ]
       }
     }
   });
@@ -3769,7 +3807,7 @@ async function handleMessage(ws, msg) {
       handleChatModeSet(ws, msg);
       break;
     case "HOST_BROADCAST_MESSAGE":
-      handleHostBroadcastMessage(ws, msg);
+      await handleHostBroadcastMessage(ws, msg);
       break;
     case "DJ_EMOJI":
       await handleDjEmoji(ws, msg);
@@ -5025,7 +5063,7 @@ function handleChatModeSet(ws, msg) {
   });
 }
 
-function handleHostBroadcastMessage(ws, msg) {
+async function handleHostBroadcastMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client || !client.party) return;
   
@@ -5035,6 +5073,22 @@ function handleHostBroadcastMessage(ws, msg) {
   // Only host can broadcast messages
   if (party.host !== ws) {
     safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only host can broadcast messages" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData = null;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleHostBroadcastMessage] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Party Pass required for host broadcast messages" }));
     return;
   }
   
