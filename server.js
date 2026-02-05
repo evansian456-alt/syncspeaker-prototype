@@ -4387,9 +4387,10 @@ function broadcastScoreboard(code) {
   publishToOtherInstances(code, "SCOREBOARD", { t: "SCOREBOARD_UPDATE", scoreboard: scoreboardData });
 }
 
-// Helper function to generate stable message ID
+// Helper function to generate stable message ID (shared hash logic with client)
 function generateStableMessageId(ts, senderId, text) {
   // Create a simple hash of the text for deduplication
+  // Note: Hash may overflow (intentional) for this simple deduplication use case
   const textHash = text.split('').reduce((hash, char) => {
     return ((hash << 5) - hash) + char.charCodeAt(0);
   }, 0).toString(36);

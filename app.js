@@ -893,9 +893,10 @@ function handleServer(msg) {
       handleGuestMessageReceived(msg.message, msg.guestName, msg.guestId, msg.isEmoji);
     }
     // Convert legacy GUEST_MESSAGE to FEED_EVENT format for unified feed
+    const ts = Date.now();
     const feedEvent = {
-      id: `${Date.now()}-${msg.guestId}-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
-      ts: Date.now(),
+      id: generateStableMessageId(ts, msg.guestId || 'unknown', msg.message),
+      ts: ts,
       kind: "guest_message",
       senderId: msg.guestId,
       senderName: msg.guestName,
@@ -948,9 +949,10 @@ function handleServer(msg) {
   if (msg.t === "DJ_MESSAGE") {
     displayDjMessage(msg.message, msg.type);
     // Convert to FEED_EVENT format for unified feed
+    const ts = msg.timestamp || Date.now();
     const feedEvent = {
-      id: `${msg.timestamp}-system-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
-      ts: msg.timestamp,
+      id: generateStableMessageId(ts, 'system', msg.message),
+      ts: ts,
       kind: "system",
       senderId: "system",
       senderName: "DJ",
@@ -967,9 +969,10 @@ function handleServer(msg) {
     // Both host and guests receive this message
     displayHostBroadcastMessage(msg.message);
     // Convert to FEED_EVENT format for unified feed
+    const ts = Date.now();
     const feedEvent = {
-      id: `${Date.now()}-dj-${msg.message}`.replace(/[^a-z0-9-]/gi, ''),
-      ts: Date.now(),
+      id: generateStableMessageId(ts, 'dj', msg.message),
+      ts: ts,
       kind: "host_broadcast",
       senderId: "dj",
       senderName: "DJ",
@@ -2954,6 +2957,19 @@ function renderGuestUnifiedFeed() {
  * Messages appear inline in the feed, oldest first, and auto-disappear after TTL
  */
 /**
+ * Generate stable message ID (matches server-side logic)
+ * Used for deduplication when converting legacy messages to FEED_EVENT format
+ */
+function generateStableMessageId(ts, senderId, text) {
+  // Create a simple hash of the text for deduplication
+  // Note: Hash may overflow (intentional) for this simple deduplication use case
+  const textHash = text.split('').reduce((hash, char) => {
+    return ((hash << 5) - hash) + char.charCodeAt(0);
+  }, 0).toString(36);
+  return `${ts}-${senderId}-${textHash}`;
+}
+
+/**
  * Add a feed event to the unified feed with deduplication
  * This is the main entry point for all feed events (FEED_EVENT and converted legacy messages)
  */
@@ -2977,8 +2993,8 @@ function addFeedEvent(event) {
   // Add to feedItems array (oldest first - push to end)
   state.feedItems.push(event);
   
-  // Enforce cap of 50 items - use while loop to handle multiple excess items
-  while (state.feedItems.length > state.maxMessagingFeedItems) {
+  // Enforce cap of 50 items - remove oldest if exceeded
+  if (state.feedItems.length > state.maxMessagingFeedItems) {
     // Remove oldest items (from beginning)
     const removed = state.feedItems.shift();
     // Cancel timeout for removed item if exists
