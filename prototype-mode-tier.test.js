@@ -118,7 +118,7 @@ describe("Prototype Mode Tier Preservation", () => {
   });
   
   describe("Party State Verification", () => {
-    it("should return party state with tier for PARTY_PASS in prototype mode", async () => {
+    it("should return party state with correct tier and limits for PARTY_PASS", async () => {
       // Create party first
       const createResponse = await request(app)
         .post("/api/create-party")
@@ -146,7 +146,7 @@ describe("Prototype Mode Tier Preservation", () => {
       expect(stateResponse.body.tierInfo.maxPhones).toBe(4); // Party Pass allows 4 phones
     });
     
-    it("should return party state with tier for PRO_MONTHLY in prototype mode", async () => {
+    it("should return party state with correct tier and limits for PRO_MONTHLY", async () => {
       // Create party first
       const createResponse = await request(app)
         .post("/api/create-party")
@@ -174,7 +174,7 @@ describe("Prototype Mode Tier Preservation", () => {
       expect(stateResponse.body.tierInfo.maxPhones).toBe(10); // Pro Monthly allows 10 phones
     });
     
-    it("should return party state with tier for FREE in prototype mode", async () => {
+    it("should return party state with correct tier and limits for FREE", async () => {
       // Create party first
       const createResponse = await request(app)
         .post("/api/create-party")

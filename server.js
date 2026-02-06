@@ -2034,7 +2034,8 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
       partyPassExpiresAt = createdAt + (2 * 60 * 60 * 1000);
       maxPhones = 4;
     } else if (tier === 'PRO' || tier === 'PRO_MONTHLY') {
-      // Pro Monthly: unlimited duration, 10 phones
+      // Pro Monthly: simulated long duration for testing (30 days), 10 phones
+      // Note: Both 'PRO' (client constant) and 'PRO_MONTHLY' (server label) are accepted
       partyPassExpiresAt = createdAt + (30 * 24 * 60 * 60 * 1000); // 30 days
       maxPhones = 10;
     }
