@@ -2586,6 +2586,12 @@ app.get("/api/party-state", async (req, res) => {
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
       serverTime: now,
+      // Tier information (for prototype mode)
+      party: {
+        tier: partyData.tier || null,
+        partyPassExpiresAt: partyData.partyPassExpiresAt || null,
+        maxPhones: partyData.maxPhones || null
+      },
       // Playback state
       currentTrack: currentTrack ? {
         trackId: currentTrack.trackId,
