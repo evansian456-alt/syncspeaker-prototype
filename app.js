@@ -737,6 +737,14 @@ function handleServer(msg) {
       state.chatMode = msg.snapshot.chatMode;
       updateChatModeUI();
     }
+    // Update tier from server snapshot (for prototype mode tier preservation)
+    if (msg.snapshot?.tier) {
+      const oldTier = state.userTier;
+      state.userTier = msg.snapshot.tier;
+      if (oldTier !== state.userTier) {
+        console.log(`[ROOM] Tier updated from server: ${oldTier} → ${state.userTier}`);
+      }
+    }
     // Party-wide Pro is now server-authoritative
     const wasPartyPro = state.partyPro;
     state.partyPro = !!msg.snapshot.partyPro;
@@ -5570,7 +5578,9 @@ function attemptAddPhone() {
   // Helper function to proceed with prototype mode
   function proceedWithPrototypeMode() {
     state.prototypeMode = true;
-    state.userTier = USER_TIER.FREE; // Always use FREE tier in prototype mode
+    // CRITICAL: Preserve selected tier instead of forcing FREE
+    state.userTier = state.selectedTier || USER_TIER.FREE;
+    console.log(`[Prototype Mode] Activated with tier: ${state.userTier}`);
     
     // Generate cryptographically secure temporary user ID
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -5581,7 +5591,7 @@ function attemptAddPhone() {
     }
     localStorage.setItem('syncSpeakerPrototypeId', state.temporaryUserId);
     
-    toast("Prototype mode activated - No account required");
+    toast(`Prototype mode activated (${state.userTier}) - No account required`);
     showHome();
   }
 
@@ -5743,21 +5753,29 @@ function attemptAddPhone() {
       // Get user configuration
       state.source = "local"; // Always use local source for music from phone
       state.isPro = el("togglePro").checked;
-      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro });
+      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro, tier: state.userTier, prototypeMode: state.prototypeMode });
       
       // Call server API to create party
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      
+      const requestBody = {
+        djName: djName,
+        source: state.source || "local"
+      };
+      
+      // Include tier and prototype mode flag for testing
+      if (state.prototypeMode && state.userTier) {
+        requestBody.prototypeMode = true;
+        requestBody.tier = state.userTier;
+      }
       
       const response = await fetch("/api/create-party", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          djName: djName,
-          source: state.source || "local"
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
       
