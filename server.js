@@ -4410,13 +4410,22 @@ async function handleJoin(ws, msg) {
     // Validate and sanitize name
     const name = (msg.name || "Guest").trim().substring(0, 50);
     
+    // Check if this is the host joining their own party
+    const isHostJoining = (msg.isHost === true) || (party.host === null && party.members.length === 0);
+    
     const member = {
       ws,
       id: client.id,
       name,
       isPro: !!msg.isPro,
-      isHost: false
+      isHost: isHostJoining
     };
+    
+    // If this is the host, set party.host
+    if (isHostJoining) {
+      party.host = ws;
+      console.log(`[WS] Host joined party ${code}, clientId: ${client.id}`);
+    }
     
     party.members.push(member);
     client.party = code;
