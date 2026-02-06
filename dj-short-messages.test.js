@@ -83,7 +83,7 @@ describe('DJ Short Messages', () => {
     });
 
     it('should handle messages exactly 30 characters', () => {
-      const exactMessage = "Exactly thirty characters here";
+      const exactMessage = "This is exactly 30 chars here!";
       expect(exactMessage.length).toBe(30);
       const trimmed = exactMessage.trim().substring(0, 30);
       expect(trimmed).toBe(exactMessage);
