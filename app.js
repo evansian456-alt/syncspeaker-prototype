@@ -5439,9 +5439,13 @@ function attemptAddPhone() {
 }
 
 (async function init(){
-  // TODO: Enable real-time sync later in native app
-  // For browser prototype, we skip WebSocket connection for Start Party to work instantly
-  // await connectWS();
+  // Connect WebSocket for real-time party sync, DJ authority, and guest updates
+  try {
+    await connectWS();
+  } catch (error) {
+    console.warn("[Init] WebSocket connection failed on startup:", error);
+    // Continue with app initialization - WebSocket can reconnect later
+  }
   showLanding();
   
   // Initialize music player
@@ -5805,6 +5809,20 @@ function attemptAddPhone() {
       
       // Hide status
       if (partyStatusEl) partyStatusEl.classList.add("hidden");
+      
+      // Register host via WebSocket for real-time updates
+      try {
+        send({ 
+          t: "JOIN", 
+          code: partyCode, 
+          name: state.name, 
+          isPro: state.isPro,
+          isHost: true 
+        });
+        console.log("[Party] Host registered via WebSocket");
+      } catch (wsError) {
+        console.warn("[Party] WebSocket not available for host registration:", wsError);
+      }
       
       // PHASE 7: Fetch initial party state to get queue/currentTrack
       try {
