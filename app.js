@@ -1259,12 +1259,8 @@ function handleServer(msg) {
             state.pendingExpectedSec = targetSec;
             state.guestNeedsTap = true;
             
-            // Store sync info in audio element dataset for playGuestAudio()
-            audioEl.dataset.startAtServerMs = msg.startAtServerMs.toString();
-            audioEl.dataset.startPositionSec = (msg.startPositionSec || 0).toString();
-            
-            // Show prominent "Tap to Sync" overlay instead of minimal notice
-            showGuestTapToPlay(msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
+            // Show "Tap to Sync" overlay with sync info
+            handleAutoplayBlocked(audioEl, msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
           });
         }
       };
@@ -1366,12 +1362,8 @@ function handleServer(msg) {
               state.pendingExpectedSec = targetSec;
               state.guestNeedsTap = true;
               
-              // Store sync info in audio element dataset for playGuestAudio()
-              state.guestAudioElement.dataset.startAtServerMs = msg.startAtServerMs.toString();
-              state.guestAudioElement.dataset.startPositionSec = (msg.startPositionSec || 0).toString();
-              
-              // Show prominent "Tap to Sync" overlay for late joiners
-              showGuestTapToPlay(msg.track.title || msg.track.filename, msg.startAtServerMs, msg.startPositionSec || 0);
+              // Show "Tap to Sync" overlay with sync info
+              handleAutoplayBlocked(state.guestAudioElement, msg.track.title || msg.track.filename, msg.startAtServerMs, msg.startPositionSec || 0);
             });
         };
         
@@ -2284,12 +2276,8 @@ async function checkForMidTrackJoin(code) {
                 state.pendingExpectedSec = targetSec;
                 state.guestNeedsTap = true;
                 
-                // Store sync info in audio element dataset for playGuestAudio()
-                state.guestAudioElement.dataset.startAtServerMs = currentTrack.startAtServerMs.toString();
-                state.guestAudioElement.dataset.startPositionSec = (currentTrack.startPositionSec || currentTrack.startPosition || 0).toString();
-                
-                // Show prominent "Tap to Sync" overlay for mid-track joiners
-                showGuestTapToPlay(currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || currentTrack.startPosition || 0);
+                // Show "Tap to Sync" overlay with sync info
+                handleAutoplayBlocked(state.guestAudioElement, currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || currentTrack.startPosition || 0);
                 
                 state.playing = true;
                 updateGuestPlaybackState("PLAYING");
@@ -2663,6 +2651,16 @@ function updateGuestSyncDebug(startAtServerMs, startPositionSec) {
   if (targetEl) targetEl.textContent = `Target: ${targetSec.toFixed(2)}s`;
   if (elapsedEl) elapsedEl.textContent = `Elapsed: ${elapsedSec.toFixed(2)}s`;
   if (startEl) startEl.textContent = `Start Pos: ${startPositionSec.toFixed(2)}s`;
+}
+
+// Helper: Store sync data and show "Tap to Sync" overlay when autoplay is blocked
+function handleAutoplayBlocked(audioElement, trackTitle, startAtServerMs, startPositionSec) {
+  // Store sync info in audio element dataset for playGuestAudio()
+  audioElement.dataset.startAtServerMs = startAtServerMs.toString();
+  audioElement.dataset.startPositionSec = startPositionSec.toString();
+  
+  // Show prominent "Tap to Sync" overlay
+  showGuestTapToPlay(trackTitle, startAtServerMs, startPositionSec);
 }
 
 // Play guest audio with metadata-safe seek and autoplay unlock handling
@@ -9431,12 +9429,8 @@ document.addEventListener('visibilitychange', async () => {
                   state.pendingExpectedSec = expectedSec;
                   state.guestNeedsTap = true;
                   
-                  // Store sync info in audio element dataset for playGuestAudio()
-                  state.guestAudioElement.dataset.startAtServerMs = currentTrack.startAtServerMs.toString();
-                  state.guestAudioElement.dataset.startPositionSec = (currentTrack.startPositionSec || 0).toString();
-                  
-                  // Show prominent "Tap to Sync" overlay when resuming from background
-                  showGuestTapToPlay(currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || 0);
+                  // Show "Tap to Sync" overlay with sync info
+                  handleAutoplayBlocked(state.guestAudioElement, currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || 0);
                 });
               }
               
