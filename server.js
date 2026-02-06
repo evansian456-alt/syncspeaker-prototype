@@ -4077,6 +4077,9 @@ async function handleMessage(ws, msg) {
     case "DJ_EMOJI":
       await handleDjEmoji(ws, msg);
       break;
+    case "DJ_SHORT_MESSAGE":
+      await handleDjShortMessage(ws, msg);
+      break;
     case "TIME_PING":
       handleTimePing(ws, msg);
       break;
@@ -5672,6 +5675,73 @@ async function handleDjEmoji(ws, msg) {
     // Send to all members including host
     if (m.ws.readyState === WebSocket.OPEN) {
       m.ws.send(legacyMsg);
+    }
+  });
+}
+
+/**
+ * Handle DJ short message (Party Pass / Pro Monthly feature)
+ * DJ can send short text messages (max 30 chars) to all guests via the unified feed
+ */
+async function handleDjShortMessage(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+  
+  const party = parties.get(client.party);
+  if (!party) return;
+  
+  // Only host can send DJ short messages
+  if (party.host !== ws) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Only DJ can send short messages" }));
+    return;
+  }
+  
+  // Get party data to check Party Pass status
+  let partyData;
+  try {
+    partyData = await getPartyFromRedis(client.party);
+  } catch (err) {
+    console.error(`[handleDjShortMessage] Error getting party data:`, err.message);
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Server error" }));
+    return;
+  }
+  
+  // CHECK PARTY PASS GATING (source of truth)
+  if (!partyData || !isPartyPassActive(partyData)) {
+    safeSend(ws, JSON.stringify({ t: "ERROR", message: "Short messages require an active Party Pass" }));
+    return;
+  }
+  
+  // Validate and sanitize the message
+  const messageText = (msg.text || "").trim().substring(0, 30);
+  
+  if (!messageText) {
+    console.log(`[Party] Empty DJ short message - ignoring`);
+    return;
+  }
+  
+  console.log(`[Party] DJ sending short message "${messageText}" in party ${client.party}`);
+  
+  // Generate stable event ID
+  const ts = Date.now();
+  const eventId = `${ts}-dj-msg-${nanoid(6)}`;
+  
+  // Broadcast using FEED_EVENT format (unified feed)
+  const feedEvent = {
+    id: eventId,
+    ts: ts,
+    kind: "dj_short_message",
+    senderId: "dj",
+    senderName: "DJ",
+    text: messageText,
+    isEmoji: false,
+    ttlMs: MESSAGE_TTL_MS
+  };
+  
+  const feedEventMsg = JSON.stringify({ t: "FEED_EVENT", event: feedEvent });
+  party.members.forEach(m => {
+    if (m.ws.readyState === WebSocket.OPEN) {
+      m.ws.send(feedEventMsg);
     }
   });
 }

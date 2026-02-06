@@ -627,6 +627,35 @@ function sendGuestQuickReply(key) {
 }
 
 /**
+ * Send DJ short message (Party Pass / Pro Monthly feature)
+ */
+function sendDjShortMessage(text) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    console.error("[WS] Cannot send - WebSocket not connected");
+    toast("Not connected to server", "error");
+    return;
+  }
+  
+  if (!state.isHost) {
+    toast("Only the DJ can send short messages", "error");
+    return;
+  }
+  
+  // Trim and validate
+  const trimmedText = (text || "").trim();
+  if (!trimmedText) {
+    console.log("[WS] Empty message - not sending");
+    return;
+  }
+  
+  // Enforce max length (30 chars)
+  const messageText = trimmedText.substring(0, 30);
+  
+  console.log("[WS] Sending DJ short message:", messageText);
+  send({ t: "DJ_SHORT_MESSAGE", text: messageText });
+}
+
+/**
  * Request sync state from server (for late joiners or manual sync)
  */
 function requestSyncState() {
@@ -3266,6 +3295,16 @@ function updateDjScreen() {
       djPresetMessagesSection.classList.add("hidden");
     }
   }
+  
+  // Show/hide DJ short message section based on tier (Party Pass / Pro Monthly)
+  const djShortMessageSection = el("djShortMessageSection");
+  if (djShortMessageSection) {
+    if (state.partyPassActive || state.partyPro) {
+      djShortMessageSection.classList.remove("hidden");
+    } else {
+      djShortMessageSection.classList.add("hidden");
+    }
+  }
 }
 
 function updateBackToDjButton() {
@@ -3554,11 +3593,12 @@ function handleFeedEvent(event) {
   console.log('[handleFeedEvent] Processing event:', event.id, 'kind:', event.kind);
   
   // Convert FEED_EVENT to unified feed format
-  const sender = event.kind === 'dj_emoji' || event.kind === 'host_broadcast' ? 'DJ' : 
+  const sender = event.kind === 'dj_emoji' || event.kind === 'host_broadcast' || event.kind === 'dj_short_message' ? 'DJ' : 
                  event.kind === 'system' ? 'SYSTEM' : 'GUEST';
   
   const type = event.isEmoji ? 'emoji' : 
                event.kind === 'host_broadcast' ? 'broadcast' : 
+               event.kind === 'dj_short_message' ? 'message' :
                event.kind === 'system' ? 'system' : 'message';
   
   // Add to unified feed using existing function, passing the stable event ID
@@ -6734,6 +6774,29 @@ function attemptAddPhone() {
 
       // Clear the file input so the same file can be selected again
       djQueueFileInput.value = '';
+    };
+  }
+
+  // DJ Short Message (Party Pass / Pro Monthly)
+  const btnDjSendShortMessage = el("btnDjSendShortMessage");
+  const djShortMessageInput = el("djShortMessageInput");
+  if (btnDjSendShortMessage && djShortMessageInput) {
+    // Send on button click
+    btnDjSendShortMessage.onclick = () => {
+      const text = djShortMessageInput.value;
+      sendDjShortMessage(text);
+      // Clear input after sending
+      djShortMessageInput.value = '';
+    };
+    
+    // Send on Enter key press
+    djShortMessageInput.onkeypress = (e) => {
+      if (e.key === 'Enter') {
+        const text = djShortMessageInput.value;
+        sendDjShortMessage(text);
+        // Clear input after sending
+        djShortMessageInput.value = '';
+      }
     };
   }
 

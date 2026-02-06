@@ -3117,6 +3117,63 @@ h2,h3{margin:0; font-weight:800}
 }
 
 /* Flash Overlay - Made less intrusive, smaller and centered */
+/* DJ Short Message Section (Party Pass / Pro Monthly) */
+.dj-short-message-section {
+  margin: 20px 0;
+  padding: 0 10px;
+}
+
+.dj-short-message-container {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.dj-short-message-input {
+  flex: 1;
+  padding: 12px 15px;
+  background: rgba(30, 30, 35, 0.6);
+  border: 2px solid rgba(139,124,255,0.3);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.dj-short-message-input:focus {
+  outline: none;
+  border-color: rgba(139,124,255,0.6);
+  background: rgba(30, 30, 35, 0.8);
+}
+
+.dj-short-message-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.btn-dj-short-message {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, rgba(139,124,255,0.25) 0%, rgba(90,169,255,0.25) 100%);
+  border: 2px solid rgba(139,124,255,0.4);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-dj-short-message:hover {
+  background: linear-gradient(135deg, rgba(139,124,255,0.35) 0%, rgba(90,169,255,0.35) 100%);
+  border-color: rgba(139,124,255,0.6);
+  transform: translateY(-2px);
+}
+
+.btn-dj-short-message:active {
+  transform: translateY(0);
+}
+
 .dj-flash-overlay {
   position: fixed;
   top: 50%;
