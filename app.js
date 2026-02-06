@@ -2283,7 +2283,14 @@ async function checkForMidTrackJoin(code) {
                 console.warn("[Mid-Track Join] Autoplay blocked:", err);
                 state.pendingExpectedSec = targetSec;
                 state.guestNeedsTap = true;
-                showAutoplayNotice();
+                
+                // Store sync info in audio element dataset for playGuestAudio()
+                state.guestAudioElement.dataset.startAtServerMs = currentTrack.startAtServerMs.toString();
+                state.guestAudioElement.dataset.startPositionSec = (currentTrack.startPositionSec || currentTrack.startPosition || 0).toString();
+                
+                // Show prominent "Tap to Sync" overlay for mid-track joiners
+                showGuestTapToPlay(currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || currentTrack.startPosition || 0);
+                
                 state.playing = true;
                 updateGuestPlaybackState("PLAYING");
                 updateGuestVisualMode("playing");
@@ -9423,7 +9430,13 @@ document.addEventListener('visibilitychange', async () => {
                   console.warn("[Visibility] Autoplay blocked:", err);
                   state.pendingExpectedSec = expectedSec;
                   state.guestNeedsTap = true;
-                  showAutoplayNotice();
+                  
+                  // Store sync info in audio element dataset for playGuestAudio()
+                  state.guestAudioElement.dataset.startAtServerMs = currentTrack.startAtServerMs.toString();
+                  state.guestAudioElement.dataset.startPositionSec = (currentTrack.startPositionSec || 0).toString();
+                  
+                  // Show prominent "Tap to Sync" overlay when resuming from background
+                  showGuestTapToPlay(currentTrack.title || currentTrack.filename, currentTrack.startAtServerMs, currentTrack.startPositionSec || 0);
                 });
               }
               
