@@ -1783,7 +1783,9 @@ function normalizePartyData(partyData) {
     guests: partyData.guests || [],
     status: partyData.status || "active",
     expiresAt: partyData.expiresAt || (Date.now() + PARTY_TTL_MS),
-    // Optional fields from purchases
+    // Tier field from prototype mode
+    tier: partyData.tier || null,
+    // Optional fields from purchases or prototype mode
     partyPassExpiresAt: partyData.partyPassExpiresAt || null,
     maxPhones: partyData.maxPhones || null,
     // Reaction and playback history for late joiners
@@ -1994,7 +1996,7 @@ async function savePartyState(code, partyData) {
 
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
-async function createPartyCommon({ djName, source, hostId, hostConnected }) {
+async function createPartyCommon({ djName, source, hostId, hostConnected, tier, prototypeMode }) {
   // Check if we should use Redis or fallback
   const useRedis = redis && redisReady;
   
@@ -2021,6 +2023,25 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
   
   const createdAt = Date.now();
   
+  // Calculate tier-specific settings for prototype mode
+  let partyPassExpiresAt = null;
+  let maxPhones = null;
+  
+  if (prototypeMode && tier) {
+    console.log(`[Party] Creating party in prototype mode with tier: ${tier}`);
+    if (tier === 'PARTY_PASS') {
+      // Party Pass: 2 hours duration, 4 phones
+      partyPassExpiresAt = createdAt + (2 * 60 * 60 * 1000);
+      maxPhones = 4;
+    } else if (tier === 'PRO' || tier === 'PRO_MONTHLY') {
+      // Pro Monthly: simulated long duration for testing (30 days), 10 phones
+      // Note: Both 'PRO' (client constant) and 'PRO_MONTHLY' (server label) are accepted
+      partyPassExpiresAt = createdAt + (30 * 24 * 60 * 60 * 1000); // 30 days
+      maxPhones = 10;
+    }
+    // FREE tier: null values (default 2 phones, unlimited time)
+  }
+  
   // Create full party data with all required fields
   const partyData = {
     partyCode: code,
@@ -2036,9 +2057,10 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     guests: [],
     status: "active",
     expiresAt: createdAt + PARTY_TTL_MS,
-    // Optional fields (set by purchases later)
-    partyPassExpiresAt: null,
-    maxPhones: null,
+    // Tier-based fields (set by prototype mode or purchases)
+    tier: tier || null,
+    partyPassExpiresAt,
+    maxPhones,
     // History fields for late joiners
     reactionHistory: [],
     currentTrack: null,
@@ -2060,13 +2082,20 @@ app.post("/api/create-party", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
-  // Extract DJ name and source from request body
-  const { djName, source } = req.body;
+  // Extract DJ name, source, and prototype mode fields from request body
+  const { djName, source, tier, prototypeMode } = req.body;
   
   // Validate DJ name is provided
   if (!djName || !djName.trim()) {
     console.log("[HTTP] Party creation rejected: DJ name is required");
     return res.status(400).json({ error: "DJ name is required to create a party" });
+  }
+  
+  // Validate tier if provided in prototype mode
+  const validTiers = ['FREE', 'PARTY_PASS', 'PRO', 'PRO_MONTHLY'];
+  if (prototypeMode && tier && !validTiers.includes(tier)) {
+    console.log(`[HTTP] Invalid tier in prototype mode: ${tier}`);
+    return res.status(400).json({ error: "Invalid tier specified" });
   }
   
   // Validate and set source (default to "local" if not provided or invalid)
@@ -2101,10 +2130,12 @@ app.post("/api/create-party", async (req, res) => {
       djName: djName,
       source: partySource,
       hostId: hostId,
-      hostConnected: false
+      hostConnected: false,
+      tier: prototypeMode ? tier : null,
+      prototypeMode: prototypeMode || false
     });
     
-    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
+    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}${prototypeMode ? ` (prototype mode, tier: ${tier})` : ''}`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -2116,6 +2147,9 @@ app.post("/api/create-party", async (req, res) => {
       source: partyData.source, // IMPORTANT: Store source in local memory
       partyPro: partyData.partyPro,
       promoUsed: partyData.promoUsed,
+      tier: partyData.tier, // IMPORTANT: Store tier in local memory
+      partyPassExpiresAt: partyData.partyPassExpiresAt, // IMPORTANT: Store expiry for tier enforcement
+      maxPhones: partyData.maxPhones, // IMPORTANT: Store max phones for capacity checks
       djMessages: [],
       currentTrack: null,
       queue: [],
@@ -2553,6 +2587,12 @@ app.get("/api/party-state", async (req, res) => {
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
       serverTime: now,
+      // Tier information (for prototype mode)
+      tierInfo: {
+        tier: partyData.tier || null,
+        partyPassExpiresAt: partyData.partyPassExpiresAt || null,
+        maxPhones: partyData.maxPhones || null
+      },
       // Playback state
       currentTrack: currentTrack ? {
         trackId: currentTrack.trackId,
@@ -4364,6 +4404,9 @@ async function handleJoin(ws, msg) {
         source: normalizedPartyData.source, // IMPORTANT: Load source from Redis
         partyPro: normalizedPartyData.partyPro, // IMPORTANT: Load partyPro from Redis
         promoUsed: normalizedPartyData.promoUsed,
+        tier: normalizedPartyData.tier, // IMPORTANT: Load tier from Redis (for prototype mode)
+        partyPassExpiresAt: normalizedPartyData.partyPassExpiresAt, // IMPORTANT: Load expiry from Redis
+        maxPhones: normalizedPartyData.maxPhones, // IMPORTANT: Load max phones from Redis
         djMessages: [],
         currentTrack: null,
         queue: [],
@@ -4726,6 +4769,8 @@ async function broadcastRoomState(code) {
     chatMode: party.chatMode || "OPEN",
     partyPro: !!party.partyPro, // Party-wide Pro status
     source: party.source || "local", // Host-selected source
+    // Tier from prototype mode
+    tier: partyData?.tier || party?.tier || null,
     // Party Pass info (source of truth)
     partyPassActive: partyData ? isPartyPassActive(partyData) : false,
     partyPassExpiresAt: partyData ? (partyData.partyPassExpiresAt || null) : null,
