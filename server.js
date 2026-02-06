@@ -4411,7 +4411,9 @@ async function handleJoin(ws, msg) {
     const name = (msg.name || "Guest").trim().substring(0, 50);
     
     // Check if this is the host joining their own party
-    const isHostJoining = (msg.isHost === true) || (party.host === null && party.members.length === 0);
+    // Host is identified by msg.isHost flag (sent by client after HTTP party creation)
+    // OR if this is the very first member joining a party with no host set yet
+    const isHostJoining = msg.isHost === true;
     
     const member = {
       ws,

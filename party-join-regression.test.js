@@ -24,7 +24,8 @@ describe('Party Join Regression Fixes', () => {
   // Clear parties before each test
   beforeEach(async () => {
     parties.clear();
-    await redis.flushall();
+    // Clear only the current Redis database (not all databases)
+    await redis.flushdb();
   });
   
   describe('HTTP Party Creation and Join', () => {
