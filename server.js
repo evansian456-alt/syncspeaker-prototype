@@ -2587,7 +2587,7 @@ app.get("/api/party-state", async (req, res) => {
       createdAt: partyData.createdAt,
       serverTime: now,
       // Tier information (for prototype mode)
-      party: {
+      tierInfo: {
         tier: partyData.tier || null,
         partyPassExpiresAt: partyData.partyPassExpiresAt || null,
         maxPhones: partyData.maxPhones || null
@@ -4766,7 +4766,7 @@ async function broadcastRoomState(code) {
     partyPro: !!party.partyPro, // Party-wide Pro status
     source: party.source || "local", // Host-selected source
     // Tier from prototype mode
-    tier: partyData ? (partyData.tier || null) : (party.tier || null),
+    tier: partyData?.tier || party?.tier || null,
     // Party Pass info (source of truth)
     partyPassActive: partyData ? isPartyPassActive(partyData) : false,
     partyPassExpiresAt: partyData ? (partyData.partyPassExpiresAt || null) : null,

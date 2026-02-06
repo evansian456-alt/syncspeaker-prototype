@@ -138,12 +138,12 @@ describe("Prototype Mode Tier Preservation", () => {
         .expect(200);
       
       expect(stateResponse.body.exists).toBe(true);
-      expect(stateResponse.body.party).toHaveProperty("tier");
-      expect(stateResponse.body.party.tier).toBe("PARTY_PASS");
-      expect(stateResponse.body.party).toHaveProperty("partyPassExpiresAt");
-      expect(stateResponse.body.party.partyPassExpiresAt).not.toBeNull();
-      expect(stateResponse.body.party).toHaveProperty("maxPhones");
-      expect(stateResponse.body.party.maxPhones).toBe(4); // Party Pass allows 4 phones
+      expect(stateResponse.body.tierInfo).toHaveProperty("tier");
+      expect(stateResponse.body.tierInfo.tier).toBe("PARTY_PASS");
+      expect(stateResponse.body.tierInfo).toHaveProperty("partyPassExpiresAt");
+      expect(stateResponse.body.tierInfo.partyPassExpiresAt).not.toBeNull();
+      expect(stateResponse.body.tierInfo).toHaveProperty("maxPhones");
+      expect(stateResponse.body.tierInfo.maxPhones).toBe(4); // Party Pass allows 4 phones
     });
     
     it("should return party state with tier for PRO_MONTHLY in prototype mode", async () => {
@@ -166,12 +166,12 @@ describe("Prototype Mode Tier Preservation", () => {
         .expect(200);
       
       expect(stateResponse.body.exists).toBe(true);
-      expect(stateResponse.body.party).toHaveProperty("tier");
-      expect(stateResponse.body.party.tier).toBe("PRO_MONTHLY");
-      expect(stateResponse.body.party).toHaveProperty("partyPassExpiresAt");
-      expect(stateResponse.body.party.partyPassExpiresAt).not.toBeNull();
-      expect(stateResponse.body.party).toHaveProperty("maxPhones");
-      expect(stateResponse.body.party.maxPhones).toBe(10); // Pro Monthly allows 10 phones
+      expect(stateResponse.body.tierInfo).toHaveProperty("tier");
+      expect(stateResponse.body.tierInfo.tier).toBe("PRO_MONTHLY");
+      expect(stateResponse.body.tierInfo).toHaveProperty("partyPassExpiresAt");
+      expect(stateResponse.body.tierInfo.partyPassExpiresAt).not.toBeNull();
+      expect(stateResponse.body.tierInfo).toHaveProperty("maxPhones");
+      expect(stateResponse.body.tierInfo.maxPhones).toBe(10); // Pro Monthly allows 10 phones
     });
     
     it("should return party state with tier for FREE in prototype mode", async () => {
@@ -194,10 +194,10 @@ describe("Prototype Mode Tier Preservation", () => {
         .expect(200);
       
       expect(stateResponse.body.exists).toBe(true);
-      expect(stateResponse.body.party).toHaveProperty("tier");
-      expect(stateResponse.body.party.tier).toBe("FREE");
-      expect(stateResponse.body.party.partyPassExpiresAt).toBeNull();
-      expect(stateResponse.body.party.maxPhones).toBeNull();
+      expect(stateResponse.body.tierInfo).toHaveProperty("tier");
+      expect(stateResponse.body.tierInfo.tier).toBe("FREE");
+      expect(stateResponse.body.tierInfo.partyPassExpiresAt).toBeNull();
+      expect(stateResponse.body.tierInfo.maxPhones).toBeNull();
     });
   });
   
@@ -221,9 +221,9 @@ describe("Prototype Mode Tier Preservation", () => {
         .get(`/api/party-state?code=${partyCode}`)
         .expect(200);
       
-      expect(stateResponse.body.party.tier).toBe("FREE");
+      expect(stateResponse.body.tierInfo.tier).toBe("FREE");
       // Free tier should have null maxPhones (defaults to 2)
-      expect(stateResponse.body.party.maxPhones).toBeNull();
+      expect(stateResponse.body.tierInfo.maxPhones).toBeNull();
     });
     
     it("should enforce 4-phone limit for PARTY_PASS tier", async () => {
@@ -245,8 +245,8 @@ describe("Prototype Mode Tier Preservation", () => {
         .get(`/api/party-state?code=${partyCode}`)
         .expect(200);
       
-      expect(stateResponse.body.party.tier).toBe("PARTY_PASS");
-      expect(stateResponse.body.party.maxPhones).toBe(4);
+      expect(stateResponse.body.tierInfo.tier).toBe("PARTY_PASS");
+      expect(stateResponse.body.tierInfo.maxPhones).toBe(4);
     });
     
     it("should enforce 10-phone limit for PRO_MONTHLY tier", async () => {
@@ -268,8 +268,8 @@ describe("Prototype Mode Tier Preservation", () => {
         .get(`/api/party-state?code=${partyCode}`)
         .expect(200);
       
-      expect(stateResponse.body.party.tier).toBe("PRO_MONTHLY");
-      expect(stateResponse.body.party.maxPhones).toBe(10);
+      expect(stateResponse.body.tierInfo.tier).toBe("PRO_MONTHLY");
+      expect(stateResponse.body.tierInfo.maxPhones).toBe(10);
     });
   });
   
@@ -293,7 +293,7 @@ describe("Prototype Mode Tier Preservation", () => {
       
       expect(stateResponse.body.exists).toBe(true);
       // tier should be null when not in prototype mode
-      expect(stateResponse.body.party.tier).toBeNull();
+      expect(stateResponse.body.tierInfo.tier).toBeNull();
     });
     
     it("should preserve PRO tier separately from PRO_MONTHLY", async () => {
@@ -315,7 +315,7 @@ describe("Prototype Mode Tier Preservation", () => {
         .get(`/api/party-state?code=${partyCode}`)
         .expect(200);
       
-      expect(stateResponse.body.party.tier).toBe("PRO");
+      expect(stateResponse.body.tierInfo.tier).toBe("PRO");
     });
   });
 });
