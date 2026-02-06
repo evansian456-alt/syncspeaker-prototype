@@ -1259,8 +1259,12 @@ function handleServer(msg) {
             state.pendingExpectedSec = targetSec;
             state.guestNeedsTap = true;
             
-            // Show minimal notice
-            showAutoplayNotice();
+            // Store sync info in audio element dataset for playGuestAudio()
+            audioEl.dataset.startAtServerMs = msg.startAtServerMs.toString();
+            audioEl.dataset.startPositionSec = (msg.startPositionSec || 0).toString();
+            
+            // Show prominent "Tap to Sync" overlay instead of minimal notice
+            showGuestTapToPlay(msg.title || msg.filename, msg.startAtServerMs, msg.startPositionSec || 0);
           });
         }
       };
@@ -1361,7 +1365,13 @@ function handleServer(msg) {
               console.warn("[SYNC_STATE] Autoplay blocked:", err);
               state.pendingExpectedSec = targetSec;
               state.guestNeedsTap = true;
-              showAutoplayNotice();
+              
+              // Store sync info in audio element dataset for playGuestAudio()
+              state.guestAudioElement.dataset.startAtServerMs = msg.startAtServerMs.toString();
+              state.guestAudioElement.dataset.startPositionSec = (msg.startPositionSec || 0).toString();
+              
+              // Show prominent "Tap to Sync" overlay for late joiners
+              showGuestTapToPlay(msg.track.title || msg.track.filename, msg.startAtServerMs, msg.startPositionSec || 0);
             });
         };
         
